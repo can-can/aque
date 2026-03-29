@@ -1,0 +1,3 @@
+idle_timeout: 5
+snapshot_interval: 3
+session_prefix: aque-demo

@@ -1,0 +1,11 @@
+idle_timeout: 10
+snapshot_interval: 2
+
+action_keys:
+  dismiss: d
+  done: k
+  skip: s
+  hold: h
+
+queue_order: fifo
+session_prefix: aque
