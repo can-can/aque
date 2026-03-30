@@ -205,7 +205,7 @@ class TestCheckProcessTree:
             assert result == ProcessTree.CHILDREN_ONLY
 
 
-class TestMonitorSkipsOnHold:
+class TestMonitorStates:
     def test_on_hold_not_in_active_states(self):
         from aque.monitor import MONITORED_STATES
         from aque.state import AgentState

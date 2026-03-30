@@ -5,7 +5,7 @@ from aque.config import load_config, DEFAULT_CONFIG
 
 class TestConfig:
     def test_default_config_values(self):
-        assert DEFAULT_CONFIG["idle_timeout"] == 10
+        assert DEFAULT_CONFIG["idle_timeout"] == 15
         assert DEFAULT_CONFIG["snapshot_interval"] == 2
         assert DEFAULT_CONFIG["action_keys"]["dismiss"] == "d"
         assert DEFAULT_CONFIG["action_keys"]["done"] == "k"
