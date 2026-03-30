@@ -1,5 +1,7 @@
+import enum
 import os
 import signal
+import subprocess
 import time
 from pathlib import Path
 
@@ -9,6 +11,44 @@ from aque.config import load_config
 from aque.state import AgentState, StateManager
 
 MONITORED_STATES = {AgentState.RUNNING}
+
+
+class ProcessTree(enum.Enum):
+    NO_CHILDREN = "no_children"
+    CHILDREN_ONLY = "children_only"
+    GRANDCHILDREN = "grandchildren"
+
+
+def check_process_tree(shell_pid: int) -> ProcessTree:
+    """Check the process tree depth under a shell PID.
+
+    Returns NO_CHILDREN if the shell has no children (agent exited),
+    CHILDREN_ONLY if children exist but none have their own children,
+    GRANDCHILDREN if any child has children (agent running subprocesses).
+    """
+    try:
+        result = subprocess.run(
+            ["pgrep", "-P", str(shell_pid)],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return ProcessTree.NO_CHILDREN
+
+        children = [pid.strip() for pid in result.stdout.strip().split("\n") if pid.strip()]
+        if not children:
+            return ProcessTree.NO_CHILDREN
+
+        for child_pid in children:
+            gc_result = subprocess.run(
+                ["pgrep", "-P", child_pid],
+                capture_output=True, text=True, timeout=5,
+            )
+            if gc_result.returncode == 0 and gc_result.stdout.strip():
+                return ProcessTree.GRANDCHILDREN
+
+        return ProcessTree.CHILDREN_ONLY
+    except Exception:
+        return ProcessTree.CHILDREN_ONLY
 
 # Patterns that indicate a CLI tool is waiting for user input
 _IDLE_PROMPT_MARKERS = [

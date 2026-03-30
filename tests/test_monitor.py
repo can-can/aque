@@ -1,5 +1,8 @@
+import subprocess
 import time
-from aque.monitor import IdleDetector, _looks_idle
+from unittest.mock import patch, MagicMock
+
+from aque.monitor import IdleDetector, _looks_idle, check_process_tree, ProcessTree
 
 
 class TestLooksIdle:
@@ -69,6 +72,68 @@ class TestIdleDetector:
         detector.update(2, self._active_lines())
         assert detector.is_idle(1) is True
         assert detector.is_idle(2) is False
+
+
+class TestCheckProcessTree:
+    def test_no_children_returns_no_children(self):
+        """Shell PID has no child processes — agent exited."""
+        with patch("aque.monitor.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            result = check_process_tree(12345)
+            assert result == ProcessTree.NO_CHILDREN
+
+    def test_children_no_grandchildren_returns_children_only(self):
+        """Shell has one child (the agent), agent has no children."""
+        with patch("aque.monitor.subprocess.run") as mock_run:
+            def side_effect(cmd, **kwargs):
+                pid = cmd[-1]
+                if pid == "12345":
+                    # shell has one child: agent PID 12346
+                    return MagicMock(returncode=0, stdout="12346\n")
+                else:
+                    # agent has no children
+                    return MagicMock(returncode=1, stdout="")
+            mock_run.side_effect = side_effect
+            result = check_process_tree(12345)
+            assert result == ProcessTree.CHILDREN_ONLY
+
+    def test_grandchildren_returns_grandchildren(self):
+        """Shell → agent → subprocess (e.g., npm)."""
+        with patch("aque.monitor.subprocess.run") as mock_run:
+            def side_effect(cmd, **kwargs):
+                pid = cmd[-1]
+                if pid == "12345":
+                    return MagicMock(returncode=0, stdout="12346\n")
+                elif pid == "12346":
+                    return MagicMock(returncode=0, stdout="12347\n")
+                else:
+                    return MagicMock(returncode=1, stdout="")
+            mock_run.side_effect = side_effect
+            result = check_process_tree(12345)
+            assert result == ProcessTree.GRANDCHILDREN
+
+    def test_multiple_children_any_grandchild_returns_grandchildren(self):
+        """Shell → multiple agents, one has a grandchild."""
+        with patch("aque.monitor.subprocess.run") as mock_run:
+            def side_effect(cmd, **kwargs):
+                pid = cmd[-1]
+                if pid == "12345":
+                    return MagicMock(returncode=0, stdout="12346\n12347\n")
+                elif pid == "12346":
+                    return MagicMock(returncode=1, stdout="")
+                elif pid == "12347":
+                    return MagicMock(returncode=0, stdout="12348\n")
+                else:
+                    return MagicMock(returncode=1, stdout="")
+            mock_run.side_effect = side_effect
+            result = check_process_tree(12345)
+            assert result == ProcessTree.GRANDCHILDREN
+
+    def test_pgrep_failure_returns_children_only(self):
+        """If pgrep raises an exception, treat as ambiguous."""
+        with patch("aque.monitor.subprocess.run", side_effect=FileNotFoundError):
+            result = check_process_tree(12345)
+            assert result == ProcessTree.CHILDREN_ONLY
 
 
 class TestMonitorSkipsOnHold:
