@@ -284,7 +284,7 @@ class AutoAttachModal(ModalScreen):
             f"Attaching to [bold yellow]{self.agent_label}[/] in [bold]{self.seconds}s[/]",
             id="auto-attach-label",
         ))
-        box._add_child(Static("[Esc] cancel", id="auto-attach-hint"))
+        box._add_child(Static("[Enter] attach now  [Esc] cancel", id="auto-attach-hint"))
         yield box
 
     def update_countdown(self, seconds: int) -> None:
@@ -297,7 +297,9 @@ class AutoAttachModal(ModalScreen):
             pass
 
     def on_key(self, event) -> None:
-        if event.key == "escape":
+        if event.key == "enter":
+            self.dismiss(True)
+        elif event.key == "escape":
             self.dismiss(False)
 
 
@@ -603,7 +605,12 @@ class DeskApp(App):
         self._countdown_timer = self.set_interval(1.0, self._countdown_tick)
 
     def _on_modal_dismiss(self, result: bool | None) -> None:
-        if result is False:
+        if result is True:
+            agent = self._countdown_agent
+            self._cancel_countdown()
+            if agent:
+                self._attach_to_agent(agent)
+        elif result is False:
             self._auto_attach_suppressed = True
             self._cancel_countdown()
 

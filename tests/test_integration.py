@@ -30,12 +30,10 @@ class TestFullLifecycleV2:
         )
         assert mgr.load().agents[0].state == AgentState.RUNNING
 
-        # 2. Idle detection (process tree says no children → immediately idle)
+        # 2. Idle detection (no children → agent exited → immediately idle)
         detector = IdleDetector(idle_timeout=0.1)
         idle_lines = ["some output", "❯ "]
-        with patch("aque.monitor.check_process_tree") as mock_tree:
-            from aque.monitor import ProcessTree
-            mock_tree.return_value = ProcessTree.NO_CHILDREN
+        with patch("aque.monitor.has_children", return_value=False):
             detector.update(1, 99999, idle_lines)
         assert detector.is_idle(1) is True
 
