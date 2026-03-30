@@ -151,11 +151,12 @@ class NewAgentForm(Vertical):
             Input(value=self._command, placeholder="e.g. claude --model opus", id="command-input"),
             after=self.query_one("#new-agent-step"),
         )
+        hint_text = "   ".join([key_hint("Enter", "next"), key_hint("Esc", "back")])
         try:
-            self.query_one("#new-agent-hint").update("[Enter] next   [Esc] back")
+            self.query_one("#new-agent-hint").update(hint_text)
         except Exception:
             self.mount(
-                Static("[Enter] next   [Esc] back", id="new-agent-hint"),
+                Static(hint_text, id="new-agent-hint"),
                 after=self.query_one("#command-input"),
             )
         self.query_one("#command-input").focus()
@@ -174,7 +175,9 @@ class NewAgentForm(Vertical):
             Input(value=default_label, placeholder="Agent label", id="label-input"),
             after=self.query_one("#new-agent-step"),
         )
-        self.query_one("#new-agent-hint").update("[Enter] launch   [Esc] back")
+        self.query_one("#new-agent-hint").update(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")])
+        )
         self.query_one("#label-input").focus()
 
     def show_dir_step(self) -> None:
