@@ -141,15 +141,23 @@ class NewAgentForm(Vertical):
         self.query_one("#new-agent-step").update(
             f"Step 2/3: Enter command  (dir: {self._selected_dir})"
         )
-        self.query_one("#dir-picker").remove()
+        # Remove dir picker or label input depending on direction
+        for selector in ("#dir-picker", "#label-input"):
+            try:
+                self.query_one(selector).remove()
+            except Exception:
+                pass
         self.mount(
-            Input(placeholder="e.g. claude --model opus", id="command-input"),
+            Input(value=self._command, placeholder="e.g. claude --model opus", id="command-input"),
             after=self.query_one("#new-agent-step"),
         )
-        self.mount(
-            Static("[Enter] next   [Esc] cancel", id="new-agent-hint"),
-            after=self.query_one("#command-input"),
-        )
+        try:
+            self.query_one("#new-agent-hint").update("[Enter] next   [Esc] back")
+        except Exception:
+            self.mount(
+                Static("[Enter] next   [Esc] back", id="new-agent-hint"),
+                after=self.query_one("#command-input"),
+            )
         self.query_one("#command-input").focus()
 
     def show_label_step(self) -> None:
@@ -166,8 +174,29 @@ class NewAgentForm(Vertical):
             Input(value=default_label, placeholder="Agent label", id="label-input"),
             after=self.query_one("#new-agent-step"),
         )
-        self.query_one("#new-agent-hint").update("[Enter] launch   [Esc] cancel")
+        self.query_one("#new-agent-hint").update("[Enter] launch   [Esc] back")
         self.query_one("#label-input").focus()
+
+    def show_dir_step(self) -> None:
+        """Go back to directory selection step."""
+        self._step = "dir"
+        self.query_one("#new-agent-step").update("Step 1/3: Select working directory")
+        try:
+            self.query_one("#command-input").remove()
+        except Exception:
+            pass
+        try:
+            self.query_one("#new-agent-hint").remove()
+        except Exception:
+            pass
+        self.mount(
+            DirectoryPicker(
+                dir_history_mgr=self._dir_history_mgr,
+                default_dir=self._default_dir,
+                id="dir-picker",
+            ),
+            after=self.query_one("#new-agent-step"),
+        )
 
     def show_tree_fallback(self) -> None:
         """Switch to tree browse mode."""
@@ -841,6 +870,13 @@ class DeskApp(App):
                 if form._tree_mode:
                     form.hide_tree_fallback()
                     return
+                if form._step == "label":
+                    form.show_command_step()
+                    return
+                if form._step == "command":
+                    form.show_dir_step()
+                    return
+                # Step "dir" — cancel the form
                 for w in self.query("NewAgentForm"):
                     w.remove()
                 self._show_dashboard()
