@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from aque.config import load_config
+from aque.dir_history import DirHistoryManager
 from aque.monitor import start_monitor_daemon, stop_monitor
 from aque.run import launch_agent
 from aque.state import AgentState, StateManager
@@ -60,6 +61,8 @@ def run(
         state_manager=mgr,
         prefix=config["session_prefix"],
     )
+    dir_history_mgr = DirHistoryManager(AQUE_DIR)
+    dir_history_mgr.record_use(dir)
     ensure_monitor_running()
     console.print(f"[green]Agent #{agent_id} launched[/green]: {label or command[0]}")
 
