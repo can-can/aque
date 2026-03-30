@@ -1,4 +1,5 @@
 import enum
+import hashlib
 import os
 import signal
 import subprocess
@@ -73,24 +74,60 @@ def _last_line_is_prompt(lines: list[str]) -> bool:
 class IdleDetector:
     def __init__(self, idle_timeout: float):
         self.idle_timeout = idle_timeout
-        self._first_idle: dict[int, float] = {}
+        self._content_hash: dict[int, str] = {}
+        self._stable_since: dict[int, float] = {}
+        self._is_idle: dict[int, bool] = {}
 
-    def update(self, agent_id: int, lines: list[str]) -> None:
+    def update(self, agent_id: int, shell_pid: int, lines: list[str]) -> None:
         now = time.monotonic()
-        if _last_line_is_prompt(lines):
-            if agent_id not in self._first_idle:
-                self._first_idle[agent_id] = now
+
+        tree = check_process_tree(shell_pid)
+
+        # Fast path: agent has subprocesses — definitely busy
+        if tree == ProcessTree.GRANDCHILDREN:
+            self._reset(agent_id)
+            return
+
+        # Fast path: agent exited — definitely idle
+        if tree == ProcessTree.NO_CHILDREN:
+            self._is_idle[agent_id] = True
+            return
+
+        # Ambiguous: agent alive, no grandchildren
+        # Check content stability
+        content = "\n".join(lines)
+        content_hash = hashlib.md5(content.encode()).hexdigest()
+        prev_hash = self._content_hash.get(agent_id)
+        self._content_hash[agent_id] = content_hash
+
+        if content_hash != prev_hash:
+            # Content changed — reset stability timer
+            self._stable_since[agent_id] = now
+            self._is_idle[agent_id] = False
+            return
+
+        # Content is stable — check if stable long enough AND prompt visible
+        stable_since = self._stable_since.get(agent_id, now)
+        if agent_id not in self._stable_since:
+            self._stable_since[agent_id] = now
+
+        elapsed = now - stable_since
+        if elapsed >= self.idle_timeout and _last_line_is_prompt(lines):
+            self._is_idle[agent_id] = True
         else:
-            self._first_idle.pop(agent_id, None)
+            self._is_idle[agent_id] = False
 
     def is_idle(self, agent_id: int) -> bool:
-        if agent_id not in self._first_idle:
-            return False
-        elapsed = time.monotonic() - self._first_idle[agent_id]
-        return elapsed >= self.idle_timeout
+        return self._is_idle.get(agent_id, False)
 
     def remove_agent(self, agent_id: int) -> None:
-        self._first_idle.pop(agent_id, None)
+        self._content_hash.pop(agent_id, None)
+        self._stable_since.pop(agent_id, None)
+        self._is_idle.pop(agent_id, None)
+
+    def _reset(self, agent_id: int) -> None:
+        self._stable_since.pop(agent_id, None)
+        self._is_idle[agent_id] = False
 
 
 def capture_pane_content(server: libtmux.Server, session_name: str) -> str | None:
@@ -141,7 +178,7 @@ def run_monitor(aque_dir: Path) -> None:
 
                 content = capture_pane_content(server, agent.tmux_session)
                 if content is not None:
-                    detector.update(agent.id, content.split("\n"))
+                    detector.update(agent.id, agent.pid, content.split("\n"))
 
                 if detector.is_idle(agent.id):
                     mgr.update_agent_state(agent.id, AgentState.WAITING)

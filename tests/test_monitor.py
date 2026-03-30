@@ -1,3 +1,4 @@
+import hashlib
 import subprocess
 import time
 from unittest.mock import patch, MagicMock
@@ -64,40 +65,82 @@ class TestIdleDetector:
     def _active_lines(self):
         return ["✽ Working… (5s)", "  ⎿  Running…"]
 
-    def test_new_agent_is_not_idle(self):
-        detector = IdleDetector(idle_timeout=5)
-        detector.update(1, self._idle_lines())
-        assert detector.is_idle(1) is False
-
-    def test_idle_after_timeout(self):
+    def test_grandchildren_always_busy(self):
+        """Process tree shows grandchildren — never idle regardless of content."""
         detector = IdleDetector(idle_timeout=0.1)
-        detector.update(1, self._idle_lines())
-        time.sleep(0.15)
-        assert detector.is_idle(1) is True
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.GRANDCHILDREN):
+            detector.update(1, 12345, self._idle_lines())
+            import time; time.sleep(0.15)
+            detector.update(1, 12345, self._idle_lines())
+            assert detector.is_idle(1) is False
 
-    def test_active_content_resets_idle_timer(self):
+    def test_no_children_immediately_idle(self):
+        """Process tree shows no children — agent exited, immediately idle."""
+        detector = IdleDetector(idle_timeout=10)
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.NO_CHILDREN):
+            detector.update(1, 12345, self._idle_lines())
+            assert detector.is_idle(1) is True
+
+    def test_children_only_needs_stable_content_and_prompt(self):
+        """Ambiguous case: needs content stability + prompt to be idle."""
         detector = IdleDetector(idle_timeout=0.1)
-        detector.update(1, self._idle_lines())
-        time.sleep(0.05)
-        detector.update(1, self._active_lines())
-        time.sleep(0.1)
-        assert detector.is_idle(1) is False
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.CHILDREN_ONLY):
+            detector.update(1, 12345, self._idle_lines())
+            assert detector.is_idle(1) is False  # not enough time
+            import time; time.sleep(0.15)
+            detector.update(1, 12345, self._idle_lines())  # same content
+            assert detector.is_idle(1) is True
+
+    def test_changing_content_resets_timer(self):
+        """Content changes reset the stability timer even with prompt visible."""
+        detector = IdleDetector(idle_timeout=0.1)
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.CHILDREN_ONLY):
+            detector.update(1, 12345, ["output v1", "❯ "])
+            import time; time.sleep(0.05)
+            detector.update(1, 12345, ["output v2", "❯ "])  # content changed
+            time.sleep(0.08)
+            detector.update(1, 12345, ["output v2", "❯ "])  # same as last
+            assert detector.is_idle(1) is False  # only 0.08s of stability
+
+    def test_no_prompt_not_idle_even_if_stable(self):
+        """Stable content but no prompt — not idle."""
+        detector = IdleDetector(idle_timeout=0.1)
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.CHILDREN_ONLY):
+            detector.update(1, 12345, self._active_lines())
+            import time; time.sleep(0.15)
+            detector.update(1, 12345, self._active_lines())
+            assert detector.is_idle(1) is False
+
+    def test_grandchildren_resets_prior_idle_state(self):
+        """If agent was building toward idle then spawns a subprocess, reset."""
+        detector = IdleDetector(idle_timeout=0.1)
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.CHILDREN_ONLY):
+            detector.update(1, 12345, self._idle_lines())
+            import time; time.sleep(0.05)
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.GRANDCHILDREN):
+            detector.update(1, 12345, self._idle_lines())
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.CHILDREN_ONLY):
+            import time; time.sleep(0.08)
+            detector.update(1, 12345, self._idle_lines())
+            assert detector.is_idle(1) is False  # timer was reset
 
     def test_remove_agent(self):
-        detector = IdleDetector(idle_timeout=5)
-        detector.update(1, self._idle_lines())
+        detector = IdleDetector(idle_timeout=10)
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.NO_CHILDREN):
+            detector.update(1, 12345, self._idle_lines())
         detector.remove_agent(1)
         assert detector.is_idle(1) is False
 
     def test_multiple_agents_independent(self):
         detector = IdleDetector(idle_timeout=0.1)
-        detector.update(1, self._idle_lines())
-        detector.update(2, self._idle_lines())
-        time.sleep(0.15)
-        # Agent 1 still idle, agent 2 becomes active
-        detector.update(2, self._active_lines())
-        assert detector.is_idle(1) is True
-        assert detector.is_idle(2) is False
+        with patch("aque.monitor.check_process_tree", return_value=ProcessTree.CHILDREN_ONLY):
+            detector.update(1, 12345, self._idle_lines())
+            detector.update(2, 12346, self._idle_lines())
+            import time; time.sleep(0.15)
+            detector.update(1, 12345, self._idle_lines())
+            detector.update(2, 12346, self._active_lines())  # agent 2 changed content + no prompt
+            assert detector.is_idle(1) is True
+            assert detector.is_idle(2) is False
 
 
 class TestCheckProcessTree:
