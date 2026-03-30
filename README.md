@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="80" alt="aque logo">
+  <img src="https://raw.githubusercontent.com/can-can/aque/main/docs/logo.svg" width="80" alt="aque logo">
 </p>
 
 <h1 align="center">Aque</h1>
@@ -16,7 +16,7 @@ A tmux-based agent queue manager. You sit at one "desk" and your AI agents come 
 
 Running multiple AI coding agents (Claude Code, aider, Codex) at once? They all need your attention at different times. Aque queues them so you work through them one at a time — no forgotten terminal tabs, no context switching.
 
-![Demo](docs/demo.gif)
+![Demo](https://raw.githubusercontent.com/can-can/aque/main/docs/demo.gif)
 
 ## Install
 
