@@ -43,3 +43,21 @@ class TestDashboardMount:
         async with app.run_test() as pilot:
             option_list = app.query_one("#agent-option-list")
             assert option_list.option_count == 1
+
+
+class TestNewAgentFormWithPicker:
+    @pytest.mark.asyncio
+    async def test_new_agent_form_shows_dir_picker(self, tmp_aque_dir):
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.press("n")
+            picker = app.query_one("#dir-picker")
+            assert picker is not None
+
+    @pytest.mark.asyncio
+    async def test_new_agent_form_no_folder_tree(self, tmp_aque_dir):
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.press("n")
+            trees = app.query("#dir-tree")
+            assert len(trees) == 0

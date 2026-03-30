@@ -28,10 +28,12 @@ class FolderTree(DirectoryTree):
         ]
 
 from aque.config import load_config
+from aque.dir_history import DirHistoryManager
 from aque.history import HistoryManager
 from aque.monitor import capture_pane_content, start_monitor_daemon, stop_monitor
 from aque.run import launch_agent
 from aque.state import AgentInfo, AgentState, StateManager
+from aque.widgets.dir_picker import DirectoryPicker
 
 STATE_COLORS = {
     AgentState.RUNNING: "green",
@@ -115,38 +117,39 @@ class ActionMenu(Vertical):
 
 
 class NewAgentForm(Vertical):
-    def __init__(self) -> None:
+    def __init__(self, dir_history_mgr: DirHistoryManager, default_dir: str) -> None:
         super().__init__(id="new-agent-form")
         self._step = "dir"
-        self._selected_dir: str = str(Path.home())
+        self._selected_dir: str = ""
         self._command: str = ""
         self._label: str = ""
+        self._dir_history_mgr = dir_history_mgr
+        self._default_dir = default_dir
+        self._tree_mode = False
 
     def compose(self) -> ComposeResult:
         yield Static("New Agent", id="new-agent-title")
         yield Static("Step 1/3: Select working directory", id="new-agent-step")
-        yield Static(f"[bold]Selected:[/bold] {self._selected_dir}", id="dir-display")
-        yield FolderTree("/", id="dir-tree")
-        yield Static("[Enter] expand/collapse   [s] select this folder   [Esc] cancel", id="new-agent-hint")
-
-    def update_dir_display(self, path: str) -> None:
-        self._selected_dir = path
-        try:
-            self.query_one("#dir-display").update(f"[bold]Selected:[/bold] {path}")
-        except Exception:
-            pass
+        yield DirectoryPicker(
+            dir_history_mgr=self._dir_history_mgr,
+            default_dir=self._default_dir,
+            id="dir-picker",
+        )
 
     def show_command_step(self) -> None:
         self._step = "command"
         self.query_one("#new-agent-step").update(
             f"Step 2/3: Enter command  (dir: {self._selected_dir})"
         )
-        self.query_one("#dir-tree").remove()
+        self.query_one("#dir-picker").remove()
         self.mount(
             Input(placeholder="e.g. claude --model opus", id="command-input"),
             after=self.query_one("#new-agent-step"),
         )
-        self.query_one("#new-agent-hint").update("[Enter] next   [Esc] cancel")
+        self.mount(
+            Static("[Enter] next   [Esc] cancel", id="new-agent-hint"),
+            after=self.query_one("#command-input"),
+        )
         self.query_one("#command-input").focus()
 
     def show_label_step(self) -> None:
@@ -165,6 +168,53 @@ class NewAgentForm(Vertical):
         )
         self.query_one("#new-agent-hint").update("[Enter] launch   [Esc] cancel")
         self.query_one("#label-input").focus()
+
+    def show_tree_fallback(self) -> None:
+        """Switch to tree browse mode."""
+        self._tree_mode = True
+        self.query_one("#dir-picker").display = False
+        self.mount(
+            FolderTree(self._default_dir, id="dir-tree"),
+            after=self.query_one("#new-agent-step"),
+        )
+        self.mount(
+            Static(f"[bold]Selected:[/bold] {self._default_dir}", id="dir-display"),
+            before=self.query_one("#dir-tree"),
+        )
+        try:
+            self.query_one("#dir-picker-hint").update(
+                "[Enter] expand/collapse   [s] select   [Esc] back to picker"
+            )
+        except Exception:
+            pass
+        self.query_one("#dir-tree").focus()
+
+    def hide_tree_fallback(self) -> None:
+        """Return from tree browse to picker."""
+        self._tree_mode = False
+        try:
+            self.query_one("#dir-tree").remove()
+        except Exception:
+            pass
+        try:
+            self.query_one("#dir-display").remove()
+        except Exception:
+            pass
+        self.query_one("#dir-picker").display = True
+        try:
+            self.query_one("#dir-picker-hint").update(
+                "[Enter] select  [p] pin/unpin  [b] browse tree  [Esc] cancel"
+            )
+        except Exception:
+            pass
+        self.query_one("#dir-search-input").focus()
+
+    def update_dir_display(self, path: str) -> None:
+        self._selected_dir = path
+        try:
+            self.query_one("#dir-display").update(f"[bold]Selected:[/bold] {path}")
+        except Exception:
+            pass
 
 
 class AutoAttachModal(ModalScreen):
@@ -280,11 +330,7 @@ class DeskApp(App):
         color: $text-muted;
         margin-bottom: 1;
     }
-    #dir-display {
-        margin-bottom: 1;
-        color: $accent;
-    }
-    #dir-tree {
+    #dir-picker {
         height: 55%;
     }
     #command-input, #label-input {
@@ -313,6 +359,7 @@ class DeskApp(App):
         self.state_mgr = StateManager(self.aque_dir)
         self.history_mgr = HistoryManager(self.aque_dir)
         self.config = load_config(self.aque_dir)
+        self.dir_history_mgr = DirHistoryManager(self.aque_dir)
         self._skip_attach = _skip_attach
         self._mode = "dashboard"
         self._action_agent: AgentInfo | None = None
@@ -590,11 +637,13 @@ class DeskApp(App):
             self.query_one("#status-bar").display = False
         except Exception:
             pass
-        self.mount(NewAgentForm(), after=self.query_one(Header))
-        try:
-            self.query_one("#dir-tree", FolderTree).focus()
-        except Exception:
-            pass
+        self.mount(
+            NewAgentForm(
+                dir_history_mgr=self.dir_history_mgr,
+                default_dir=self.config.get("default_dir", str(Path.home())),
+            ),
+            after=self.query_one(Header),
+        )
 
     # ── Agent actions ────────────────────────────────────────────
 
@@ -703,9 +752,20 @@ class DeskApp(App):
             return
         self._refresh_preview()
 
-    def on_tree_node_highlighted(self, event) -> None:
-        """Update selected path as the user navigates the tree."""
+    def on_directory_picker_directory_selected(self, event) -> None:
+        """Handle directory selection from the picker."""
         if self._mode != "new_agent_form":
+            return
+        form = self.query_one(NewAgentForm)
+        form._selected_dir = event.path
+        form.show_command_step()
+
+    def on_tree_node_highlighted(self, event) -> None:
+        """Update selected path as the user navigates the tree (fallback mode)."""
+        if self._mode != "new_agent_form":
+            return
+        form = self.query_one(NewAgentForm)
+        if not form._tree_mode:
             return
         node = event.node
         if node.data and hasattr(node.data, 'path'):
@@ -715,7 +775,6 @@ class DeskApp(App):
         else:
             return
         if Path(path).is_dir():
-            form = self.query_one(NewAgentForm)
             form.update_dir_display(str(path))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -737,6 +796,7 @@ class DeskApp(App):
                 state_manager=self.state_mgr,
                 prefix=self.config["session_prefix"],
             )
+            self.dir_history_mgr.record_use(form._selected_dir)
             self._ensure_monitor_running()
             for w in self.query("NewAgentForm"):
                 w.remove()
@@ -775,22 +835,30 @@ class DeskApp(App):
 
     def on_key(self, event) -> None:
         if self._mode == "new_agent_form":
+            form = self.query_one(NewAgentForm)
+
             if event.key == "escape":
+                if form._tree_mode:
+                    form.hide_tree_fallback()
+                    return
                 for w in self.query("NewAgentForm"):
                     w.remove()
                 self._show_dashboard()
                 return
-            form = self.query_one(NewAgentForm)
-            if form._step == "dir" and event.character == "s":
-                if form._selected_dir:
-                    form.show_command_step()
-                return
+
+            if form._step == "dir":
+                if event.character == "b" and not form._tree_mode:
+                    form.show_tree_fallback()
+                    return
+                if form._tree_mode and event.character == "s":
+                    if form._selected_dir:
+                        form.show_command_step()
+                    return
             return
 
         if self._mode == "action_menu":
             if self._action_agent is None:
                 return
-            # Map shortcut keys to action IDs
             keys = self.config["action_keys"]
             key_to_action = {
                 keys.get("dismiss"): "dismiss",
