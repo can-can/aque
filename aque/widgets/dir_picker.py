@@ -11,6 +11,11 @@ from textual.widgets.option_list import Option
 from aque.dir_history import DirHistoryManager
 
 
+def key_hint(key: str, action: str) -> str:
+    """Format a key hint with escaped brackets for Rich markup."""
+    return f"\\[{key}] {action}"
+
+
 def _display_path(path: str) -> str:
     """Show path with ~ shorthand for home directory."""
     home = str(Path.home())

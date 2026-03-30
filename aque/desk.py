@@ -33,7 +33,7 @@ from aque.history import HistoryManager
 from aque.monitor import capture_pane_content, start_monitor_daemon, stop_monitor
 from aque.run import launch_agent
 from aque.state import AgentInfo, AgentState, StateManager
-from aque.widgets.dir_picker import DirectoryPicker
+from aque.widgets.dir_picker import DirectoryPicker, key_hint
 
 STATE_COLORS = {
     AgentState.RUNNING: "green",
@@ -99,21 +99,21 @@ class ActionMenu(Vertical):
             yield Static(f"Reviewing: {self.agent.label} (exited)", id="action-label")
             yield Static(f"{self.waiting_count} more waiting\n")
             yield OptionList(
-                Option(f"[{keys['done']}]  done — move to history", id="done"),
-                Option(f"[{keys['hold']}]  hold — keep for later", id="hold"),
+                Option(f"{key_hint(keys['done'], 'done')} — move to history", id="done"),
+                Option(f"{key_hint(keys['hold'], 'hold')} — keep for later", id="hold"),
                 id="action-option-list",
             )
         else:
             yield Static(f"Back from: {self.agent.label}", id="action-label")
             yield Static(f"{self.waiting_count} more waiting\n")
             yield OptionList(
-                Option(f"[{keys['dismiss']}]  dismiss — send back to work, review later", id="dismiss"),
-                Option(f"[{keys['done']}]  done — task finished, move to history", id="done"),
-                Option(f"[{keys['skip']}]  skip — next waiting agent", id="skip"),
-                Option(f"[{keys['hold']}]  hold — pause, come back later", id="hold"),
+                Option(f"{key_hint(keys['dismiss'], 'dismiss')} — send back to work, review later", id="dismiss"),
+                Option(f"{key_hint(keys['done'], 'done')} — task finished, move to history", id="done"),
+                Option(f"{key_hint(keys['skip'], 'skip')} — next waiting agent", id="skip"),
+                Option(f"{key_hint(keys['hold'], 'hold')} — pause, come back later", id="hold"),
                 id="action-option-list",
             )
-        yield Static("[Enter] select   or press shortcut key", id="action-hint")
+        yield Static(f"{key_hint('Enter', 'select')}   or press shortcut key", id="action-hint")
 
 
 class NewAgentForm(Vertical):
