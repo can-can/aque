@@ -213,12 +213,15 @@ class NewAgentForm(Vertical):
             Static(f"[bold]Selected:[/bold] {self._default_dir}", id="dir-display"),
             before=self.query_one("#dir-tree"),
         )
-        try:
-            self.query_one("#dir-picker-hint").update(
-                "[Enter] expand/collapse   [s] select   [Esc] back to picker"
-            )
-        except Exception:
-            pass
+        tree_hint = "   ".join([
+            key_hint("Enter", "expand/collapse"),
+            key_hint("s", "select"),
+            key_hint("Esc", "back to picker"),
+        ])
+        self.mount(
+            Static(tree_hint, id="tree-hint"),
+            after=self.query_one("#dir-tree"),
+        )
         self.query_one("#dir-tree").focus()
 
     def hide_tree_fallback(self) -> None:
@@ -232,13 +235,11 @@ class NewAgentForm(Vertical):
             self.query_one("#dir-display").remove()
         except Exception:
             pass
-        self.query_one("#dir-picker").display = True
         try:
-            self.query_one("#dir-picker-hint").update(
-                "[Enter] select  [p] pin/unpin  [b] browse tree  [Esc] cancel"
-            )
+            self.query_one("#tree-hint").remove()
         except Exception:
             pass
+        self.query_one("#dir-picker").display = True
         self.query_one("#dir-search-input").focus()
 
     def update_dir_display(self, path: str) -> None:
@@ -371,6 +372,10 @@ class DeskApp(App):
         margin-top: 1;
     }
     #new-agent-hint {
+        color: $text-muted;
+        margin-top: 1;
+    }
+    #tree-hint {
         color: $text-muted;
         margin-top: 1;
     }
