@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 
 
+_projects_dir = Path.home() / "Projects"
 DEFAULT_CONFIG = {
     "idle_timeout": 10,
     "snapshot_interval": 2,
@@ -15,6 +16,7 @@ DEFAULT_CONFIG = {
     },
     "queue_order": "fifo",
     "session_prefix": "aque",
+    "default_dir": str(_projects_dir) if _projects_dir.exists() else str(Path.home()),
 }
 
 

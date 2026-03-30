@@ -29,3 +29,12 @@ class TestConfig:
         config = load_config(tmp_aque_dir)
         assert config["action_keys"]["dismiss"] == "x"
         assert config["action_keys"]["done"] == "k"  # default preserved
+
+    def test_default_dir_in_config(self):
+        assert "default_dir" in DEFAULT_CONFIG
+
+    def test_default_dir_override(self, tmp_aque_dir):
+        config_path = tmp_aque_dir / "config.yaml"
+        config_path.write_text("default_dir: /tmp/custom\n")
+        config = load_config(tmp_aque_dir)
+        assert config["default_dir"] == "/tmp/custom"
