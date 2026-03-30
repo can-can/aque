@@ -50,28 +50,23 @@ def check_process_tree(shell_pid: int) -> ProcessTree:
     except Exception:
         return ProcessTree.CHILDREN_ONLY
 
-# Patterns that indicate a CLI tool is waiting for user input
-_IDLE_PROMPT_MARKERS = [
-    "❯",           # Claude Code prompt
-    "$",            # generic shell prompt
-    ">>>",          # Python REPL
-    "...",          # Python continuation
+_IDLE_PROMPT_PATTERNS = [
+    "❯",       # Claude Code
+    "$ ",       # shell prompt (trailing space)
+    ">>> ",     # Python REPL
 ]
 
 
-def _looks_idle(lines: list[str]) -> bool:
-    """Check if the pane looks like it's waiting for user input.
-
-    Scans the last few non-empty lines for prompt markers.
-    """
-    # Look at last 10 non-empty lines for a prompt
-    recent = [l.strip() for l in lines[-10:] if l.strip()]
-    if not recent:
-        return False
-    for line in recent:
-        for marker in _IDLE_PROMPT_MARKERS:
-            if line.startswith(marker) or line == marker:
+def _last_line_is_prompt(lines: list[str]) -> bool:
+    """Check if the last non-empty line looks like a prompt waiting for input."""
+    for line in reversed(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        for pattern in _IDLE_PROMPT_PATTERNS:
+            if stripped.startswith(pattern) or stripped == pattern.rstrip():
                 return True
+        return False
     return False
 
 
@@ -82,7 +77,7 @@ class IdleDetector:
 
     def update(self, agent_id: int, lines: list[str]) -> None:
         now = time.monotonic()
-        if _looks_idle(lines):
+        if _last_line_is_prompt(lines):
             if agent_id not in self._first_idle:
                 self._first_idle[agent_id] = now
         else:

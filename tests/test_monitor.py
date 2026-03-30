@@ -2,33 +2,59 @@ import subprocess
 import time
 from unittest.mock import patch, MagicMock
 
-from aque.monitor import IdleDetector, _looks_idle, check_process_tree, ProcessTree
+from aque.monitor import IdleDetector, _last_line_is_prompt, check_process_tree, ProcessTree
 
 
-class TestLooksIdle:
+class TestLastLineIsPrompt:
     def test_claude_code_prompt(self):
-        lines = ["some output", "❯ ", "───────", "  [Opus 4.6]"]
-        assert _looks_idle(lines) is True
+        lines = ["some output", "❯ "]
+        assert _last_line_is_prompt(lines) is True
 
     def test_shell_prompt(self):
         lines = ["some output", "$ "]
-        assert _looks_idle(lines) is True
+        assert _last_line_is_prompt(lines) is True
 
     def test_python_repl(self):
         lines = ["some output", ">>> "]
-        assert _looks_idle(lines) is True
+        assert _last_line_is_prompt(lines) is True
+
+    def test_prompt_in_middle_not_detected(self):
+        """Old false positive: prompt marker buried in output, not last line."""
+        lines = ["❯ ", "some output", "more output"]
+        assert _last_line_is_prompt(lines) is False
+
+    def test_dollar_in_variable_not_detected(self):
+        """$ without trailing space is not a prompt."""
+        lines = ["$HOME/path/to/file"]
+        assert _last_line_is_prompt(lines) is False
+
+    def test_ellipsis_not_detected(self):
+        """... was removed — too many false positives."""
+        lines = ["..."]
+        assert _last_line_is_prompt(lines) is False
 
     def test_active_spinner_not_idle(self):
         lines = ["✽ Working… (41s)", "  ⎿  Running…"]
-        assert _looks_idle(lines) is False
+        assert _last_line_is_prompt(lines) is False
 
     def test_plain_output_not_idle(self):
         lines = ["Line 1", "Line 2", "Line 3"]
-        assert _looks_idle(lines) is False
+        assert _last_line_is_prompt(lines) is False
 
-    def test_empty_lines_not_idle(self):
+    def test_empty_lines_skipped(self):
+        """Trailing blank lines should be ignored, prompt above them detected."""
+        lines = ["some output", "❯ ", "", "", ""]
+        assert _last_line_is_prompt(lines) is True
+
+    def test_all_empty_lines(self):
         lines = ["", "", ""]
-        assert _looks_idle(lines) is False
+        assert _last_line_is_prompt(lines) is False
+
+    def test_claude_prompt_with_decoration(self):
+        """Claude Code shows ❯ followed by status lines — last non-empty may vary."""
+        lines = ["some output", "❯ ", "───────", "  [Opus 4.6]"]
+        # Last non-empty line is "  [Opus 4.6]", not the prompt
+        assert _last_line_is_prompt(lines) is False
 
 
 class TestIdleDetector:
