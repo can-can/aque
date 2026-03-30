@@ -1,6 +1,7 @@
 # aque/dir_history.py
 """Persistence layer for directory usage history and pinning."""
 
+import fcntl
 import json
 import os
 import tempfile
@@ -23,7 +24,13 @@ class DirHistoryManager:
             return {"pinned": [], "history": []}
 
         with open(self.history_file, "r") as f:
-            data = json.load(f)
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                return {"pinned": [], "history": []}
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
         # Clean pinned entries where directory no longer exists
         data["pinned"] = [p for p in data.get("pinned", []) if Path(p).is_dir()]
