@@ -288,7 +288,10 @@ class AutoAttachModal(ModalScreen):
             f"Attaching to [bold yellow]{self.agent_label}[/] in [bold]{self.seconds}s[/]",
             id="auto-attach-label",
         ))
-        box._add_child(Static("[Enter] attach now  [Esc] cancel", id="auto-attach-hint"))
+        box._add_child(Static(
+            "  ".join([key_hint("Enter", "attach now"), key_hint("Esc", "cancel")]),
+            id="auto-attach-hint",
+        ))
         yield box
 
     def update_countdown(self, seconds: int) -> None:

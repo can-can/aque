@@ -65,7 +65,12 @@ class DirectoryPicker(Vertical):
         yield Input(placeholder="Search directories...", id="dir-search-input")
         yield OptionList(id="dir-list")
         yield Static(
-            "[Enter] select  [p] pin/unpin  [b] browse tree  [Esc] cancel",
+            "  ".join([
+                key_hint("Enter", "select"),
+                key_hint("p", "pin/unpin"),
+                key_hint("b", "browse tree"),
+                key_hint("Esc", "cancel"),
+            ]),
             id="dir-picker-hint",
         )
 
