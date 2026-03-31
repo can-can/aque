@@ -112,6 +112,7 @@ Edit `~/.aque/config.yaml`:
 idle_timeout: 10
 snapshot_interval: 2
 session_prefix: aque
+default_dir: ~/Projects
 action_keys:
   dismiss: d
   done: k

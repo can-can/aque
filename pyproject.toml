@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aque"
-version = "0.0.3"
+version = "0.0.4"
 description = "A tmux-based agent queue manager. You sit at the desk, agents come to you."
 readme = "README.md"
 license = "MIT"
