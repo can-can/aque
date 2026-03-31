@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -134,6 +135,9 @@ def kill(agent_id: int = typer.Argument(..., help="Agent ID to terminate")) -> N
 @app.command()
 def desk() -> None:
     """Open the desk TUI. Agents come to you."""
+    if not shutil.which("tmux"):
+        console.print("[red]tmux is not installed. Install it with: brew install tmux[/red]")
+        raise typer.Exit(1)
     from aque.desk import DeskApp
     desk_app = DeskApp(aque_dir=AQUE_DIR)
     desk_app.run()

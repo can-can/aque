@@ -1,5 +1,6 @@
 import re
 import shlex
+import shutil
 from pathlib import Path
 
 import libtmux
@@ -29,6 +30,11 @@ def launch_agent(
     sanitized_label = _sanitize_session_name(label)
     session_name = f"{prefix}-{sanitized_label}-{agent_id}"
 
+    if not shutil.which("tmux"):
+        raise RuntimeError(
+            "tmux is not installed. Install it with: brew install tmux"
+        )
+
     server = libtmux.Server()
 
     # Kill stale session with the same name if it exists
@@ -36,17 +42,17 @@ def launch_agent(
     if existing:
         existing.kill()
 
+    cmd_str = shlex.join(command)
     session = server.new_session(
         session_name=session_name,
         start_directory=working_dir,
+        window_command=cmd_str,
         detach=True,
     )
 
     session.set_option("remain-on-exit", "on")
 
     pane = session.active_pane
-    cmd_str = shlex.join(command)
-    pane.send_keys(cmd_str, enter=True)
 
     agent = AgentInfo(
         id=agent_id,
