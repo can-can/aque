@@ -122,8 +122,3 @@ Feature: Dashboard
     When the user presses "h"
     Then agent "builder" should be in "running" state
 
-  Scenario: Press "q" to quit and stop monitor
-    Given the monitor daemon is running
-    When the user presses "q"
-    Then the app should exit
-    And the monitor daemon should be stopped

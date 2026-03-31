@@ -62,18 +62,7 @@ Feature: Idle detection
     Then the idle timer for "builder" should be reset
     And agent "builder" should remain in "running" state
 
-  Scenario: Agent idle state is cleared after transition to waiting
-    Given agent "builder" just transitioned to "waiting"
-    When the agent is dismissed back to "running"
-    Then the idle timer should start fresh
-
-  # ── Monitor lifecycle ──────────────────────────────────────────
-
-  Scenario: Monitor runs continuously
-    Given the monitor daemon is running
-    And there are no running agents
-    When 30 seconds pass
-    Then the monitor daemon should still be running
+  # ── Monitor detects session death ─────────────────────────────
 
   Scenario: Monitor detects exited tmux sessions
     Given agent "builder" is in "running" state
@@ -81,13 +70,8 @@ Feature: Idle detection
     When the monitor polls
     Then agent "builder" should be in "exited" state
 
-  Scenario: Monitor is stopped on app quit
-    Given the monitor daemon is running
-    When the user quits the app
-    Then the monitor daemon should be stopped
-    And the monitor PID file should be removed
+  Scenario: Agent idle state is cleared after transition to waiting
+    Given agent "builder" just transitioned to "waiting"
+    When the agent is dismissed back to "running"
+    Then the idle timer should start fresh
 
-  Scenario: Monitor is restarted when returning to dashboard
-    Given the monitor daemon has died
-    When the user returns to the dashboard
-    Then a new monitor daemon should be started

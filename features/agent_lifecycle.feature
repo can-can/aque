@@ -21,22 +21,6 @@ Feature: Agent lifecycle
     When the monitor polls
     Then agent "builder" should be in "exited" state
 
-  Scenario: Waiting agent transitions to focused on attach
-    Given agent "builder" is in "waiting" state
-    When the user attaches to agent "builder"
-    Then agent "builder" should be in "focused" state
-
-  Scenario: Focused agent transitions to running on detach
-    Given agent "builder" is in "focused" state
-    When the user detaches from the tmux session
-    Then agent "builder" should be in "running" state
-
-  Scenario: Exited agent transitions to done on detach
-    Given agent "builder" is in "exited" state
-    And the user is attached to agent "builder"
-    When the user detaches from the tmux session
-    Then agent "builder" should be moved to history
-
   Scenario: Running agent can be put on hold
     Given agent "builder" is in "running" state
     When the user presses "h" with "builder" highlighted

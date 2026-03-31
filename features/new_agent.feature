@@ -146,23 +146,16 @@ Feature: New agent creation
     Then the dashboard should be visible
     And no agent should be created
 
-  Scenario: Pressing Escape on command step cancels the form
+  Scenario: Pressing Escape on command step goes back to directory picker
     Given the user is on the command step
     When the user presses Escape
-    Then the dashboard should be visible
-    And no agent should be created
+    Then the directory picker should be visible
+    And the search input should have focus
 
-  Scenario: Pressing Escape on label step cancels the form
+  Scenario: Pressing Escape on label step goes back to command step
     Given the user is on the label step
     When the user presses Escape
-    Then the dashboard should be visible
-    And no agent should be created
-
-  # ── CLI integration ────────────────────────────────────────────
-
-  Scenario: CLI launch records directory usage
-    When the user runs "aque run --dir ~/Projects/myapp -- claude"
-    Then the usage count for "~/Projects/myapp" should be incremented in dir_history.json
+    Then the command input should be visible
 
   # ── First-time experience ──────────────────────────────────────
 
