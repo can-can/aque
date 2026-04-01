@@ -4,8 +4,12 @@ import shutil
 from pathlib import Path
 
 import libtmux
+from libtmux.pane import Pane
+from libtmux.test.retry import retry_until
 
 from aque.state import AgentInfo, AgentState, StateManager
+
+SHELL_PROMPT_RE = re.compile(r"[\$#%>]\s*$")
 
 
 def _sanitize_session_name(name: str) -> str:
@@ -13,6 +17,18 @@ def _sanitize_session_name(name: str) -> str:
     name = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
     name = re.sub(r"-+", "-", name).strip("-")
     return name[:50]
+
+
+def _wait_for_shell(pane: Pane, timeout: float = 5.0) -> None:
+    """Block until a shell prompt appears in the pane."""
+    def _check() -> bool:
+        for line in reversed(pane.capture_pane()):
+            stripped = line.strip()
+            if stripped:
+                return bool(SHELL_PROMPT_RE.search(stripped))
+        return False
+
+    retry_until(_check, seconds=timeout, raises=True)
 
 
 def launch_agent(
@@ -42,17 +58,18 @@ def launch_agent(
     if existing:
         existing.kill()
 
-    cmd_str = shlex.join(command)
     session = server.new_session(
         session_name=session_name,
         start_directory=working_dir,
-        window_command=cmd_str,
         detach=True,
     )
 
     session.set_option("remain-on-exit", "on")
 
     pane = session.active_pane
+    _wait_for_shell(pane)
+    cmd_str = shlex.join(command)
+    pane.send_keys(cmd_str, enter=True)
 
     agent = AgentInfo(
         id=agent_id,

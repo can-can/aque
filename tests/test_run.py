@@ -8,9 +8,10 @@ from aque.state import AgentState, StateManager
 
 
 class TestLaunchAgent:
+    @patch("aque.run._wait_for_shell")
     @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
     @patch("aque.run.libtmux.Server")
-    def test_launch_creates_session_and_registers_agent(self, mock_server_cls, mock_which, tmp_aque_dir):
+    def test_launch_creates_session_and_registers_agent(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
         mock_server = MagicMock()
         mock_server_cls.return_value = mock_server
         mock_session = MagicMock()
@@ -31,8 +32,10 @@ class TestLaunchAgent:
         assert agent_id == 1
         mock_server.new_session.assert_called_once()
         call_kwargs = mock_server.new_session.call_args.kwargs
-        assert call_kwargs["window_command"] == "claude --model opus"
+        assert "window_command" not in call_kwargs
         assert call_kwargs["start_directory"] == "/tmp/my-api"
+        mock_wait.assert_called_once_with(mock_pane)
+        mock_pane.send_keys.assert_called_once_with("claude --model opus", enter=True)
         state = mgr.load()
         assert len(state.agents) == 1
         assert state.agents[0].label == "auth fix"
@@ -40,9 +43,10 @@ class TestLaunchAgent:
         assert state.agents[0].dir == "/tmp/my-api"
         assert state.agents[0].command == ["claude", "--model", "opus"]
 
+    @patch("aque.run._wait_for_shell")
     @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
     @patch("aque.run.libtmux.Server")
-    def test_launch_default_label(self, mock_server_cls, mock_which, tmp_aque_dir):
+    def test_launch_default_label(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
         mock_server = MagicMock()
         mock_server_cls.return_value = mock_server
         mock_session = MagicMock()
@@ -79,9 +83,10 @@ class TestLaunchAgent:
         state = mgr.load()
         assert len(state.agents) == 0
 
+    @patch("aque.run._wait_for_shell")
     @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
     @patch("aque.run.libtmux.Server")
-    def test_launch_uses_window_command_not_send_keys(self, mock_server_cls, mock_which, tmp_aque_dir):
+    def test_launch_waits_for_shell_then_sends_keys(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
         mock_server = MagicMock()
         mock_server_cls.return_value = mock_server
         mock_session = MagicMock()
@@ -100,5 +105,6 @@ class TestLaunchAgent:
         )
 
         call_kwargs = mock_server.new_session.call_args.kwargs
-        assert call_kwargs["window_command"] == "claude --arg 'with spaces'"
-        mock_pane.send_keys.assert_not_called()
+        assert "window_command" not in call_kwargs
+        mock_wait.assert_called_once_with(mock_pane)
+        mock_pane.send_keys.assert_called_once_with("claude --arg 'with spaces'", enter=True)

@@ -200,13 +200,14 @@ def _highlight_agent_by_label(ctx, label: str) -> None:
 
 @when("a new agent is launched")
 def when_new_agent_launched(ctx):
-    agent_id = launch_agent(
-        command=["echo", "hello"],
-        working_dir="/tmp",
-        label="builder",
-        state_manager=ctx.state_mgr,
-        prefix="aque-lifecycle-test",
-    )
+    with patch("aque.run._wait_for_shell"):
+        agent_id = launch_agent(
+            command=["echo", "hello"],
+            working_dir="/tmp",
+            label="builder",
+            state_manager=ctx.state_mgr,
+            prefix="aque-lifecycle-test",
+        )
     ctx.data["new_agent_id"] = agent_id
     # Track the tmux session for cleanup
     state = ctx.state_mgr.load()

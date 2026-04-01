@@ -9,8 +9,9 @@ from aque.state import AgentState, StateManager
 
 
 class TestFullLifecycleV2:
+    @patch("aque.run._wait_for_shell")
     @patch("aque.run.libtmux.Server")
-    def test_launch_idle_review_done_to_history(self, mock_server_cls, tmp_aque_dir):
+    def test_launch_idle_review_done_to_history(self, mock_server_cls, mock_wait, tmp_aque_dir):
         mock_server = MagicMock()
         mock_server_cls.return_value = mock_server
         mock_session = MagicMock()
@@ -55,8 +56,9 @@ class TestFullLifecycleV2:
         assert hmgr.count() == 1
         assert hmgr.load()[0]["label"] == "test agent"
 
+    @patch("aque.run._wait_for_shell")
     @patch("aque.run.libtmux.Server")
-    def test_on_hold_lifecycle(self, mock_server_cls, tmp_aque_dir):
+    def test_on_hold_lifecycle(self, mock_server_cls, mock_wait, tmp_aque_dir):
         mock_server = MagicMock()
         mock_server_cls.return_value = mock_server
         mock_session = MagicMock()
