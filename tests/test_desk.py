@@ -1,3 +1,5 @@
+from unittest.mock import patch
+from click.exceptions import Exit
 import pytest
 
 from aque.desk import DeskApp, STATE_PRIORITY
@@ -61,3 +63,21 @@ class TestNewAgentFormWithPicker:
             await pilot.press("n")
             trees = app.query("#dir-tree")
             assert len(trees) == 0
+
+
+class TestDeskTmuxCheck:
+    @patch("aque.cli.shutil.which", return_value=None)
+    def test_desk_exits_when_tmux_not_installed(self, mock_which):
+        from aque.cli import desk
+
+        with pytest.raises(Exit):
+            desk()
+
+        mock_which.assert_called_once_with("tmux")
+
+    @patch("aque.cli.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.desk.DeskApp")
+    def test_desk_proceeds_when_tmux_installed(self, mock_desk_cls, mock_which):
+        from aque.cli import desk
+        desk()
+        mock_which.assert_called_once_with("tmux")
