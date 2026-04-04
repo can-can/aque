@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import libtmux
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.timer import Timer
@@ -16,6 +16,7 @@ from textual.widgets import (
     Static,
 )
 from textual.widgets.option_list import Option
+from rich.text import Text
 
 
 class FolderTree(DirectoryTree):
@@ -32,7 +33,7 @@ from aque.dir_history import DirHistoryManager
 from aque.history import HistoryManager
 from aque.monitor import capture_pane_content, start_monitor_daemon, stop_monitor
 from aque.run import launch_agent
-from aque.state import AgentInfo, AgentState, StateManager
+from aque.state import AgentInfo, AppState, AgentState, StateManager
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
 
 STATE_COLORS = {
@@ -305,9 +306,15 @@ class AutoAttachModal(ModalScreen):
 
     def on_key(self, event) -> None:
         if event.key == "enter":
-            self.dismiss(True)
+            try:
+                self.dismiss(True)
+            except ScreenStackError:
+                pass
         elif event.key == "escape":
-            self.dismiss(False)
+            try:
+                self.dismiss(False)
+            except ScreenStackError:
+                pass
 
 
 # ── Main App ─────────────────────────────────────────────────────────
@@ -413,6 +420,8 @@ class DeskApp(App):
         self._countdown_agent: AgentInfo | None = None
         self._countdown_modal: AutoAttachModal | None = None
         self._auto_attach_suppressed: bool = False
+        self._preview_debounce_timer: Timer | None = None
+        self._last_agent_fingerprint: list | None = None
 
     def _get_tmux_server(self) -> libtmux.Server:
         if self._tmux_server is None:
@@ -482,16 +491,18 @@ class DeskApp(App):
     def _on_refresh(self) -> None:
         if self._mode not in ("dashboard", "auto_attach"):
             return
-        self._refresh_status_bar()
-        self._refresh_agent_list()
+        state = self.state_mgr.load()
+        self._refresh_status_bar(state)
+        self._refresh_agent_list(state=state)
         self._refresh_preview()
         if self._mode == "dashboard":
-            self._try_auto_attach()
+            self._try_auto_attach(state)
 
-    def _refresh_status_bar(self) -> None:
+    def _refresh_status_bar(self, state: AppState | None = None) -> None:
         try:
             old = self.query_one("#status-bar", Static)
-            state = self.state_mgr.load()
+            if state is None:
+                state = self.state_mgr.load()
             counts: dict[AgentState, int] = {}
             for a in state.agents:
                 counts[a.state] = counts.get(a.state, 0) + 1
@@ -511,15 +522,21 @@ class DeskApp(App):
         except Exception:
             pass
 
-    def _refresh_agent_list(self, reset_highlight: bool = False) -> None:
+    def _refresh_agent_list(self, reset_highlight: bool = False, state: AppState | None = None) -> None:
         try:
             option_list = self.query_one("#agent-option-list", OptionList)
         except Exception:
             return
 
-        state = self.state_mgr.load()
+        if state is None:
+            state = self.state_mgr.load()
         active = [a for a in state.agents if a.state != AgentState.DONE]
         agents = sorted_agents(active)
+
+        new_fingerprint = [(a.id, a.state.value) for a in agents]
+        if not reset_highlight and new_fingerprint == self._last_agent_fingerprint:
+            return
+        self._last_agent_fingerprint = new_fingerprint
 
         current_highlighted_id = None
         if not reset_highlight and option_list.highlighted is not None:
@@ -573,10 +590,11 @@ class DeskApp(App):
             lines = content.split("\n")
             last_lines = lines[-30:]
             color = STATE_COLORS.get(agent.state, "white")
-            preview.update(
-                f"[bold]{agent.label}[/bold]  [{color}]{agent.state.value}[/{color}]\n\n"
-                + "\n".join(last_lines)
+            header = Text.from_markup(
+                f"[bold]{agent.label}[/bold]  [{color}]{agent.state.value}[/{color}]"
             )
+            body = Text("\n\n" + "\n".join(last_lines))
+            preview.update(header + body)
         else:
             preview.update(f"[bold]{agent.label}[/bold]\n[dim]No preview available[/dim]")
 
@@ -600,10 +618,11 @@ class DeskApp(App):
         self._ensure_monitor_running()
         self._try_auto_attach()
 
-    def _try_auto_attach(self) -> None:
+    def _try_auto_attach(self, state: AppState | None = None) -> None:
         if self._skip_attach or self._countdown_timer is not None or self._auto_attach_suppressed:
             return
-        state = self.state_mgr.load()
+        if state is None:
+            state = self.state_mgr.load()
         waiting = [a for a in state.agents if a.state == AgentState.WAITING]
         if not waiting:
             return
@@ -618,12 +637,12 @@ class DeskApp(App):
     def _on_modal_dismiss(self, result: bool | None) -> None:
         if result is True:
             agent = self._countdown_agent
-            self._cancel_countdown()
+            self._cleanup_countdown_state()
             if agent:
                 self._attach_to_agent(agent)
         elif result is False:
             self._auto_attach_suppressed = True
-            self._cancel_countdown()
+            self._cleanup_countdown_state()
 
     def _countdown_tick(self) -> None:
         self._countdown_seconds -= 1
@@ -636,19 +655,22 @@ class DeskApp(App):
         if self._countdown_modal is not None:
             self._countdown_modal.update_countdown(self._countdown_seconds)
 
-    def _cancel_countdown(self) -> None:
+    def _cleanup_countdown_state(self) -> None:
         if self._countdown_timer is not None:
             self._countdown_timer.stop()
             self._countdown_timer = None
         self._countdown_agent = None
         self._countdown_modal = None
         self._countdown_seconds = 0
+        if self._mode == "auto_attach":
+            self._mode = "dashboard"
+
+    def _cancel_countdown(self) -> None:
+        self._cleanup_countdown_state()
         try:
             self.pop_screen()
         except Exception:
             pass
-        if self._mode == "auto_attach":
-            self._mode = "dashboard"
 
     def _show_action_menu(self, agent: AgentInfo, was_exited: bool) -> None:
         self._auto_attach_suppressed = False
@@ -797,6 +819,12 @@ class DeskApp(App):
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if self._mode != "dashboard":
             return
+        if self._preview_debounce_timer is not None:
+            self._preview_debounce_timer.stop()
+        self._preview_debounce_timer = self.set_timer(0.15, self._debounced_preview)
+
+    def _debounced_preview(self) -> None:
+        self._preview_debounce_timer = None
         self._refresh_preview()
 
     def on_directory_picker_directory_selected(self, event) -> None:

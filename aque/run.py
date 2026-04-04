@@ -9,7 +9,7 @@ from libtmux.test.retry import retry_until
 
 from aque.state import AgentInfo, AgentState, StateManager
 
-SHELL_PROMPT_RE = re.compile(r"[\$#%>]\s*$")
+SHELL_PROMPT_RE = re.compile(r"[\$#%>➜❯→⟩›]\s*$")
 
 
 def _sanitize_session_name(name: str) -> str:
@@ -28,7 +28,7 @@ def _wait_for_shell(pane: Pane, timeout: float = 5.0) -> None:
                 return bool(SHELL_PROMPT_RE.search(stripped))
         return False
 
-    retry_until(_check, seconds=timeout, raises=True)
+    retry_until(_check, seconds=timeout, raises=False)
 
 
 def launch_agent(
