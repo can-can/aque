@@ -1,6 +1,7 @@
 import re
 import shlex
 import shutil
+import threading
 from pathlib import Path
 
 import libtmux
@@ -10,6 +11,7 @@ from libtmux.test.retry import retry_until
 from aque.state import AgentInfo, AgentState, StateManager
 
 SHELL_PROMPT_RE = re.compile(r"[\$#%>➜❯→⟩›]\s*$")
+_background_threads: list[threading.Thread] = []
 
 
 def _sanitize_session_name(name: str) -> str:
@@ -37,6 +39,7 @@ def launch_agent(
     label: str | None,
     state_manager: StateManager,
     prefix: str = "aque",
+    background: bool = False,
 ) -> int:
     if label is None:
         dir_basename = Path(working_dir).name
@@ -67,9 +70,7 @@ def launch_agent(
     session.set_option("remain-on-exit", "on")
 
     pane = session.active_pane
-    _wait_for_shell(pane)
     cmd_str = shlex.join(command)
-    pane.send_keys(cmd_str, enter=True)
 
     agent = AgentInfo(
         id=agent_id,
@@ -81,5 +82,19 @@ def launch_agent(
         pid=int(pane.pane_pid),
     )
     state_manager.add_agent(agent)
+
+    def _finalize() -> None:
+        try:
+            _wait_for_shell(pane)
+            pane.send_keys(cmd_str, enter=True)
+        except Exception:
+            pass
+
+    if background:
+        thread = threading.Thread(target=_finalize, daemon=True)
+        thread.start()
+        _background_threads.append(thread)
+    else:
+        _finalize()
 
     return agent_id
