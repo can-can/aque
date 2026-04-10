@@ -282,6 +282,7 @@ class AutoAttachModal(ModalScreen):
         super().__init__()
         self.agent_label = agent_label
         self.seconds = seconds
+        self._accept_input = False
 
     def compose(self) -> ComposeResult:
         box = Vertical(id="auto-attach-box")
@@ -304,7 +305,15 @@ class AutoAttachModal(ModalScreen):
         except Exception:
             pass
 
+    def on_mount(self) -> None:
+        self.set_timer(0.5, self._enable_input)
+
+    def _enable_input(self) -> None:
+        self._accept_input = True
+
     def on_key(self, event) -> None:
+        if not self._accept_input:
+            return
         if event.key == "enter":
             try:
                 self.dismiss(True)
@@ -870,6 +879,7 @@ class DeskApp(App):
                 label=form._label or None,
                 state_manager=self.state_mgr,
                 prefix=self.config["session_prefix"],
+                background=True,
             )
             self.dir_history_mgr.record_use(form._selected_dir)
             self._ensure_monitor_running()

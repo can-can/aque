@@ -776,7 +776,7 @@ def when_completes_agent_creation(ctx):
     from unittest.mock import patch as _patch
     from aque.state import AgentInfo, AgentState
 
-    def _fake_launch(command, working_dir, label, state_manager, prefix="aque"):
+    def _fake_launch(command, working_dir, label, state_manager, prefix="aque", background=False):
         agent_id = state_manager.next_id()
         agent = AgentInfo(
             id=agent_id,
@@ -1256,7 +1256,7 @@ def given_label_is(ctx, label_text):
     # finds a valid object and calls _show_dashboard() rather than crashing.
     launch_dir = ctx.data.get("launch_dir", "/tmp/myapp")
 
-    def _fake_launch(command, working_dir, label, state_manager, prefix="aque"):
+    def _fake_launch(command, working_dir, label, state_manager, prefix="aque", background=False):
         agent_id = state_manager.next_id()
         agent = AgentInfo(
             id=agent_id,
