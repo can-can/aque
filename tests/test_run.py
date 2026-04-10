@@ -108,3 +108,49 @@ class TestLaunchAgent:
         assert "window_command" not in call_kwargs
         mock_wait.assert_called_once_with(mock_pane)
         mock_pane.send_keys.assert_called_once_with("claude --arg 'with spaces'", enter=True)
+
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_launch_background_returns_before_finalize(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
+        import time
+        import aque.run
+
+        # Make _wait_for_shell take a moment so we can observe ordering
+        mock_wait.side_effect = lambda pane: time.sleep(0.1)
+
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_session.name = "aque-bg-1"
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        agent_id = launch_agent(
+            command=["claude", "--model", "opus"],
+            working_dir="/tmp/test",
+            label="bg test",
+            state_manager=mgr,
+            background=True,
+        )
+
+        # launch_agent returned immediately — agent is in state
+        assert agent_id == 1
+        state = mgr.load()
+        assert len(state.agents) == 1
+        assert state.agents[0].label == "bg test"
+
+        # send_keys has NOT been called yet (thread is still in _wait_for_shell sleep)
+        mock_pane.send_keys.assert_not_called()
+
+        # Join the background thread and verify finalization completed
+        threads = list(aque.run._background_threads)
+        aque.run._background_threads.clear()
+        for t in threads:
+            t.join(timeout=2.0)
+
+        mock_wait.assert_called_once_with(mock_pane)
+        mock_pane.send_keys.assert_called_once_with("claude --model opus", enter=True)
