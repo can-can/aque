@@ -85,6 +85,11 @@ def launch_agent(
     )
     state_manager.add_agent(agent)
 
+    # Ensure signals directory exists for hook-based detection
+    if agent_type is not None:
+        signals_dir = state_manager.aque_dir / "signals"
+        signals_dir.mkdir(exist_ok=True)
+
     def _finalize() -> None:
         try:
             _wait_for_shell(pane)

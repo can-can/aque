@@ -256,3 +256,27 @@ class TestLaunchAgentType:
         # Only one send_keys call (the command itself)
         calls = mock_pane.send_keys.call_args_list
         assert len(calls) == 1
+
+
+class TestSignalsDir:
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_launch_with_type_creates_signals_dir(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        launch_agent(
+            command=["claude"],
+            working_dir="/tmp/test",
+            label="test",
+            state_manager=mgr,
+            agent_type="claude",
+        )
+        assert (tmp_aque_dir / "signals").is_dir()
