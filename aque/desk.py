@@ -504,6 +504,10 @@ class DeskApp(App):
             self._tmux_server = libtmux.Server()
         return self._tmux_server
 
+    @property
+    def _is_narrow(self) -> bool:
+        return self.size.width < 80
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield self._make_status_bar()

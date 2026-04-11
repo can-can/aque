@@ -75,6 +75,26 @@ class TestNewAgentFormWithPicker:
             assert len(trees) == 0
 
 
+class TestNarrowMode:
+    @pytest.mark.asyncio
+    async def test_narrow_at_45_cols(self, tmp_aque_dir):
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(45, 24)) as pilot:
+            assert app._is_narrow is True
+
+    @pytest.mark.asyncio
+    async def test_wide_at_80_cols(self, tmp_aque_dir):
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(80, 24)) as pilot:
+            assert app._is_narrow is False
+
+    @pytest.mark.asyncio
+    async def test_wide_at_120_cols(self, tmp_aque_dir):
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            assert app._is_narrow is False
+
+
 class TestDeskTmuxCheck:
     @patch("aque.cli.shutil.which", return_value=None)
     def test_desk_exits_when_tmux_not_installed(self, mock_which):
