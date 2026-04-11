@@ -63,22 +63,8 @@ def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
 
 
 class StatusBar(Static):
-    def __init__(self, agents: list[AgentInfo], history_count: int) -> None:
-        counts: dict[AgentState, int] = {}
-        for a in agents:
-            counts[a.state] = counts.get(a.state, 0) + 1
-        parts = []
-        for st, color in [
-            (AgentState.RUNNING, "green"),
-            (AgentState.WAITING, "yellow"),
-            (AgentState.ON_HOLD, "magenta"),
-        ]:
-            c = counts.get(st, 0)
-            if c:
-                parts.append(f"[{color}]● {c} {st.value}[/{color}]")
-        if history_count:
-            parts.append(f"[dim]● {history_count} done[/dim]")
-        super().__init__("    ".join(parts) if parts else "[dim]No agents[/dim]", id="status-bar")
+    def __init__(self) -> None:
+        super().__init__("[dim]No agents[/dim]", id="status-bar")
 
 
 class PreviewPane(Static):
@@ -527,31 +513,14 @@ class DeskApp(App):
         yield Footer()
 
     def _make_status_bar(self) -> StatusBar:
-        state = self.state_mgr.load()
-        return StatusBar(state.agents, self.history_mgr.count())
+        return StatusBar()
 
     def _make_dashboard(self) -> Horizontal:
-        state = self.state_mgr.load()
-        active = [a for a in state.agents if a.state != AgentState.DONE]
-        agents = sorted_agents(active)
-
-        options = []
-        for agent in agents:
-            color = STATE_COLORS.get(agent.state, "white")
-            label = (
-                f"[{color}]{agent.state.value:<8}[/{color}]  "
-                f"{agent.label:<25}  {agent.dir}"
-            )
-            options.append(Option(label, id=str(agent.id)))
-
         dashboard = Horizontal(id="dashboard")
         agent_panel = Vertical(id="agent-panel")
         preview_panel = Vertical(id="preview-panel")
 
-        if options:
-            agent_panel._add_child(OptionList(*options, id="agent-option-list"))
-        else:
-            agent_panel._add_child(OptionList(id="agent-option-list"))
+        agent_panel._add_child(OptionList(id="agent-option-list"))
 
         preview_panel._add_child(PreviewPane())
         dashboard._add_child(agent_panel)
