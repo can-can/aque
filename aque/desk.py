@@ -326,7 +326,8 @@ class AutoAttachModal(ModalScreen):
         align: center middle;
     }
     #auto-attach-box {
-        width: 50;
+        width: 100%;
+        max-width: 50;
         height: 7;
         border: thick $warning;
         background: $surface;
@@ -469,6 +470,12 @@ class DeskApp(App):
         color: $text-muted;
         margin-top: 1;
     }
+    #action-menu.narrow {
+        padding: 1 1;
+    }
+    #new-agent-form.narrow {
+        padding: 1 1;
+    }
     """
 
     BINDINGS = [
@@ -559,6 +566,11 @@ class DeskApp(App):
             self.query_one("#agent-panel").set_class(narrow, "narrow")
         except Exception:
             pass
+        for selector in ("#action-menu", "#new-agent-form"):
+            try:
+                self.query_one(selector).set_class(narrow, "narrow")
+            except Exception:
+                pass
 
     def on_resize(self, event) -> None:
         self._apply_layout(width=event.size.width)
@@ -812,6 +824,7 @@ class DeskApp(App):
             ActionMenu(agent=agent, waiting_count=count, config=self.config, was_exited=was_exited),
             after=self.query_one(Header),
         )
+        self._apply_layout()
         try:
             ol = self.query_one("#action-option-list", OptionList)
             ol.focus()
@@ -839,6 +852,7 @@ class DeskApp(App):
             ),
             after=self.query_one(Header),
         )
+        self._apply_layout()
 
     # ── Agent actions ────────────────────────────────────────────
 

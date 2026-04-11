@@ -64,15 +64,26 @@ class DirectoryPicker(Vertical):
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Search directories...", id="dir-search-input")
         yield OptionList(id="dir-list")
-        yield Static(
-            "  ".join([
-                key_hint("Enter", "select"),
-                key_hint("p", "pin/unpin"),
-                key_hint("b", "browse tree"),
-                key_hint("Esc", "cancel"),
-            ]),
-            id="dir-picker-hint",
-        )
+        yield Static(self._hint_text(), id="dir-picker-hint")
+
+    def _hint_text(self) -> str:
+        try:
+            narrow = self.app.size.width < 80
+        except Exception:
+            narrow = False
+        if narrow:
+            return "  ".join([
+                key_hint("Enter", "sel"),
+                key_hint("p", "pin"),
+                key_hint("b", "tree"),
+                key_hint("Esc", "back"),
+            ])
+        return "  ".join([
+            key_hint("Enter", "select"),
+            key_hint("p", "pin/unpin"),
+            key_hint("b", "browse tree"),
+            key_hint("Esc", "cancel"),
+        ])
 
     def on_mount(self) -> None:
         self._refresh_list("")
