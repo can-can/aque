@@ -50,9 +50,30 @@ def ensure_monitor_running() -> None:
 def run(
     dir: str = typer.Option(..., "--dir", help="Working directory for the agent"),
     label: Optional[str] = typer.Option(None, "--label", help="Human-readable label"),
+    agent_type: Optional[str] = typer.Option(None, "--type", help="Agent type for hook-based detection (e.g. claude, codex)"),
     command: list[str] = typer.Argument(..., help="Agent command and arguments"),
 ) -> None:
     """Launch an agent in a managed tmux session."""
+    # Check plugin and install hook if needed
+    if agent_type is not None:
+        from aque.plugins import get_plugin
+        plugin = get_plugin(agent_type)
+        if plugin is None:
+            console.print(f"[yellow]Warning: unknown agent type '{agent_type}', falling back to polling[/yellow]")
+            agent_type = None
+        elif not plugin.is_installed():
+            console.print(f"[bold]Agent type '{agent_type}' requires a hook to be installed.[/bold]")
+            if typer.confirm("Install the hook now?"):
+                try:
+                    plugin.install_hook()
+                    console.print(f"[green]Hook installed for {agent_type}.[/green]")
+                except Exception as e:
+                    console.print(f"[red]Hook install failed: {e}. Falling back to polling.[/red]")
+                    agent_type = None
+            else:
+                console.print("[dim]Skipping hook install. Using polling fallback.[/dim]")
+                agent_type = None
+
     config = load_config(AQUE_DIR)
     mgr = get_state_manager()
     agent_id = launch_agent(
@@ -61,6 +82,7 @@ def run(
         label=label,
         state_manager=mgr,
         prefix=config["session_prefix"],
+        agent_type=agent_type,
     )
     dir_history_mgr = DirHistoryManager(AQUE_DIR)
     dir_history_mgr.record_use(dir)
