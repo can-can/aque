@@ -1,7 +1,9 @@
+import json
 import time
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from aque.monitor import IdleDetector, has_children
+from aque.monitor import IdleDetector, check_signal_files, cleanup_stale_signals, has_children
 
 
 class TestHasChildren:
@@ -93,3 +95,57 @@ class TestMonitorStates:
         from aque.state import AgentState
         assert AgentState.ON_HOLD not in MONITORED_STATES
         assert AgentState.RUNNING in MONITORED_STATES
+
+
+class TestSignalFiles:
+    def test_check_signal_files_returns_agent_ids(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
+        (signals_dir / "7.json").write_text(json.dumps({"event": "stop"}))
+        ids = check_signal_files(signals_dir)
+        assert ids == {3, 7}
+
+    def test_check_signal_files_consumes_files(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
+        check_signal_files(signals_dir)
+        assert not (signals_dir / "3.json").exists()
+
+    def test_check_signal_files_empty_dir(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        ids = check_signal_files(signals_dir)
+        assert ids == set()
+
+    def test_check_signal_files_dir_missing(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        ids = check_signal_files(signals_dir)
+        assert ids == set()
+
+    def test_check_signal_files_ignores_non_json(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "readme.txt").write_text("not a signal")
+        (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
+        ids = check_signal_files(signals_dir)
+        assert ids == {3}
+        assert (signals_dir / "readme.txt").exists()
+
+    def test_check_signal_files_ignores_non_numeric_names(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "abc.json").write_text(json.dumps({"event": "stop"}))
+        ids = check_signal_files(signals_dir)
+        assert ids == set()
+
+    def test_cleanup_stale_signals(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "1.json").write_text(json.dumps({"event": "stop"}))
+        (signals_dir / "99.json").write_text(json.dumps({"event": "stop"}))
+        active_ids = {1}
+        cleanup_stale_signals(signals_dir, active_ids)
+        assert (signals_dir / "1.json").exists()
+        assert not (signals_dir / "99.json").exists()

@@ -86,6 +86,38 @@ def session_exists(server: libtmux.Server, session_name: str) -> bool:
         return False
 
 
+def check_signal_files(signals_dir: Path) -> set[int]:
+    """Read and consume signal files. Returns set of agent IDs that signaled."""
+    signaled: set[int] = set()
+    if not signals_dir.is_dir():
+        return signaled
+    for f in signals_dir.iterdir():
+        if f.suffix != ".json":
+            continue
+        try:
+            agent_id = int(f.stem)
+        except ValueError:
+            continue
+        signaled.add(agent_id)
+        f.unlink(missing_ok=True)
+    return signaled
+
+
+def cleanup_stale_signals(signals_dir: Path, active_ids: set[int]) -> None:
+    """Remove signal files for agents that no longer exist."""
+    if not signals_dir.is_dir():
+        return
+    for f in signals_dir.iterdir():
+        if f.suffix != ".json":
+            continue
+        try:
+            agent_id = int(f.stem)
+        except ValueError:
+            continue
+        if agent_id not in active_ids:
+            f.unlink(missing_ok=True)
+
+
 def run_monitor(aque_dir: Path) -> None:
     config = load_config(aque_dir)
     mgr = StateManager(aque_dir)
@@ -95,7 +127,15 @@ def run_monitor(aque_dir: Path) -> None:
     pid_file = aque_dir / "monitor.pid"
     pid_file.write_text(str(os.getpid()))
 
+    signals_dir = aque_dir / "signals"
+    signals_dir.mkdir(exist_ok=True)
+
     server = libtmux.Server()
+
+    # Cleanup stale signals on startup
+    state = mgr.load()
+    active_ids = {a.id for a in state.agents}
+    cleanup_stale_signals(signals_dir, active_ids)
 
     try:
         while True:
@@ -103,6 +143,20 @@ def run_monitor(aque_dir: Path) -> None:
             active_agents = [
                 a for a in state.agents if a.state in MONITORED_STATES
             ]
+
+            # Check signal files first (instant detection)
+            signaled_ids = check_signal_files(signals_dir)
+            for agent in active_agents:
+                if agent.id in signaled_ids:
+                    mgr.update_agent_state(agent.id, AgentState.WAITING)
+                    detector.remove_agent(agent.id)
+
+            # Re-load state after signal transitions
+            if signaled_ids:
+                state = mgr.load()
+                active_agents = [
+                    a for a in state.agents if a.state in MONITORED_STATES
+                ]
 
             for agent in active_agents:
                 if agent.state != AgentState.RUNNING:
