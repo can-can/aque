@@ -35,6 +35,52 @@ class TestAgentInfo:
         assert restored.state == agent.state
         assert restored.label == agent.label
 
+    def test_agent_type_defaults_to_none(self):
+        agent = AgentInfo(
+            id=1, tmux_session="aque-1", label="test",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        )
+        assert agent.agent_type is None
+
+    def test_agent_type_set_explicitly(self):
+        agent = AgentInfo(
+            id=1, tmux_session="aque-1", label="test",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+            agent_type="claude",
+        )
+        assert agent.agent_type == "claude"
+
+    def test_agent_type_roundtrips_through_dict(self):
+        agent = AgentInfo(
+            id=1, tmux_session="aque-1", label="test",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+            agent_type="claude",
+        )
+        d = agent.to_dict()
+        assert d["agent_type"] == "claude"
+        restored = AgentInfo.from_dict(d)
+        assert restored.agent_type == "claude"
+
+    def test_agent_type_none_roundtrips_through_dict(self):
+        agent = AgentInfo(
+            id=1, tmux_session="aque-1", label="test",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        )
+        d = agent.to_dict()
+        assert d["agent_type"] is None
+        restored = AgentInfo.from_dict(d)
+        assert restored.agent_type is None
+
+    def test_from_dict_handles_missing_agent_type(self):
+        """Backward compat: existing state.json entries without agent_type."""
+        d = {
+            "id": 1, "tmux_session": "aque-1", "label": "test",
+            "dir": "/tmp", "command": ["claude"], "state": "running", "pid": 100,
+            "created_at": "2026-04-11T00:00:00Z", "last_change_at": "2026-04-11T00:00:00Z",
+        }
+        agent = AgentInfo.from_dict(d)
+        assert agent.agent_type is None
+
 
 class TestStateManager:
     def test_load_empty_state(self, tmp_aque_dir):

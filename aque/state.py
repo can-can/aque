@@ -30,6 +30,7 @@ class AgentInfo:
     pid: int
     created_at: str = ""
     last_change_at: str = ""
+    agent_type: str | None = None
 
     def __post_init__(self):
         now = datetime.now(timezone.utc).isoformat()
@@ -47,6 +48,7 @@ class AgentInfo:
     def from_dict(cls, d: dict) -> "AgentInfo":
         d = d.copy()
         d["state"] = AgentState(d["state"])
+        d.setdefault("agent_type", None)
         return cls(**d)
 
 
