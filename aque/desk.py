@@ -607,6 +607,12 @@ class DeskApp(App):
             for a in state.agents:
                 counts[a.state] = counts.get(a.state, 0) + 1
             parts = []
+            narrow = self._is_narrow
+            state_labels = {
+                AgentState.RUNNING: ("run", "running"),
+                AgentState.WAITING: ("wait", "waiting"),
+                AgentState.ON_HOLD: ("hold", "on_hold"),
+            }
             for st, color in [
                 (AgentState.RUNNING, "green"),
                 (AgentState.WAITING, "yellow"),
@@ -614,11 +620,16 @@ class DeskApp(App):
             ]:
                 c = counts.get(st, 0)
                 if c:
-                    parts.append(f"[{color}]● {c} {st.value}[/{color}]")
+                    short, full = state_labels[st]
+                    name = short if narrow else full
+                    sep = "" if narrow else " "
+                    parts.append(f"[{color}]●{sep}{c} {name}[/{color}]")
             hcount = self.history_mgr.count()
             if hcount:
-                parts.append(f"[dim]● {hcount} done[/dim]")
-            old.update("    ".join(parts) if parts else "[dim]No agents[/dim]")
+                sep = "" if narrow else " "
+                parts.append(f"[dim]●{sep}{hcount} done[/dim]")
+            joiner = " " if narrow else "    "
+            old.update(joiner.join(parts) if parts else "[dim]No agents[/dim]")
         except Exception:
             pass
 

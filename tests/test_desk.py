@@ -156,6 +156,40 @@ class TestNarrowMode:
             assert "/tmp" in label
 
 
+    @pytest.mark.asyncio
+    async def test_narrow_status_bar_compact(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a",
+            dir="/tmp", command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="s-2", label="b",
+            dir="/tmp", command=["b"], state=AgentState.WAITING, pid=101,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(45, 24)) as pilot:
+            status = str(app.query_one("#status-bar").content)
+            # Compact: should have abbreviated names
+            assert "run" in status.lower()
+            assert "wait" in status.lower()
+            # Should NOT have the full word with extra spacing
+            assert "running" not in status.lower()
+            assert "waiting" not in status.lower()
+
+    @pytest.mark.asyncio
+    async def test_wide_status_bar_full(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a",
+            dir="/tmp", command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            status = str(app.query_one("#status-bar").content)
+            assert "running" in status.lower()
+
+
 class TestDeskTmuxCheck:
     @patch("aque.cli.shutil.which", return_value=None)
     def test_desk_exits_when_tmux_not_installed(self, mock_which):
