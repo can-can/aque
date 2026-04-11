@@ -565,6 +565,8 @@ class DeskApp(App):
 
     def on_mount(self) -> None:
         self._apply_layout()
+        self._refresh_agent_list(reset_highlight=True)
+        self._refresh_status_bar()
         self._start_refresh()
         self._focus_agent_list()
 
@@ -647,11 +649,14 @@ class DeskApp(App):
         option_list.clear_options()
         for agent in agents:
             color = STATE_COLORS.get(agent.state, "white")
-            type_tag = f" [dim]\\[{agent.agent_type}][/dim]" if agent.agent_type else ""
-            label = (
-                f"[{color}]{agent.state.value:<8}[/{color}]{type_tag}  "
-                f"{agent.label:<25}  {agent.dir}"
-            )
+            if self._is_narrow:
+                label = f"[{color}]●[/{color}] {agent.label}"
+            else:
+                type_tag = f" [dim]\\[{agent.agent_type}][/dim]" if agent.agent_type else ""
+                label = (
+                    f"[{color}]{agent.state.value:<8}[/{color}]{type_tag}  "
+                    f"{agent.label:<25}  {agent.dir}"
+                )
             option_list.add_option(Option(label, id=str(agent.id)))
 
         if current_highlighted_id is not None:

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 from click.exceptions import Exit
 import pytest
+from textual.widgets import OptionList
 
 from aque.desk import DeskApp, STATE_PRIORITY
 from aque.state import AgentState, AgentInfo, StateManager
@@ -119,6 +120,40 @@ class TestNarrowMode:
             await pilot.resize_terminal(120, 24)
             await pilot.pause()
             assert app.query_one("#preview-panel").display is True
+
+    @pytest.mark.asyncio
+    async def test_narrow_agent_label_compact(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . my-project",
+            dir="/tmp/my-project", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(45, 24)) as pilot:
+            ol = app.query_one("#agent-option-list", OptionList)
+            opt = ol.get_option_at_index(0)
+            label = str(opt.prompt)
+            # Should NOT contain dir path or state word
+            assert "/tmp" not in label
+            assert "running" not in label.lower()
+            # Should contain the agent label
+            assert "claude . my-project" in label
+
+    @pytest.mark.asyncio
+    async def test_wide_agent_label_full(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . my-project",
+            dir="/tmp/my-project", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            ol = app.query_one("#agent-option-list", OptionList)
+            opt = ol.get_option_at_index(0)
+            label = str(opt.prompt)
+            # Wide mode should contain state text and dir
+            assert "running" in label.lower()
+            assert "/tmp" in label
 
 
 class TestDeskTmuxCheck:
