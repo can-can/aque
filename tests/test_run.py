@@ -154,3 +154,105 @@ class TestLaunchAgent:
 
         mock_wait.assert_called_once_with(mock_pane)
         mock_pane.send_keys.assert_called_once_with("claude --model opus", enter=True)
+
+
+class TestLaunchAgentType:
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_launch_with_type_stores_agent_type(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        launch_agent(
+            command=["claude", "--model", "opus"],
+            working_dir="/tmp/test",
+            label="test",
+            state_manager=mgr,
+            agent_type="claude",
+        )
+        state = mgr.load()
+        assert state.agents[0].agent_type == "claude"
+
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_launch_without_type_stores_none(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        launch_agent(
+            command=["aider"],
+            working_dir="/tmp/test",
+            label="test",
+            state_manager=mgr,
+        )
+        state = mgr.load()
+        assert state.agents[0].agent_type is None
+
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_launch_with_type_exports_env_var(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        agent_id = launch_agent(
+            command=["claude"],
+            working_dir="/tmp/test",
+            label="test",
+            state_manager=mgr,
+            agent_type="claude",
+        )
+
+        # send_keys should be called twice: first export, then command
+        calls = mock_pane.send_keys.call_args_list
+        assert len(calls) == 2
+        # First call: export env var
+        assert calls[0][0][0] == f"export AQUE_AGENT_ID={agent_id}"
+        assert calls[0][1]["enter"] is True
+        # Second call: the actual command
+        assert calls[1][0][0] == "claude"
+        assert calls[1][1]["enter"] is True
+
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_launch_without_type_no_export(self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        launch_agent(
+            command=["aider"],
+            working_dir="/tmp/test",
+            label="test",
+            state_manager=mgr,
+        )
+
+        # Only one send_keys call (the command itself)
+        calls = mock_pane.send_keys.call_args_list
+        assert len(calls) == 1

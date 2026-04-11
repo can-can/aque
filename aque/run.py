@@ -40,6 +40,7 @@ def launch_agent(
     state_manager: StateManager,
     prefix: str = "aque",
     background: bool = False,
+    agent_type: str | None = None,
 ) -> int:
     if label is None:
         dir_basename = Path(working_dir).name
@@ -80,12 +81,15 @@ def launch_agent(
         command=command,
         state=AgentState.RUNNING,
         pid=int(pane.pane_pid),
+        agent_type=agent_type,
     )
     state_manager.add_agent(agent)
 
     def _finalize() -> None:
         try:
             _wait_for_shell(pane)
+            if agent_type is not None:
+                pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
             pane.send_keys(cmd_str, enter=True)
         except Exception:
             pass
