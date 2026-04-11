@@ -558,8 +558,9 @@ class DeskApp(App):
         option_list.clear_options()
         for agent in agents:
             color = STATE_COLORS.get(agent.state, "white")
+            type_tag = f" [dim]\\[{agent.agent_type}][/dim]" if agent.agent_type else ""
             label = (
-                f"[{color}]{agent.state.value:<8}[/{color}]  "
+                f"[{color}]{agent.state.value:<8}[/{color}]{type_tag}  "
                 f"{agent.label:<25}  {agent.dir}"
             )
             option_list.add_option(Option(label, id=str(agent.id)))
@@ -602,8 +603,16 @@ class DeskApp(App):
             header = Text.from_markup(
                 f"[bold]{agent.label}[/bold]  [{color}]{agent.state.value}[/{color}]"
             )
-            body = Text("\n\n" + "\n".join(last_lines))
-            preview.update(header + body)
+            if agent.agent_type:
+                meta = Text.from_markup(
+                    f"\n[dim]Type: {agent.agent_type}  Detection: hook[/dim]"
+                )
+            else:
+                meta = Text.from_markup(
+                    "\n[dim]Detection: polling[/dim]"
+                )
+            body = Text("\n" + "\n".join(last_lines))
+            preview.update(header + meta + body)
         else:
             preview.update(f"[bold]{agent.label}[/bold]\n[dim]No preview available[/dim]")
 
