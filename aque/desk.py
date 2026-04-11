@@ -412,6 +412,10 @@ class DeskApp(App):
         width: 40%;
         border-right: solid $surface-lighten-1;
     }
+    #agent-panel.narrow {
+        width: 100%;
+        border-right: none;
+    }
     #preview-panel {
         width: 60%;
         padding: 1 2;
@@ -546,7 +550,21 @@ class DeskApp(App):
         dashboard._add_child(preview_panel)
         return dashboard
 
+    def _apply_layout(self, width: int | None = None) -> None:
+        """Toggle between narrow (single-column) and wide (two-column) layout."""
+        w = width if width is not None else self.size.width
+        narrow = w < 80
+        try:
+            self.query_one("#preview-panel").display = not narrow
+            self.query_one("#agent-panel").set_class(narrow, "narrow")
+        except Exception:
+            pass
+
+    def on_resize(self, event) -> None:
+        self._apply_layout(width=event.size.width)
+
     def on_mount(self) -> None:
+        self._apply_layout()
         self._start_refresh()
         self._focus_agent_list()
 
