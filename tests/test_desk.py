@@ -189,6 +189,25 @@ class TestNarrowMode:
             status = str(app.query_one("#status-bar").content)
             assert "running" in status.lower()
 
+    @pytest.mark.asyncio
+    async def test_resize_refreshes_agent_labels(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . proj",
+            dir="/tmp/proj", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            ol = app.query_one("#agent-option-list", OptionList)
+            wide_label = str(ol.get_option_at_index(0).prompt)
+            assert "running" in wide_label.lower()
+
+            await pilot.resize_terminal(45, 24)
+            await pilot.pause()
+            narrow_label = str(ol.get_option_at_index(0).prompt)
+            assert "running" not in narrow_label.lower()
+            assert "claude . proj" in narrow_label
+
 
 class TestDeskTmuxCheck:
     @patch("aque.cli.shutil.which", return_value=None)

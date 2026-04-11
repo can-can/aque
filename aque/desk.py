@@ -509,6 +509,7 @@ class DeskApp(App):
         self._auto_attach_suppressed: bool = False
         self._preview_debounce_timer: Timer | None = None
         self._last_agent_fingerprint: list | None = None
+        self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
 
     def _get_tmux_server(self) -> libtmux.Server:
         if self._tmux_server is None:
@@ -517,7 +518,7 @@ class DeskApp(App):
 
     @property
     def _is_narrow(self) -> bool:
-        return self.size.width < 80
+        return self._narrow
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -561,6 +562,7 @@ class DeskApp(App):
         """Toggle between narrow (single-column) and wide (two-column) layout."""
         w = width if width is not None else self.size.width
         narrow = w < 80
+        self._narrow = narrow
         try:
             self.query_one("#preview-panel").display = not narrow
             self.query_one("#agent-panel").set_class(narrow, "narrow")
@@ -574,6 +576,10 @@ class DeskApp(App):
 
     def on_resize(self, event) -> None:
         self._apply_layout(width=event.size.width)
+        if self._mode == "dashboard":
+            self._last_agent_fingerprint = None  # Force label rebuild
+            self._refresh_agent_list()
+            self._refresh_status_bar()
 
     def on_mount(self) -> None:
         self._apply_layout()
