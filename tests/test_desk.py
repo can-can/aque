@@ -49,10 +49,19 @@ class TestDashboardMount:
 
 class TestNewAgentFormWithPicker:
     @pytest.mark.asyncio
-    async def test_new_agent_form_shows_dir_picker(self, tmp_aque_dir):
+    async def test_new_agent_form_shows_type_selector(self, tmp_aque_dir):
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             await pilot.press("n")
+            type_list = app.query_one("#type-list")
+            assert type_list is not None
+
+    @pytest.mark.asyncio
+    async def test_new_agent_form_shows_dir_picker_after_type(self, tmp_aque_dir):
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.press("n")
+            await pilot.press("enter")
             picker = app.query_one("#dir-picker")
             assert picker is not None
 
@@ -61,6 +70,7 @@ class TestNewAgentFormWithPicker:
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             await pilot.press("n")
+            await pilot.press("enter")
             trees = app.query("#dir-tree")
             assert len(trees) == 0
 

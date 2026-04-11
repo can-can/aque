@@ -118,29 +118,86 @@ class ActionMenu(Vertical):
 
 
 class NewAgentForm(Vertical):
-    def __init__(self, dir_history_mgr: DirHistoryManager, default_dir: str) -> None:
+    def __init__(self, dir_history_mgr: DirHistoryManager, default_dir: str, plugin_names: list[str] | None = None) -> None:
         super().__init__(id="new-agent-form")
-        self._step = "dir"
+        self._step = "type"
+        self._selected_type: str | None = None
         self._selected_dir: str = ""
         self._command: str = ""
         self._label: str = ""
         self._dir_history_mgr = dir_history_mgr
         self._default_dir = default_dir
         self._tree_mode = False
+        self._plugin_names = plugin_names or []
 
     def compose(self) -> ComposeResult:
         yield Static("New Agent", id="new-agent-title")
-        yield Static("Step 1/3: Select working directory", id="new-agent-step")
-        yield DirectoryPicker(
-            dir_history_mgr=self._dir_history_mgr,
-            default_dir=self._default_dir,
-            id="dir-picker",
+        yield Static("Step 1/4: Select agent type", id="new-agent-step")
+        type_options = [Option("none (polling only)", id="none")]
+        for name in self._plugin_names:
+            type_options.append(Option(name, id=name))
+        yield OptionList(*type_options, id="type-list")
+        yield Static(
+            "   ".join([key_hint("Enter", "select"), key_hint("Esc", "cancel")]),
+            id="new-agent-hint",
         )
+
+    def select_type(self) -> None:
+        """Handle type selection and advance to dir step."""
+        try:
+            type_list = self.query_one("#type-list", OptionList)
+        except Exception:
+            return
+        if type_list.highlighted is None:
+            return
+        option = type_list.get_option_at_index(type_list.highlighted)
+        self._selected_type = None if option.id == "none" else option.id
+        type_list.remove()
+        self._show_dir_from_type()
+
+    def _show_dir_from_type(self) -> None:
+        """Advance from type to directory step."""
+        self._step = "dir"
+        type_label = self._selected_type or "none"
+        self.query_one("#new-agent-step").update(
+            f"Step 2/4: Select working directory  (type: {type_label})"
+        )
+        self.mount(
+            DirectoryPicker(
+                dir_history_mgr=self._dir_history_mgr,
+                default_dir=self._default_dir,
+                id="dir-picker",
+            ),
+            after=self.query_one("#new-agent-step"),
+        )
+        self.query_one("#new-agent-hint").update(
+            "   ".join([key_hint("Enter", "select"), key_hint("b", "browse"), key_hint("Esc", "back")])
+        )
+
+    def show_type_step(self) -> None:
+        """Go back to the type selection step."""
+        self._step = "type"
+        self.query_one("#new-agent-step").update("Step 1/4: Select agent type")
+        try:
+            self.query_one("#dir-picker").remove()
+        except Exception:
+            pass
+        type_options = [Option("none (polling only)", id="none")]
+        for name in self._plugin_names:
+            type_options.append(Option(name, id=name))
+        self.mount(
+            OptionList(*type_options, id="type-list"),
+            after=self.query_one("#new-agent-step"),
+        )
+        self.query_one("#new-agent-hint").update(
+            "   ".join([key_hint("Enter", "select"), key_hint("Esc", "cancel")])
+        )
+        self.query_one("#type-list", OptionList).focus()
 
     def show_command_step(self) -> None:
         self._step = "command"
         self.query_one("#new-agent-step").update(
-            f"Step 2/3: Enter command  (dir: {self._selected_dir})"
+            f"Step 3/4: Enter command  (dir: {self._selected_dir})"
         )
         # Remove dir picker or label input depending on direction
         for selector in ("#dir-picker", "#label-input"):
@@ -169,7 +226,7 @@ class NewAgentForm(Vertical):
         default_label = f"{cmd_name} . {dir_name}"
         self._label = default_label
         self.query_one("#new-agent-step").update(
-            f"Step 3/3: Label  (dir: {self._selected_dir}, cmd: {self._command})"
+            f"Step 4/4: Label  (dir: {self._selected_dir}, cmd: {self._command})"
         )
         self.query_one("#command-input").remove()
         self.mount(
@@ -184,7 +241,10 @@ class NewAgentForm(Vertical):
     def show_dir_step(self) -> None:
         """Go back to directory selection step."""
         self._step = "dir"
-        self.query_one("#new-agent-step").update("Step 1/3: Select working directory")
+        type_label = self._selected_type or "none"
+        self.query_one("#new-agent-step").update(
+            f"Step 2/4: Select working directory  (type: {type_label})"
+        )
         try:
             self.query_one("#command-input").remove()
         except Exception:
@@ -200,6 +260,13 @@ class NewAgentForm(Vertical):
                 id="dir-picker",
             ),
             after=self.query_one("#new-agent-step"),
+        )
+        self.mount(
+            Static(
+                "   ".join([key_hint("Enter", "select"), key_hint("b", "browse"), key_hint("Esc", "back")]),
+                id="new-agent-hint",
+            ),
+            after=self.query_one("#dir-picker"),
         )
 
     def show_tree_fallback(self) -> None:
@@ -724,10 +791,13 @@ class DeskApp(App):
             self.query_one("#status-bar").display = False
         except Exception:
             pass
+        from aque.plugins import discover_plugins
+        plugin_names = sorted(discover_plugins().keys())
         self.mount(
             NewAgentForm(
                 dir_history_mgr=self.dir_history_mgr,
                 default_dir=self.config.get("default_dir", str(Path.home())),
+                plugin_names=plugin_names,
             ),
             after=self.query_one(Header),
         )
@@ -823,6 +893,10 @@ class DeskApp(App):
         if self._mode == "action_menu":
             self._do_action(event.option.id)
             return
+        if self._mode == "new_agent_form" and event.option_list.id == "type-list":
+            form = self.query_one(NewAgentForm)
+            form.select_type()
+            return
         if self._mode != "dashboard":
             return
         agent_id = int(event.option.id)
@@ -881,6 +955,12 @@ class DeskApp(App):
             form.show_label_step()
         elif event.input.id == "label-input":
             form._label = event.value.strip()
+            agent_type = form._selected_type
+            if agent_type:
+                from aque.plugins import get_plugin
+                plugin = get_plugin(agent_type)
+                if plugin and not plugin.is_installed():
+                    plugin.install_hook()
             command = shlex.split(form._command)
             agent_id = launch_agent(
                 command=command,
@@ -889,6 +969,7 @@ class DeskApp(App):
                 state_manager=self.state_mgr,
                 prefix=self.config["session_prefix"],
                 background=True,
+                agent_type=agent_type,
             )
             self.dir_history_mgr.record_use(form._selected_dir)
             self._ensure_monitor_running()
@@ -931,6 +1012,17 @@ class DeskApp(App):
         if self._mode == "new_agent_form":
             form = self.query_one(NewAgentForm)
 
+            if form._step == "type":
+                if event.key == "escape":
+                    for w in self.query("NewAgentForm"):
+                        w.remove()
+                    self._show_dashboard()
+                    return
+                if event.key == "enter":
+                    form.select_type()
+                    return
+                return
+
             if event.key == "escape":
                 if form._tree_mode:
                     form.hide_tree_fallback()
@@ -941,10 +1033,9 @@ class DeskApp(App):
                 if form._step == "command":
                     form.show_dir_step()
                     return
-                # Step "dir" — cancel the form
-                for w in self.query("NewAgentForm"):
-                    w.remove()
-                self._show_dashboard()
+                if form._step == "dir":
+                    form.show_type_step()
+                    return
                 return
 
             if form._step == "dir":
