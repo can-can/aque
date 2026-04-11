@@ -7,13 +7,39 @@ Feature: New agent creation
     Given the aque desk is open
     And the user is on the dashboard
 
-  # ── Form navigation ────────────────────────────────────────────
+  # ── Type selector (step 1) ─────────────────────────────────────
 
-  Scenario: Opening the new agent form shows the directory picker
+  Scenario: Opening the new agent form shows the type selector
     When the user presses "n"
+    Then the type selector should be visible
+    And step "1/4: Select agent type" should be shown
+    And the type list should contain "none (polling only)"
+
+  Scenario: Selecting "none" advances to directory picker
+    Given the user is on the type selector
+    When the user selects "none (polling only)"
     Then the directory picker should be visible
-    And the search input should have focus
-    And step "1/3: Select working directory" should be shown
+    And step "2/4: Select working directory" should be shown
+
+  Scenario: Selecting a type advances to directory picker with type context
+    Given the user is on the type selector
+    When the user selects "claude"
+    Then the directory picker should be visible
+    And step "2/4: Select working directory" should be shown
+
+  Scenario: Pressing Escape on type selector cancels the form
+    Given the user is on the type selector
+    When the user presses Escape
+    Then the dashboard should be visible
+    And no agent should be created
+
+  Scenario: Pressing Escape on directory picker goes back to type selector
+    Given the user is on the directory picker after selecting a type
+    When the user presses Escape
+    Then the type selector should be visible
+    And step "1/4: Select agent type" should be shown
+
+  # ── Form navigation ────────────────────────────────────────────
 
   Scenario: Picker shows pinned directories at the top
     Given the following directories are pinned:
@@ -42,7 +68,7 @@ Feature: New agent creation
     Given the user is on the directory picker
     And "~/Projects/aque" is highlighted
     When the user presses Enter
-    Then step "2/3: Enter command" should be shown
+    Then step "3/4: Enter command" should be shown
     And the command input should have focus
 
   Scenario: Selecting a directory records usage in history
@@ -113,7 +139,7 @@ Feature: New agent creation
     Given the tree browser is showing
     And the user has navigated to "~/Projects/myapp"
     When the user presses "s"
-    Then step "2/3: Enter command" should be shown
+    Then step "3/4: Enter command" should be shown
 
   Scenario: Returning from tree to picker
     Given the tree browser is showing
@@ -126,7 +152,7 @@ Feature: New agent creation
   Scenario: Entering a command advances to label step
     Given the user is on the command step
     When the user types "claude --model opus" and presses Enter
-    Then step "3/3: Label" should be shown
+    Then step "4/4: Label" should be shown
     And the label input should have focus
     And the label input should contain a default label "claude . myapp"
 

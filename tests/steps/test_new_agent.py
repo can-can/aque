@@ -49,8 +49,28 @@ FEATURE = "../../features/new_agent.feature"
 # ── Scenario declarations ──────────────────────────────────────────────────────
 
 
-@scenario(FEATURE, "Opening the new agent form shows the directory picker")
-def test_opening_form_shows_picker():
+@scenario(FEATURE, "Opening the new agent form shows the type selector")
+def test_opening_form_shows_type_selector():
+    pass
+
+
+@scenario(FEATURE, "Selecting \"none\" advances to directory picker")
+def test_selecting_none_advances_to_dir_picker():
+    pass
+
+
+@scenario(FEATURE, "Selecting a type advances to directory picker with type context")
+def test_selecting_type_advances_to_dir_picker():
+    pass
+
+
+@scenario(FEATURE, "Pressing Escape on type selector cancels the form")
+def test_escape_on_type_selector_cancels():
+    pass
+
+
+@scenario(FEATURE, "Pressing Escape on directory picker goes back to type selector")
+def test_escape_on_dir_picker_goes_back_to_type():
     pass
 
 
@@ -259,6 +279,55 @@ def when_user_presses_n(ctx):
     ctx.run(_press())
 
 
+@then("the type selector should be visible")
+def then_type_selector_visible(ctx):
+    type_list = ctx.app.query("#type-list")
+    assert len(type_list) > 0, "Expected #type-list (type selector) to be in the DOM"
+    assert type_list.first().display is True, "Type selector (#type-list) should be visible"
+
+
+@then(parsers.parse('the type list should contain "{item_text}"'))
+def then_type_list_contains(ctx, item_text):
+    type_list = ctx.app.query_one("#type-list")
+    found = False
+    for i in range(type_list.option_count):
+        opt = type_list.get_option_at_index(i)
+        if item_text in str(opt.prompt):
+            found = True
+            break
+    assert found, (
+        f"Expected type list to contain '{item_text}', "
+        f"options: {[str(type_list.get_option_at_index(i).prompt) for i in range(type_list.option_count)]}"
+    )
+
+
+@given("the user is on the type selector")
+def given_user_on_type_selector(ctx):
+    ctx.ensure_mounted()
+
+    async def _open_form():
+        ctx.app._show_new_agent_form()
+        await ctx.pilot.pause()
+
+    ctx.run(_open_form())
+
+
+@given("the user is on the directory picker after selecting a type")
+def given_user_on_dir_picker_after_type(ctx):
+    """Open the form and advance past the type selector to the directory picker."""
+    ctx.ensure_mounted()
+
+    async def _open_and_select_type():
+        ctx.app._show_new_agent_form()
+        await ctx.pilot.pause()
+        # Select the first option (none) to advance to dir picker
+        form = ctx.app.query_one("NewAgentForm")
+        form.select_type()
+        await ctx.pilot.pause()
+
+    ctx.run(_open_and_select_type())
+
+
 @then("the directory picker should be visible")
 def then_dir_picker_visible(ctx):
     picker = ctx.app.query_one("#dir-picker")
@@ -293,6 +362,13 @@ def given_user_on_dir_picker(ctx):
     async def _open_form():
         ctx.app._show_new_agent_form()
         await ctx.pilot.pause()
+        # The form now starts at the type selector — advance to dir picker
+        try:
+            form = ctx.app.query_one("NewAgentForm")
+            form.select_type()
+            await ctx.pilot.pause()
+        except Exception:
+            pass
 
     ctx.run(_open_form())
 
@@ -338,6 +414,13 @@ def given_tree_browser_showing(ctx):
     async def _open_form_and_tree():
         ctx.app._show_new_agent_form()
         await ctx.pilot.pause()
+        # The form now starts at the type selector — advance to dir picker first
+        try:
+            form = ctx.app.query_one("NewAgentForm")
+            form.select_type()
+            await ctx.pilot.pause()
+        except Exception:
+            pass
         # Focus dir-list before pressing b (Input intercepts keys otherwise)
         dir_list = ctx.app.query_one("#dir-list")
         dir_list.focus()
@@ -404,6 +487,13 @@ def when_user_opens_new_agent_form(ctx):
     async def _open():
         ctx.app._show_new_agent_form()
         await ctx.pilot.pause()
+        # The form now starts at the type selector — advance to dir picker
+        try:
+            form = ctx.app.query_one("NewAgentForm")
+            form.select_type()
+            await ctx.pilot.pause()
+        except Exception:
+            pass
 
     ctx.run(_open())
 
@@ -639,12 +729,18 @@ def given_path_is_highlighted(ctx, raw_path, tmp_path):
     # Refresh the picker list, highlight the entry, and focus the dir-list
     # (Enter only triggers OptionSelected when the list itself has focus)
     async def _highlight():
-        # Open the form if it isn't already open
+        # Open the form if it isn't already open; advance past type selector
         try:
             ctx.app.query_one("#dir-picker")
         except Exception:
             ctx.app._show_new_agent_form()
             await ctx.pilot.pause()
+            try:
+                form = ctx.app.query_one("NewAgentForm")
+                form.select_type()
+                await ctx.pilot.pause()
+            except Exception:
+                pass
         picker = ctx.app.query_one("#dir-picker")
         picker._refresh_list("")
         await ctx.pilot.pause()
@@ -740,7 +836,28 @@ def then_path_not_in_picker(ctx, raw_path):
 
 @when(parsers.parse('the user selects "{raw_path}"'))
 def when_user_selects_path(ctx, raw_path, tmp_path):
-    """Select a directory: create it, seed 1 use, highlight, and press Enter."""
+    """Select a type option or a directory depending on the current form step."""
+    # Detect whether we are on the type step (type-list present) or dir step
+    type_list_present = len(ctx.app.query("#type-list")) > 0 if ctx.app else False
+
+    if type_list_present:
+        # Type selector: find the option whose text matches raw_path and press Enter
+        async def _select_type():
+            type_list = ctx.app.query_one("#type-list")
+            for i in range(type_list.option_count):
+                opt = type_list.get_option_at_index(i)
+                if raw_path in str(opt.prompt):
+                    type_list.highlighted = i
+                    break
+            type_list.focus()
+            await ctx.pilot.pause()
+            await ctx.pilot.press("enter")
+            await ctx.pilot.pause()
+
+        ctx.run(_select_type())
+        return
+
+    # Directory step: create dir, seed 1 use, highlight, press Enter
     name = raw_path.replace("~/Projects/", "").replace("/", "_")
     d = tmp_path / name
     d.mkdir(parents=True, exist_ok=True)

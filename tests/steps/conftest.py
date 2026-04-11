@@ -48,6 +48,7 @@ def given_agents_exist(state_mgr, datatable):
         state_str = row["state"]
         state = AgentState(state_str)
         agent_id = state_mgr.next_id()
+        agent_type = row.get("agent_type", None) or None  # empty string -> None
         agent = AgentInfo(
             id=agent_id,
             tmux_session=f"aque-{agent_id}",
@@ -56,6 +57,7 @@ def given_agents_exist(state_mgr, datatable):
             command=["test"],
             state=state,
             pid=10000 + agent_id,
+            agent_type=agent_type,
         )
         if "last_change_at" in row:
             agent.last_change_at = row["last_change_at"]

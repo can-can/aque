@@ -88,6 +88,22 @@ Feature: Dashboard
     When the dashboard loads
     Then the status bar should show "3 done"
 
+  # ── Agent type display ──────────────────────────────────────────
+
+  Scenario: Typed agent shows type tag in list
+    Given the following agents exist:
+      | label   | state   | agent_type |
+      | builder | running | claude     |
+    When the dashboard loads
+    Then the agent list should show a "claude" type tag for "builder"
+
+  Scenario: Untyped agent shows no type tag
+    Given the following agents exist:
+      | label   | state   | agent_type |
+      | builder | running |            |
+    When the dashboard loads
+    Then the agent list should not show a type tag for "builder"
+
   # ── Preview pane ───────────────────────────────────────────────
 
   Scenario: Preview shows tmux pane content for highlighted agent

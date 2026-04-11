@@ -93,6 +93,16 @@ def test_preview_shows_tmux_content():
     pass
 
 
+@scenario(FEATURE, "Typed agent shows type tag in list")
+def test_typed_agent_shows_type_tag():
+    pass
+
+
+@scenario(FEATURE, "Untyped agent shows no type tag")
+def test_untyped_agent_shows_no_type_tag():
+    pass
+
+
 # ── Context holder ─────────────────────────────────────────────────────────────
 
 
@@ -199,6 +209,7 @@ def given_agents_exist(ctx, datatable):
     for row in rows:
         state = AgentState(row["state"])
         agent_id = ctx.state_mgr.next_id()
+        agent_type = row.get("agent_type", None) or None  # empty string -> None
         agent = AgentInfo(
             id=agent_id,
             tmux_session=f"aque-{agent_id}",
@@ -207,6 +218,7 @@ def given_agents_exist(ctx, datatable):
             command=["test"],
             state=state,
             pid=10000 + agent_id,
+            agent_type=agent_type,
         )
         ctx.state_mgr.add_agent(agent)
         agents.append(agent)
@@ -216,6 +228,12 @@ def given_agents_exist(ctx, datatable):
 @when("the dashboard loads")
 def when_dashboard_loads(ctx):
     ctx.ensure_mounted()
+
+    async def _refresh():
+        ctx.app._refresh_agent_list(reset_highlight=True)
+        await ctx.pilot.pause()
+
+    ctx.run(_refresh())
 
 
 @when("the app mounts")
@@ -576,6 +594,47 @@ def when_user_highlights(ctx, label):
         ctx.app._refresh_preview()
         await ctx.pilot.pause()
     ctx.run(_refresh())
+
+
+@then(parsers.parse('the agent list should show a "{type_name}" type tag for "{label}"'))
+def then_agent_list_shows_type_tag(ctx, type_name, label):
+    """Check for type tag in the raw Rich markup string.
+
+    desk.py renders type tags as: [dim]\\[typename][/dim]
+    So str(option.prompt) contains '\\[typename]' (escaped bracket).
+    """
+    option_list = ctx.app.query_one("#agent-option-list")
+    for i in range(option_list.option_count):
+        option = option_list.get_option_at_index(i)
+        label_text = str(option.prompt)
+        if label in label_text:
+            # The type tag appears as \[typename] in the markup string
+            assert f"\\[{type_name}]" in label_text, (
+                f"Expected type tag '\\[{type_name}]' in prompt for '{label}', got: '{label_text}'"
+            )
+            return
+    pytest.fail(f"Agent '{label}' not found in option list")
+
+
+@then(parsers.parse('the agent list should not show a type tag for "{label}"'))
+def then_agent_list_shows_no_type_tag(ctx, label):
+    """Check that no type tag markup is present.
+
+    desk.py renders type tags as: [dim]\\[typename][/dim]
+    An untyped agent should have no '\\[' in its prompt.
+    """
+    import re
+    option_list = ctx.app.query_one("#agent-option-list")
+    for i in range(option_list.option_count):
+        option = option_list.get_option_at_index(i)
+        label_text = str(option.prompt)
+        if label in label_text:
+            # Type tag markup looks like \[typename] — check it's absent
+            assert not re.search(r'\\\[', label_text), (
+                f"Expected no type tag in prompt for '{label}', got: '{label_text}'"
+            )
+            return
+    pytest.fail(f"Agent '{label}' not found in option list")
 
 
 @then("the preview pane should show the last 30 lines of the tmux pane")
