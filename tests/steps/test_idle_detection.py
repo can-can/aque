@@ -1,12 +1,14 @@
 """BDD tests for idle detection scenarios."""
+import json
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import libtmux
 import pytest
 from pytest_bdd import scenario, given, when, then, parsers
 
-from aque.monitor import IdleDetector, session_exists
+from aque.monitor import IdleDetector, check_signal_files, cleanup_stale_signals, session_exists
 
 FEATURE = "../../features/idle_detection.feature"
 
@@ -55,6 +57,26 @@ def test_idle_state_cleared_after_waiting_transition():
 
 @scenario(FEATURE, "Monitor detects exited tmux sessions")
 def test_monitor_detects_exited_tmux_sessions():
+    pass
+
+
+@scenario(FEATURE, "Signal file triggers immediate waiting transition")
+def test_signal_file_triggers_waiting():
+    pass
+
+
+@scenario(FEATURE, "Signal file detection skips agents without a type")
+def test_signal_file_no_type():
+    pass
+
+
+@scenario(FEATURE, "Stale signal files are cleaned up on monitor startup")
+def test_stale_signal_files_cleaned_up():
+    pass
+
+
+@scenario(FEATURE, "Agent without type falls back to content-hash polling")
+def test_agent_without_type_falls_back_to_polling():
     pass
 
 
@@ -152,14 +174,6 @@ def when_idle_time_passes(seconds, ctx):
     # Second update with the same content — should now exceed idle_timeout
     with patch("aque.monitor.has_children", return_value=True):
         ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["lines"])
-
-
-@then(parsers.parse('agent "{name}" should be in "waiting" state'))
-def then_agent_in_waiting(name, ctx):
-    assert ctx["agent_name"] == name
-    assert ctx["detector"].is_idle(ctx["agent_id"]) is True, (
-        f'Agent "{name}" should be idle (waiting) after timeout'
-    )
 
 
 # ── Idle timer reset scenario ──────────────────────────────────────────────────
@@ -274,4 +288,134 @@ def then_agent_in_exited_state(name, ctx):
     assert ctx["agent_name"] == name
     assert ctx["session_existed"] is False, (
         f"session_exists() should return False for killed session '{ctx['session_name']}'"
+    )
+
+
+# ── Signal file scenarios ─────────────────────────────────────────────────────
+
+
+@given(parsers.parse('agent "{name}" is running with type "{agent_type}"'), target_fixture="ctx")
+def given_agent_running_with_type(name, agent_type, ctx):
+    ctx["agent_name"] = name
+    ctx["agent_id"] = 1
+    ctx["agent_type"] = agent_type
+    ctx["agent_state"] = "running"
+    return ctx
+
+
+@given(parsers.parse('agent "{name}" is running without a type'), target_fixture="ctx")
+def given_agent_running_without_type(name, ctx):
+    ctx["agent_name"] = name
+    ctx["agent_id"] = 1
+    ctx["agent_type"] = None
+    ctx["agent_state"] = "running"
+    ctx["detector"] = IdleDetector(idle_timeout=0.1)
+    ctx["shell_pid"] = 12345
+    return ctx
+
+
+@given(parsers.parse('a signal file exists for agent "{name}"'), target_fixture="ctx")
+def given_signal_file_exists(name, ctx, tmp_path):
+    signals_dir = tmp_path / "signals"
+    signals_dir.mkdir(exist_ok=True)
+    agent_id = ctx["agent_id"]
+    signal_file = signals_dir / f"{agent_id}.json"
+    signal_file.write_text(json.dumps({"event": "stop"}))
+    ctx["signals_dir"] = signals_dir
+    return ctx
+
+
+@when("the monitor checks signal files")
+def when_monitor_checks_signal_files(ctx):
+    signals_dir: Path = ctx["signals_dir"]
+    signaled_ids = check_signal_files(signals_dir)
+    ctx["signaled_ids"] = signaled_ids
+
+
+@then(parsers.parse('agent "{name}" should be in "waiting" state'))
+def then_agent_in_waiting(name, ctx):
+    assert ctx["agent_name"] == name
+    # For signal-based scenarios the agent ID is in the set of signaled IDs,
+    # meaning the monitor would have transitioned it to waiting.
+    if "signaled_ids" in ctx:
+        assert ctx["agent_id"] in ctx["signaled_ids"], (
+            f'Agent "{name}" (id={ctx["agent_id"]}) should have been signaled'
+        )
+    else:
+        assert ctx["detector"].is_idle(ctx["agent_id"]) is True, (
+            f'Agent "{name}" should be idle (waiting) after timeout'
+        )
+
+
+@then("the signal file should be consumed")
+def then_signal_file_consumed(ctx):
+    signals_dir: Path = ctx["signals_dir"]
+    agent_id = ctx["agent_id"]
+    signal_file = signals_dir / f"{agent_id}.json"
+    assert not signal_file.exists(), (
+        f"Signal file {signal_file} should have been deleted after consumption"
+    )
+
+
+# ── Stale signal file cleanup scenario ────────────────────────────────────────
+
+
+@given(parsers.parse('agent "{name}" no longer exists in state'), target_fixture="ctx")
+def given_agent_no_longer_exists(name, ctx):
+    ctx["agent_name"] = name
+    ctx["active_ids"] = set()  # no active agents
+    return ctx
+
+
+@given(parsers.parse("a stale signal file exists for agent id {agent_id:d}"), target_fixture="ctx")
+def given_stale_signal_file(agent_id, ctx, tmp_path):
+    signals_dir = tmp_path / "signals"
+    signals_dir.mkdir(exist_ok=True)
+    stale_file = signals_dir / f"{agent_id}.json"
+    stale_file.write_text(json.dumps({"event": "stop"}))
+    ctx["signals_dir"] = signals_dir
+    ctx["stale_agent_id"] = agent_id
+    return ctx
+
+
+@when("the monitor starts up")
+def when_monitor_starts_up(ctx):
+    signals_dir: Path = ctx["signals_dir"]
+    active_ids: set[int] = ctx["active_ids"]
+    cleanup_stale_signals(signals_dir, active_ids)
+
+
+@then(parsers.parse("the stale signal file for agent id {agent_id:d} should be removed"))
+def then_stale_signal_file_removed(agent_id, ctx):
+    signals_dir: Path = ctx["signals_dir"]
+    stale_file = signals_dir / f"{agent_id}.json"
+    assert not stale_file.exists(), (
+        f"Stale signal file {stale_file} should have been removed on startup"
+    )
+
+
+# ── Polling fallback scenario ─────────────────────────────────────────────────
+
+
+@given(parsers.parse('no signal file exists for agent "{name}"'), target_fixture="ctx")
+def given_no_signal_file(name, ctx, tmp_path):
+    signals_dir = tmp_path / "signals"
+    signals_dir.mkdir(exist_ok=True)
+    ctx["signals_dir"] = signals_dir
+    # No signal file — just ensure the dir exists and is empty for this agent
+    return ctx
+
+
+@when("the idle timeout elapses")
+def when_idle_timeout_elapses(ctx):
+    time.sleep(0.15)
+    with patch("aque.monitor.has_children", return_value=True):
+        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["lines"])
+
+
+@then(parsers.parse('agent "{name}" should be detected as idle via polling'))
+def then_agent_detected_idle_via_polling(name, ctx):
+    assert ctx["agent_name"] == name
+    assert ctx["detector"].is_idle(ctx["agent_id"]) is True, (
+        f'Agent "{name}" should be idle after content-hash polling timeout'
     )

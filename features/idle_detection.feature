@@ -75,3 +75,32 @@ Feature: Idle detection
     When the agent is dismissed back to "running"
     Then the idle timer should start fresh
 
+  # ── Signal-based detection (hook-based agents) ────────────────
+
+  Scenario: Signal file triggers immediate waiting transition
+    Given agent "builder" is running with type "claude"
+    And a signal file exists for agent "builder"
+    When the monitor checks signal files
+    Then agent "builder" should be in "waiting" state
+    And the signal file should be consumed
+
+  Scenario: Signal file detection skips agents without a type
+    Given agent "builder" is running without a type
+    And a signal file exists for agent "builder"
+    When the monitor checks signal files
+    Then agent "builder" should be in "waiting" state
+    And the signal file should be consumed
+
+  Scenario: Stale signal files are cleaned up on monitor startup
+    Given agent "builder" no longer exists in state
+    And a stale signal file exists for agent id 99
+    When the monitor starts up
+    Then the stale signal file for agent id 99 should be removed
+
+  Scenario: Agent without type falls back to content-hash polling
+    Given agent "builder" is running without a type
+    And no signal file exists for agent "builder"
+    And the tmux pane shows a prompt
+    When the idle timeout elapses
+    Then agent "builder" should be detected as idle via polling
+
