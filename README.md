@@ -50,6 +50,12 @@ aque run --dir ~/projects/web -- aider --model gpt-4
 aque run --dir ~/code/tests -- codex
 ```
 
+Use `--type` to enable signal-based idle detection for supported agent types:
+
+```bash
+aque run --type claude --dir ~/projects/api -- claude --model opus
+```
+
 Sit at your desk:
 
 ```bash
@@ -82,9 +88,36 @@ No action menu, no extra steps.
 
 When a waiting agent is detected (on the dashboard or after detaching), aque shows a **3-second countdown modal** and auto-attaches to the top-priority waiting agent. Press **Esc** to cancel and stay on the dashboard.
 
+### Agent Types & Signal-Based Detection
+
+For supported agent types, aque can use signal files instead of polling for more reliable idle detection.
+
+When you specify `--type`, aque installs a hook into the agent that writes a signal file when it stops. This is faster and more accurate than prompt-marker polling.
+
+Currently supported types:
+
+| Type | Detection |
+|------|-----------|
+| `claude` | Hook installed in `~/.claude/settings.json` |
+| `codex` | Hook installed in `~/.codex/hooks.json` |
+| `gemini` | Hook installed in `~/.gemini/settings.json` |
+| `kiro` | Hook installed in `~/.kiro/agents/aque.json` |
+| `opencode` | Plugin installed in `~/.config/opencode/plugins/aque.js` |
+| `aider` | `--notifications-command` injected at launch (no config hook) |
+
+When creating an agent from the dashboard (`n`), the new agent form lets you select a type in the first step.
+
+The agent type is shown as a tag in the agent list, and the detection method is shown in the preview panel.
+
 ### Idle Detection
 
 Aque monitors tmux panes for prompt markers (`❯`, `$`, `>>>`) to detect when an agent is waiting for input. After the configured idle timeout (default: 10s), the agent transitions from `running` to `waiting` and enters the queue.
+
+When using a typed agent, signal files take precedence over prompt-marker polling.
+
+### Narrow Terminal Support
+
+On terminals narrower than 80 columns, aque automatically switches to a compact single-column layout: the preview panel is hidden, the agent list uses shorter labels, and modals/forms adapt to fit. The layout updates live on resize.
 
 ### Agent States
 

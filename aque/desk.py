@@ -207,16 +207,13 @@ class NewAgentForm(Vertical):
 
     def show_label_step(self) -> None:
         self._step = "label"
-        cmd_name = shlex.split(self._command)[0] if self._command else "agent"
-        dir_name = Path(self._selected_dir).name
-        default_label = f"{cmd_name} . {dir_name}"
-        self._label = default_label
+        self._label = ""
         self.query_one("#new-agent-step").update(
             f"Step 4/4: Label  (dir: {self._selected_dir}, cmd: {self._command})"
         )
         self.query_one("#command-input").remove()
         self.mount(
-            Input(value=default_label, placeholder="Agent label", id="label-input"),
+            Input(value="", placeholder="Agent label (optional)", id="label-input"),
             after=self.query_one("#new-agent-step"),
         )
         self.query_one("#new-agent-hint").update(
