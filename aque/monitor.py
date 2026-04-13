@@ -1,7 +1,6 @@
 import hashlib
 import os
 import signal
-import subprocess
 import time
 from pathlib import Path
 
@@ -13,18 +12,6 @@ from aque.state import AgentState, StateManager
 MONITORED_STATES = {AgentState.RUNNING}
 
 
-def has_children(shell_pid: int) -> bool:
-    """Check if a shell PID has any child processes."""
-    try:
-        result = subprocess.run(
-            ["pgrep", "-P", str(shell_pid)],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.returncode == 0 and bool(result.stdout.strip())
-    except Exception:
-        return True  # assume alive on error
-
-
 class IdleDetector:
     def __init__(self, idle_timeout: float):
         self.idle_timeout = idle_timeout
@@ -32,15 +19,9 @@ class IdleDetector:
         self._stable_since: dict[int, float] = {}
         self._is_idle: dict[int, bool] = {}
 
-    def update(self, agent_id: int, shell_pid: int, lines: list[str]) -> None:
+    def update(self, agent_id: int, lines: list[str]) -> None:
         now = time.monotonic()
 
-        # Fast path: agent exited (no children of shell)
-        if not has_children(shell_pid):
-            self._is_idle[agent_id] = True
-            return
-
-        # Primary signal: content stability
         content = "\n".join(lines)
         content_hash = hashlib.md5(content.encode()).hexdigest()
         prev_hash = self._content_hash.get(agent_id)
@@ -169,7 +150,7 @@ def run_monitor(aque_dir: Path) -> None:
 
                 content = capture_pane_content(server, agent.tmux_session)
                 if content is not None:
-                    detector.update(agent.id, agent.pid, content.split("\n"))
+                    detector.update(agent.id, content.split("\n"))
 
                 if detector.is_idle(agent.id):
                     mgr.update_agent_state(agent.id, AgentState.WAITING)

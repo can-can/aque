@@ -245,8 +245,7 @@ def given_agent_idle_for_timeout(ctx):
     ctx.data["stable_lines"] = ["❯ ", "  [Opus 4.6 (1M context)] ● high"]
     agent = ctx.data["agent"]
     # First update — establish stable baseline
-    with patch("aque.monitor.has_children", return_value=True):
-        detector.update(agent.id, agent.pid, ctx.data["stable_lines"])
+    detector.update(agent.id, ctx.data["stable_lines"])
     # Wait to exceed idle_timeout
     time.sleep(0.15)
     return ctx
@@ -257,8 +256,7 @@ def when_monitor_detects_idle(ctx):
     agent = ctx.data["agent"]
     detector: IdleDetector = ctx.data["detector"]
     # Second update with same content — should now be idle
-    with patch("aque.monitor.has_children", return_value=True):
-        detector.update(agent.id, agent.pid, ctx.data["stable_lines"])
+    detector.update(agent.id, ctx.data["stable_lines"])
     assert detector.is_idle(agent.id), "IdleDetector should report agent as idle"
     # Simulate what the monitor loop does: update state
     ctx.state_mgr.update_agent_state(agent.id, AgentState.WAITING)

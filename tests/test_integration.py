@@ -31,11 +31,12 @@ class TestFullLifecycleV2:
         )
         assert mgr.load().agents[0].state == AgentState.RUNNING
 
-        # 2. Idle detection (no children → agent exited → immediately idle)
+        # 2. Idle detection — content stable across two ticks past idle_timeout
         detector = IdleDetector(idle_timeout=0.1)
         idle_lines = ["some output", "❯ "]
-        with patch("aque.monitor.has_children", return_value=False):
-            detector.update(1, 99999, idle_lines)
+        detector.update(1, idle_lines)
+        time.sleep(0.15)
+        detector.update(1, idle_lines)
         assert detector.is_idle(1) is True
 
         # 3. Monitor marks waiting

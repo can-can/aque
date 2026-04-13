@@ -2,7 +2,6 @@
 import json
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import libtmux
 import pytest
@@ -105,15 +104,13 @@ def then_pane_is_idle(ctx):
     detector: IdleDetector = ctx["detector"]
     lines: list[str] = ctx["lines"]
     agent_id = 1
-    shell_pid = 12345
 
     # Content is stable — call once, wait, call again.
-    with patch("aque.monitor.has_children", return_value=True):
-        detector.update(agent_id, shell_pid, lines)
-        assert detector.is_idle(agent_id) is False, "Should not be idle yet"
-        time.sleep(0.15)
-        detector.update(agent_id, shell_pid, lines)
-        assert detector.is_idle(agent_id) is True, "Should be idle after stable timeout"
+    detector.update(agent_id, lines)
+    assert detector.is_idle(agent_id) is False, "Should not be idle yet"
+    time.sleep(0.15)
+    detector.update(agent_id, lines)
+    assert detector.is_idle(agent_id) is True, "Should be idle after stable timeout"
 
 
 @then("the pane should not be detected as idle")
@@ -121,21 +118,19 @@ def then_pane_is_not_idle(ctx):
     detector: IdleDetector = ctx["detector"]
     lines_v1: list[str] = ctx["lines"]
     agent_id = 1
-    shell_pid = 12345
 
     # Simulate changing content by appending a tick counter to the last line.
     def _changing(tick: int) -> list[str]:
         return lines_v1 + [f"tick {tick}"]
 
-    with patch("aque.monitor.has_children", return_value=True):
-        detector.update(agent_id, shell_pid, _changing(1))
-        time.sleep(0.05)
-        detector.update(agent_id, shell_pid, _changing(2))
-        time.sleep(0.05)
-        detector.update(agent_id, shell_pid, _changing(3))
-        time.sleep(0.05)
-        detector.update(agent_id, shell_pid, _changing(4))
-        assert detector.is_idle(agent_id) is False, "Should not be idle with changing content"
+    detector.update(agent_id, _changing(1))
+    time.sleep(0.05)
+    detector.update(agent_id, _changing(2))
+    time.sleep(0.05)
+    detector.update(agent_id, _changing(3))
+    time.sleep(0.05)
+    detector.update(agent_id, _changing(4))
+    assert detector.is_idle(agent_id) is False, "Should not be idle with changing content"
 
 
 # ── Idle timeout scenario ──────────────────────────────────────────────────────
@@ -160,10 +155,8 @@ def given_idle_timeout(seconds, ctx):
 @given("the tmux pane shows a prompt", target_fixture="ctx")
 def given_pane_shows_prompt(ctx):
     ctx["lines"] = ["❯ ", "  [Opus 4.6 (1M context)] ● high"]
-    ctx["shell_pid"] = 12345
     # First update — establish stable baseline
-    with patch("aque.monitor.has_children", return_value=True):
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["lines"])
+    ctx["detector"].update(ctx["agent_id"], ctx["lines"])
     return ctx
 
 
@@ -172,8 +165,7 @@ def when_idle_time_passes(seconds, ctx):
     # Scaled: sleep 0.15s regardless of feature-level seconds (which is 10)
     time.sleep(0.15)
     # Second update with the same content — should now exceed idle_timeout
-    with patch("aque.monitor.has_children", return_value=True):
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["lines"])
+    ctx["detector"].update(ctx["agent_id"], ctx["lines"])
 
 
 # ── Idle timer reset scenario ──────────────────────────────────────────────────
@@ -184,15 +176,13 @@ def given_agent_idle_for(name, seconds, ctx):
     ctx["agent_name"] = name
     ctx["agent_id"] = 1
     ctx["agent_state"] = "running"
-    ctx["shell_pid"] = 12345
     ctx["detector"] = IdleDetector(idle_timeout=0.1)
     ctx["stable_lines"] = ["❯ ", "  [Opus 4.6 (1M context)] ● high"]
 
     # Establish some idle time (scaled: sleep 0.05s regardless of feature seconds)
-    with patch("aque.monitor.has_children", return_value=True):
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["stable_lines"])
-        time.sleep(0.05)
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["stable_lines"])
+    ctx["detector"].update(ctx["agent_id"], ctx["stable_lines"])
+    time.sleep(0.05)
+    ctx["detector"].update(ctx["agent_id"], ctx["stable_lines"])
     # Should not yet be idle (only 0.05s elapsed, timeout is 0.1s)
     return ctx
 
@@ -205,8 +195,7 @@ def given_pane_shows_active(ctx):
 
 @when("the monitor polls again")
 def when_monitor_polls(ctx):
-    with patch("aque.monitor.has_children", return_value=True):
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["active_lines"])
+    ctx["detector"].update(ctx["agent_id"], ctx["active_lines"])
 
 
 @then(parsers.parse('the idle timer for "{name}" should be reset'))
@@ -231,15 +220,13 @@ def then_agent_remains_running(name, ctx):
 def given_agent_just_transitioned_to_waiting(name, ctx):
     ctx["agent_name"] = name
     ctx["agent_id"] = 1
-    ctx["shell_pid"] = 12345
     ctx["detector"] = IdleDetector(idle_timeout=0.1)
     stable_lines = ["❯ ", "  [Opus 4.6 (1M context)] ● high"]
 
     # Simulate the agent becoming idle: stable content past the timeout
-    with patch("aque.monitor.has_children", return_value=True):
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], stable_lines)
-        time.sleep(0.15)
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], stable_lines)
+    ctx["detector"].update(ctx["agent_id"], stable_lines)
+    time.sleep(0.15)
+    ctx["detector"].update(ctx["agent_id"], stable_lines)
 
     assert ctx["detector"].is_idle(ctx["agent_id"]) is True, "Agent should be idle before transition"
     return ctx
@@ -310,7 +297,6 @@ def given_agent_running_without_type(name, ctx):
     ctx["agent_type"] = None
     ctx["agent_state"] = "running"
     ctx["detector"] = IdleDetector(idle_timeout=0.1)
-    ctx["shell_pid"] = 12345
     return ctx
 
 
@@ -409,8 +395,7 @@ def given_no_signal_file(name, ctx, tmp_path):
 @when("the idle timeout elapses")
 def when_idle_timeout_elapses(ctx):
     time.sleep(0.15)
-    with patch("aque.monitor.has_children", return_value=True):
-        ctx["detector"].update(ctx["agent_id"], ctx["shell_pid"], ctx["lines"])
+    ctx["detector"].update(ctx["agent_id"], ctx["lines"])
 
 
 @then(parsers.parse('agent "{name}" should be detected as idle via polling'))
