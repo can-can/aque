@@ -7,7 +7,13 @@ import libtmux
 import pytest
 from pytest_bdd import scenario, given, when, then, parsers
 
-from aque.monitor import IdleDetector, check_signal_files, cleanup_stale_signals, session_exists
+from aque.monitor import (
+    IdleDetector,
+    check_signal_files,
+    cleanup_stale_signals,
+    prune_detector,
+    session_exists,
+)
 
 FEATURE = "../../features/idle_detection.feature"
 
@@ -76,6 +82,11 @@ def test_stale_signal_files_cleaned_up():
 
 @scenario(FEATURE, "Agent without type falls back to content-hash polling")
 def test_agent_without_type_falls_back_to_polling():
+    pass
+
+
+@scenario(FEATURE, "Idle timer resets after user attaches and detaches")
+def test_idle_timer_resets_after_attach_detach():
     pass
 
 
@@ -404,3 +415,36 @@ def then_agent_detected_idle_via_polling(name, ctx):
     assert ctx["detector"].is_idle(ctx["agent_id"]) is True, (
         f'Agent "{name}" should be idle after content-hash polling timeout'
     )
+
+
+# ── Attach/detach resets idle timer scenario ──────────────────────────────────
+
+
+@when(parsers.parse('the user attaches to agent "{name}"'))
+def when_user_attaches(name, ctx):
+    # Agent transitions to FOCUSED. The next monitor poll will invoke the
+    # shared prune_detector() helper with running_ids that no longer contain
+    # this agent. Call the exact same helper here so the scenario exercises
+    # the real prune logic (not a reimplementation).
+    assert ctx["agent_name"] == name
+    ctx["agent_state"] = "focused"
+    running_ids = {ctx["agent_id"]} if ctx["agent_state"] == "running" else set()
+    prune_detector(ctx["detector"], running_ids)
+
+
+@when("the idle timeout fully elapses during the attach")
+def when_idle_timeout_elapses_during_attach(ctx):
+    # Wall-clock wait past the (scaled) idle timeout — without the prune this
+    # would be enough to re-mark the agent idle on the next poll.
+    time.sleep(0.15)
+
+
+@when(parsers.parse('the user detaches from agent "{name}"'))
+def when_user_detaches(name, ctx):
+    assert ctx["agent_name"] == name
+    ctx["agent_state"] = "running"
+
+
+@when("the monitor polls the pane once more")
+def when_monitor_polls_once_more(ctx):
+    ctx["detector"].update(ctx["agent_id"], ctx["lines"])

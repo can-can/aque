@@ -62,6 +62,32 @@ class TestIdleDetector:
         assert detector.is_idle(1) is True
         assert detector.is_idle(2) is False
 
+    def test_tracked_ids(self):
+        detector = IdleDetector(idle_timeout=0.1)
+        assert detector.tracked_ids() == set()
+        detector.update(1, self._static_lines())
+        detector.update(2, self._static_lines())
+        assert detector.tracked_ids() == {1, 2}
+        detector.remove_agent(1)
+        assert detector.tracked_ids() == {2}
+
+    def test_remove_agent_resets_stable_baseline(self):
+        """Regression: attaching to an agent (→ FOCUSED) must clear the stable
+        timer. Otherwise, when it returns to RUNNING, the detector treats the
+        attach window as 'stable content' and fires idle immediately."""
+        detector = IdleDetector(idle_timeout=0.1)
+        detector.update(1, self._static_lines())  # t=0: baseline
+        time.sleep(0.08)                          # ~80% of timeout elapses
+        detector.remove_agent(1)                  # simulates RUNNING → FOCUSED prune
+        detector.update(1, self._static_lines())  # same content, FOCUSED → RUNNING
+        assert detector.is_idle(1) is False, (
+            "Fresh baseline expected after prune; must not inherit prior elapsed"
+        )
+        time.sleep(0.05)
+        detector.update(1, self._static_lines())
+        # Only 0.05s since the post-prune baseline — still below 0.1s timeout
+        assert detector.is_idle(1) is False
+
 
 class TestMonitorStates:
     def test_on_hold_not_in_active_states(self):

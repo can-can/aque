@@ -75,6 +75,17 @@ Feature: Idle detection
     When the agent is dismissed back to "running"
     Then the idle timer should start fresh
 
+  Scenario: Idle timer resets after user attaches and detaches
+    Given agent "builder" is in "running" state
+    And the idle timeout is 10 seconds
+    And the tmux pane shows a prompt
+    When the user attaches to agent "builder"
+    And the idle timeout fully elapses during the attach
+    And the user detaches from agent "builder"
+    And the monitor polls the pane once more
+    Then the idle timer for "builder" should be reset
+    And agent "builder" should remain in "running" state
+
   # ── Signal-based detection (hook-based agents) ────────────────
 
   Scenario: Signal file triggers immediate waiting transition

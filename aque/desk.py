@@ -29,6 +29,7 @@ class FolderTree(DirectoryTree):
         ]
 
 from aque.config import load_config
+from aque.debug import dbg
 from aque.dir_history import DirHistoryManager
 from aque.history import HistoryManager
 from aque.monitor import capture_pane_content, start_monitor_daemon, stop_monitor
@@ -727,6 +728,13 @@ class DeskApp(App):
 
     def _try_auto_attach(self, state: AppState | None = None) -> None:
         if self._skip_attach or self._countdown_timer is not None or self._auto_attach_suppressed:
+            dbg(
+                "desk.try_auto_attach.skipped",
+                self.aque_dir,
+                skip_attach=self._skip_attach,
+                in_countdown=self._countdown_timer is not None,
+                suppressed=self._auto_attach_suppressed,
+            )
             return
         if state is None:
             state = self.state_mgr.load()
@@ -734,6 +742,13 @@ class DeskApp(App):
         if not waiting:
             return
         top = sorted_agents(waiting)[0]
+        dbg(
+            "desk.auto_attach.start",
+            self.aque_dir,
+            agent_id=top.id,
+            label=top.label,
+            last_change_at=top.last_change_at,
+        )
         self._countdown_agent = top
         self._countdown_seconds = 3
         self._mode = "auto_attach"
@@ -742,6 +757,7 @@ class DeskApp(App):
         self._countdown_timer = self.set_interval(1.0, self._countdown_tick)
 
     def _on_modal_dismiss(self, result: bool | None) -> None:
+        dbg("desk.modal.dismiss", self.aque_dir, result=result)
         if result is True:
             agent = self._countdown_agent
             self._cleanup_countdown_state()
@@ -755,6 +771,7 @@ class DeskApp(App):
         self._countdown_seconds -= 1
         if self._countdown_seconds <= 0:
             agent = self._countdown_agent
+            dbg("desk.countdown.zero->attach", self.aque_dir, agent_id=(agent.id if agent else None))
             self._cancel_countdown()
             if agent:
                 self._attach_to_agent(agent)
@@ -829,6 +846,7 @@ class DeskApp(App):
     # ── Agent actions ────────────────────────────────────────────
 
     def _attach_to_agent(self, agent: AgentInfo) -> None:
+        dbg("desk.attach.start", self.aque_dir, agent_id=agent.id, from_state=agent.state.value)
         self._auto_attach_suppressed = False
         was_exited = agent.state == AgentState.EXITED
         self.state_mgr.update_agent_state(agent.id, AgentState.FOCUSED)
@@ -839,9 +857,16 @@ class DeskApp(App):
 
         state = self.state_mgr.load()
         updated_agent = next((a for a in state.agents if a.id == agent.id), agent)
+        dbg(
+            "desk.attach.resumed",
+            self.aque_dir,
+            agent_id=agent.id,
+            state_after_detach=updated_agent.state.value,
+        )
         if updated_agent.state in (AgentState.EXITED,):
             self._kill_agent(updated_agent.id)
         elif updated_agent.state == AgentState.FOCUSED:
+            dbg("desk.attach.focused->running", self.aque_dir, agent_id=agent.id)
             self.state_mgr.update_agent_state(updated_agent.id, AgentState.RUNNING)
         self._show_dashboard()
 
