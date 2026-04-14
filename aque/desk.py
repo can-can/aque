@@ -1,5 +1,6 @@
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -856,6 +857,13 @@ class DeskApp(App):
 
         with self.suspend():
             subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
+            # Erase tmux's "[detached (from session ...)]" line so it doesn't
+            # accumulate in the terminal scrollback on each detach.
+            try:
+                sys.stdout.write("\x1b[1A\x1b[2K\r")
+                sys.stdout.flush()
+            except Exception:
+                pass
         self._post_detach_debounce_until = time.monotonic() + 0.5
 
         state = self.state_mgr.load()
