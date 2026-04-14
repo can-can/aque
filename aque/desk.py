@@ -1,3 +1,4 @@
+import hashlib
 import shlex
 import subprocess
 import sys
@@ -851,7 +852,9 @@ class DeskApp(App):
     def _attach_to_agent(self, agent: AgentInfo) -> None:
         dbg("desk.attach.start", self.aque_dir, agent_id=agent.id, from_state=agent.state.value)
         self._auto_attach_suppressed = False
+        pre_attach_state = agent.state
         was_exited = agent.state == AgentState.EXITED
+        pre_attach_hash = self._pane_hash(agent.tmux_session) if agent.agent_type else None
         self.state_mgr.update_agent_state(agent.id, AgentState.FOCUSED)
         self._stop_refresh()
 
@@ -877,9 +880,37 @@ class DeskApp(App):
         if updated_agent.state in (AgentState.EXITED,):
             self._kill_agent(updated_agent.id)
         elif updated_agent.state == AgentState.FOCUSED:
+            # Typed agents rely on hooks; without a content-hash fallback a
+            # no-op attach (user looked but didn't interact) would strand the
+            # agent in RUNNING forever. If the pane content is unchanged,
+            # revert to whatever state it was in before the attach.
+            if agent.agent_type and pre_attach_hash is not None:
+                post_hash = self._pane_hash(agent.tmux_session)
+                if post_hash == pre_attach_hash:
+                    dbg(
+                        "desk.attach.no_interaction->revert",
+                        self.aque_dir,
+                        agent_id=agent.id,
+                        revert_to=pre_attach_state.value,
+                    )
+                    self.state_mgr.update_agent_state(updated_agent.id, pre_attach_state)
+                    # Avoid an immediate re-popup of the same agent the user
+                    # just dismissed without acting on.
+                    self._auto_attach_suppressed = True
+                    self._show_dashboard()
+                    return
             dbg("desk.attach.focused->running", self.aque_dir, agent_id=agent.id)
             self.state_mgr.update_agent_state(updated_agent.id, AgentState.RUNNING)
         self._show_dashboard()
+
+    def _pane_hash(self, tmux_session: str) -> str | None:
+        try:
+            content = capture_pane_content(self._get_tmux_server(), tmux_session)
+        except Exception:
+            return None
+        if content is None:
+            return None
+        return hashlib.md5(content.encode()).hexdigest()
 
     def _kill_agent(self, agent_id: int) -> None:
         state = self.state_mgr.load()

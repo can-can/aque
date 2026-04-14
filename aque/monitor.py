@@ -65,6 +65,12 @@ class IdleDetector:
         self._stable_since.pop(agent_id, None)
         self._is_idle.pop(agent_id, None)
 
+    def stable_seconds(self, agent_id: int) -> float:
+        start = self._stable_since.get(agent_id)
+        if start is None:
+            return 0.0
+        return time.monotonic() - start
+
     def tracked_ids(self) -> set[int]:
         return set(self._content_hash.keys())
 
@@ -137,7 +143,14 @@ def run_monitor(aque_dir: Path) -> None:
     mgr = StateManager(aque_dir)
     detector = IdleDetector(idle_timeout=config["idle_timeout"], aque_dir=aque_dir)
     interval = config["snapshot_interval"]
-    dbg("monitor.start", aque_dir, idle_timeout=config["idle_timeout"], interval=interval)
+    stall_timeout = config["stall_timeout"]
+    dbg(
+        "monitor.start",
+        aque_dir,
+        idle_timeout=config["idle_timeout"],
+        stall_timeout=stall_timeout,
+        interval=interval,
+    )
 
     pid_file = aque_dir / "monitor.pid"
     pid_file.write_text(str(os.getpid()))
@@ -195,7 +208,23 @@ def run_monitor(aque_dir: Path) -> None:
                 if content is not None:
                     detector.update(agent.id, content.split("\n"))
 
-                if detector.is_idle(agent.id):
+                if agent.agent_type is not None:
+                    # Hooks are primary for typed agents. Only fall back to
+                    # content-hash if the pane has been frozen for much longer
+                    # than the normal idle timeout — a hook that never fires
+                    # is the only plausible cause of a real stall that long.
+                    stable = detector.stable_seconds(agent.id)
+                    if stable >= stall_timeout:
+                        dbg(
+                            "monitor.stall->waiting",
+                            aque_dir,
+                            agent_id=agent.id,
+                            elapsed=f"{stable:.1f}s",
+                            threshold=f"{stall_timeout}s",
+                        )
+                        mgr.update_agent_state(agent.id, AgentState.WAITING)
+                        detector.remove_agent(agent.id)
+                elif detector.is_idle(agent.id):
                     dbg("monitor.idle->waiting", aque_dir, agent_id=agent.id)
                     mgr.update_agent_state(agent.id, AgentState.WAITING)
                     detector.remove_agent(agent.id)
