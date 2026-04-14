@@ -1,5 +1,6 @@
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 import libtmux
@@ -491,6 +492,7 @@ class DeskApp(App):
         self._countdown_agent: AgentInfo | None = None
         self._countdown_modal: AutoAttachModal | None = None
         self._auto_attach_suppressed: bool = False
+        self._post_detach_debounce_until: float = 0.0
         self._preview_debounce_timer: Timer | None = None
         self._last_agent_fingerprint: list | None = None
         self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
@@ -854,6 +856,7 @@ class DeskApp(App):
 
         with self.suspend():
             subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
+        self._post_detach_debounce_until = time.monotonic() + 0.5
 
         state = self.state_mgr.load()
         updated_agent = next((a for a in state.agents if a.id == agent.id), agent)
@@ -947,6 +950,9 @@ class DeskApp(App):
             form.select_type()
             return
         if self._mode != "dashboard":
+            return
+        if time.monotonic() < self._post_detach_debounce_until:
+            dbg("desk.list_select.debounced", self.aque_dir, option_id=event.option.id)
             return
         agent_id = int(event.option.id)
         state = self.state_mgr.load()
