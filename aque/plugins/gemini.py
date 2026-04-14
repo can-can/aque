@@ -10,7 +10,9 @@ from pathlib import Path
 DEFAULT_CONFIG_PATH = Path.home() / ".gemini" / "settings.json"
 
 AQUE_HOOK_COMMAND = (
-    "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json && echo '{}'"
+    "{ [ -n \"$AQUE_AGENT_ID\" ] && "
+    "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json; }; "
+    "echo '{}'"
 )
 
 AQUE_HOOK_ENTRY = {

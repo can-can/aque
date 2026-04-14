@@ -14,8 +14,10 @@ STOP_SCRIPT_PATH = Path.home() / ".aque" / "hooks" / "codex-stop.sh"
 STOP_SCRIPT = """\
 #!/bin/sh
 read -r _input
-mkdir -p ~/.aque/signals
-echo '{"event":"stop"}' > ~/.aque/signals/${AQUE_AGENT_ID}.json
+if [ -n "${AQUE_AGENT_ID}" ]; then
+  mkdir -p ~/.aque/signals
+  echo '{"event":"stop"}' > ~/.aque/signals/${AQUE_AGENT_ID}.json
+fi
 echo '{}'
 """
 

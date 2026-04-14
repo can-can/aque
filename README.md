@@ -101,7 +101,6 @@ Currently supported types:
 | `claude` | Hook installed in `~/.claude/settings.json` |
 | `codex` | Hook installed in `~/.codex/hooks.json` |
 | `gemini` | Hook installed in `~/.gemini/settings.json` |
-| `kiro` | Hook installed in `~/.kiro/agents/aque.json` |
 | `opencode` | Plugin installed in `~/.config/opencode/plugins/aque.js` |
 | `aider` | `--notifications-command` injected at launch (no config hook) |
 

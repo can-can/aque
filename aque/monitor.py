@@ -117,6 +117,9 @@ def check_signal_files(signals_dir: Path) -> set[int]:
         try:
             agent_id = int(f.stem)
         except ValueError:
+            # Malformed filename (e.g. ".json" from an unset AQUE_AGENT_ID).
+            # Drop it so it doesn't sit around forever.
+            f.unlink(missing_ok=True)
             continue
         signaled.add(agent_id)
         f.unlink(missing_ok=True)
