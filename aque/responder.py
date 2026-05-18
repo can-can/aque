@@ -26,3 +26,11 @@ def system_prompt(partner: AgentInfo) -> str:
         f"Be conservative: if the situation is unclear or destructive, "
         f"do nothing and wait. Do not start unrelated work."
     )
+
+
+def find_for(partner_id: int, agents: list[AgentInfo]) -> AgentInfo | None:
+    """Return the responder paired with `partner_id`, or None."""
+    for a in agents:
+        if a.is_responder and a.partner_id == partner_id:
+            return a
+    return None

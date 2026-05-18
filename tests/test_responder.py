@@ -28,3 +28,34 @@ class TestSystemPrompt:
         text = system_prompt(partner)
         assert "tmux capture-pane" in text
         assert "tmux send-keys" in text
+
+
+class TestFindFor:
+    def test_returns_responder_when_paired(self, tmp_aque_dir):
+        from aque.responder import find_for
+
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        ))
+        state = mgr.load()
+        responder = find_for(1, state.agents)
+        assert responder is not None
+        assert responder.id == 2
+
+    def test_returns_none_when_no_pair(self, tmp_aque_dir):
+        from aque.responder import find_for
+
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="solo",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        state = mgr.load()
+        assert find_for(1, state.agents) is None
