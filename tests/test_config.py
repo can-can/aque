@@ -38,3 +38,29 @@ class TestConfig:
         config_path.write_text("default_dir: /tmp/custom\n")
         config = load_config(tmp_aque_dir)
         assert config["default_dir"] == "/tmp/custom"
+
+    def test_responder_defaults(self):
+        assert DEFAULT_CONFIG["responder_enabled"] is True
+        assert DEFAULT_CONFIG["responder_command"] == ["claude"]
+        assert DEFAULT_CONFIG["responder_idle_gap"] == 30
+        assert DEFAULT_CONFIG["responder_dir"] is None
+
+    def test_responder_command_override(self, tmp_aque_dir):
+        config_path = tmp_aque_dir / "config.yaml"
+        config_path.write_text(
+            "responder_command:\n  - claude\n  - --model\n  - haiku\n"
+        )
+        config = load_config(tmp_aque_dir)
+        assert config["responder_command"] == ["claude", "--model", "haiku"]
+
+    def test_responder_idle_gap_override(self, tmp_aque_dir):
+        config_path = tmp_aque_dir / "config.yaml"
+        config_path.write_text("responder_idle_gap: 10\n")
+        config = load_config(tmp_aque_dir)
+        assert config["responder_idle_gap"] == 10
+
+    def test_responder_enabled_false(self, tmp_aque_dir):
+        config_path = tmp_aque_dir / "config.yaml"
+        config_path.write_text("responder_enabled: false\n")
+        config = load_config(tmp_aque_dir)
+        assert config["responder_enabled"] is False

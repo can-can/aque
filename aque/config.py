@@ -18,6 +18,10 @@ DEFAULT_CONFIG = {
     "queue_order": "fifo",
     "session_prefix": "aque",
     "default_dir": str(_projects_dir) if _projects_dir.exists() else str(Path.home()),
+    "responder_enabled": True,
+    "responder_command": ["claude"],
+    "responder_idle_gap": 30,
+    "responder_dir": None,
 }
 
 
