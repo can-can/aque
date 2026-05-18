@@ -73,3 +73,22 @@ class TestRunResponderWiring:
         )
         assert result.exit_code == 0, result.output
         mock_create.assert_not_called()
+
+
+class TestListIndent:
+    def test_list_shows_responder_indented_under_partner(self, tmp_aque_dir):
+        from aque.state import AgentInfo, AgentState, StateManager
+
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="main",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        ))
+        result = runner.invoke(app, ["--aque-dir", str(tmp_aque_dir), "list"])
+        assert result.exit_code == 0
+        assert "↳ resp(1)" in result.output

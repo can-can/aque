@@ -132,14 +132,28 @@ def list_agents() -> None:
         AgentState.DONE: "red",
     }
 
-    for agent in state.agents:
+    by_partner = {a.partner_id: a for a in state.agents if a.is_responder}
+
+    def render_row(agent, indent_prefix=""):
         color = state_colors.get(agent.state, "white")
         table.add_row(
             str(agent.id),
             f"[{color}]{agent.state.value}[/{color}]",
-            agent.label,
+            f"{indent_prefix}{agent.label}",
             agent.dir,
         )
+
+    partner_ids = {a.id for a in state.agents if not a.is_responder}
+    for partner in [a for a in state.agents if not a.is_responder]:
+        render_row(partner)
+        resp = by_partner.get(partner.id)
+        if resp is not None:
+            render_row(resp, indent_prefix="↳ ")
+
+    # Orphan responders (partner missing) — render at the bottom.
+    for resp in state.agents:
+        if resp.is_responder and resp.partner_id not in partner_ids:
+            render_row(resp, indent_prefix="↳ (orphan) ")
 
     console.print(table)
 
