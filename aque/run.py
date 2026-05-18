@@ -41,6 +41,8 @@ def launch_agent(
     prefix: str = "aque",
     background: bool = False,
     agent_type: str | None = None,
+    is_responder: bool = False,
+    partner_id: int | None = None,
 ) -> int:
     if label is None:
         dir_basename = Path(working_dir).name
@@ -87,6 +89,8 @@ def launch_agent(
         state=AgentState.RUNNING,
         pid=int(pane.pane_pid),
         agent_type=agent_type,
+        is_responder=is_responder,
+        partner_id=partner_id,
     )
     state_manager.add_agent(agent)
 
