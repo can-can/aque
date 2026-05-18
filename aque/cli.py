@@ -1,4 +1,5 @@
 import os
+import shlex
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -7,6 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from aque import responder
 from aque.config import load_config
 from aque.dir_history import DirHistoryManager
 from aque.monitor import start_monitor_daemon, stop_monitor
@@ -51,6 +53,9 @@ def run(
     dir: str = typer.Option(..., "--dir", help="Working directory for the agent"),
     label: Optional[str] = typer.Option(None, "--label", help="Human-readable label"),
     agent_type: Optional[str] = typer.Option(None, "--type", help="Agent type for hook-based detection (e.g. claude, codex)"),
+    no_responder: bool = typer.Option(False, "--no-responder", help="Do not auto-create a paired responder agent."),
+    responder_cmd: Optional[str] = typer.Option(None, "--responder-cmd", help="Override the responder command for this launch (shell-quoted)."),
+    responder_dir: Optional[str] = typer.Option(None, "--responder-dir", help="Override the responder working directory for this launch."),
     command: list[str] = typer.Argument(..., help="Agent command and arguments"),
 ) -> None:
     """Launch an agent in a managed tmux session."""
@@ -84,6 +89,18 @@ def run(
         prefix=config["session_prefix"],
         agent_type=agent_type,
     )
+
+    # Auto-create responder unless suppressed.
+    should_pair = config.get("responder_enabled", True) and not no_responder
+    if should_pair:
+        responder_config = dict(config)
+        if responder_cmd is not None:
+            responder_config["responder_command"] = shlex.split(responder_cmd)
+        if responder_dir is not None:
+            responder_config["responder_dir"] = responder_dir
+        partner = next((a for a in mgr.load().agents if a.id == agent_id), None)
+        responder.create_for(partner, responder_config, mgr, aque_dir=AQUE_DIR)
+
     dir_history_mgr = DirHistoryManager(AQUE_DIR)
     dir_history_mgr.record_use(dir)
     ensure_monitor_running()
