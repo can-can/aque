@@ -470,6 +470,7 @@ class DeskApp(App):
         ("n", "new_agent", "New Agent"),
         ("k", "kill_agent", "Kill"),
         ("h", "hold_agent", "Hold"),
+        ("R", "toggle_responders", "Toggle responder visibility"),
         ("q", "quit_app", "Quit"),
     ]
 
@@ -499,6 +500,7 @@ class DeskApp(App):
         self._preview_debounce_timer: Timer | None = None
         self._last_agent_fingerprint: list | None = None
         self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
+        self.show_responders: bool = False
 
     def _get_tmux_server(self) -> libtmux.Server:
         if self._tmux_server is None:
@@ -623,6 +625,26 @@ class DeskApp(App):
         except Exception:
             pass
 
+    def visible_agents(self, agents: list[AgentInfo]) -> list[AgentInfo]:
+        """Filter agents for the main list, respecting show_responders.
+
+        When responders are revealed, each non-responder is followed by its
+        paired responder (if any) so the list reads as parent → child.
+        """
+        if self.show_responders:
+            partners = [a for a in agents if not a.is_responder]
+            responders_by_partner = {
+                a.partner_id: a for a in agents if a.is_responder
+            }
+            ordered: list[AgentInfo] = []
+            for p in partners:
+                ordered.append(p)
+                r = responders_by_partner.get(p.id)
+                if r is not None:
+                    ordered.append(r)
+            return ordered
+        return [a for a in agents if not a.is_responder]
+
     def _refresh_agent_list(self, reset_highlight: bool = False, state: AppState | None = None) -> None:
         try:
             option_list = self.query_one("#agent-option-list", OptionList)
@@ -632,7 +654,8 @@ class DeskApp(App):
         if state is None:
             state = self.state_mgr.load()
         active = [a for a in state.agents if a.state != AgentState.DONE]
-        agents = sorted_agents(active)
+        sorted_active = sorted_agents(active)
+        agents = self.visible_agents(sorted_active)
 
         new_fingerprint = [(a.id, a.state.value) for a in agents]
         if not reset_highlight and new_fingerprint == self._last_agent_fingerprint:
@@ -650,13 +673,15 @@ class DeskApp(App):
         option_list.clear_options()
         for agent in agents:
             color = STATE_COLORS.get(agent.state, "white")
+            indent = "↳ " if agent.is_responder else ""
             if self._is_narrow:
-                label = f"[{color}]●[/{color}] {agent.label}"
+                label = f"[{color}]●[/{color}] {indent}{agent.label}"
             else:
                 type_tag = f" [dim]\\[{agent.agent_type}][/dim]" if agent.agent_type else ""
+                label_cell = f"{indent}{agent.label}"
                 label = (
                     f"[{color}]{agent.state.value:<8}[/{color}]{type_tag}  "
-                    f"{agent.label:<25}  {agent.dir}"
+                    f"{label_cell:<25}  {agent.dir}"
                 )
             option_list.add_option(Option(label, id=str(agent.id)))
 
@@ -1101,6 +1126,14 @@ class DeskApp(App):
                 self._hold_agent(agent_id)
                 self._refresh_agent_list()
                 self._refresh_status_bar()
+
+    def action_toggle_responders(self) -> None:
+        if self._mode != "dashboard":
+            return
+        self.show_responders = not self.show_responders
+        # Force rebuild since the agent list shape changes.
+        self._last_agent_fingerprint = None
+        self._refresh_agent_list()
 
     def action_quit_app(self) -> None:
         stop_monitor(self.aque_dir)
