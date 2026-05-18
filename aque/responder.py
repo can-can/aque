@@ -7,6 +7,8 @@ module only handles creation, nudging, and cleanup of the paired agent.
 from __future__ import annotations
 
 import shutil
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +16,23 @@ import libtmux
 
 from aque.run import launch_agent
 from aque.state import AgentInfo, AgentState, StateManager
+
+
+def _send_system_prompt(tmux_session: str, text: str, *, startup_wait: float = 3.0) -> None:
+    """Wait for the responder's CLI to be ready, then type the system prompt.
+
+    Called from a background thread so create_for can return immediately.
+    Tolerates missing sessions (e.g., session killed before this fires).
+    """
+    time.sleep(startup_wait)
+    try:
+        server = libtmux.Server()
+        session = server.sessions.get(session_name=tmux_session)
+        if session is None:
+            return
+        session.active_pane.send_keys(text, enter=True)
+    except Exception:
+        return
 
 
 def system_prompt(partner: AgentInfo) -> str:
@@ -70,7 +89,7 @@ def create_for(
     label = f"resp({partner.id})"
     command = list(config["responder_command"])
 
-    return launch_agent(
+    responder_id = launch_agent(
         command=command,
         working_dir=str(working_dir),
         label=label,
@@ -79,6 +98,21 @@ def create_for(
         is_responder=True,
         partner_id=partner.id,
     )
+
+    # Schedule the system-prompt delivery in a background thread so it fires
+    # after the responder's CLI has had time to start up.
+    state = state_manager.load()
+    responder_agent = next((a for a in state.agents if a.id == responder_id), None)
+    if responder_agent is not None:
+        prompt_text = system_prompt(partner)
+        thread = threading.Thread(
+            target=_send_system_prompt,
+            args=(responder_agent.tmux_session, prompt_text),
+            daemon=True,
+        )
+        thread.start()
+
+    return responder_id
 
 
 def nudge(

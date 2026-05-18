@@ -158,6 +158,69 @@ class TestCreateFor:
         expected = tmp_aque_dir / "responders" / "1"
         assert expected.is_dir()
 
+    @patch("aque.responder._send_system_prompt")
+    @patch("aque.responder.launch_agent")
+    def test_create_for_schedules_system_prompt_delivery(self, mock_launch, mock_send, tmp_aque_dir):
+        """create_for must arrange for system_prompt to be typed into the responder."""
+        from aque.responder import create_for
+
+        mgr = StateManager(tmp_aque_dir)
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        )
+        mgr.add_agent(partner)
+
+        def fake_launch(command, working_dir, label, state_manager, **kw):
+            new_id = state_manager.next_id()
+            state_manager.add_agent(AgentInfo(
+                id=new_id, tmux_session=f"aque-resp-1-{new_id}", label=label,
+                dir=working_dir, command=command, state=AgentState.RUNNING, pid=200,
+                is_responder=True, partner_id=partner.id,
+            ))
+            return new_id
+        mock_launch.side_effect = fake_launch
+
+        config = {"responder_command": ["claude"], "responder_dir": None, "session_prefix": "aque"}
+        create_for(partner, config, mgr, aque_dir=tmp_aque_dir)
+
+        # _send_system_prompt was called with the responder's session name and the partner's system_prompt
+        mock_send.assert_called_once()
+        args, kwargs = mock_send.call_args
+        # First positional or 'tmux_session' keyword is the responder session
+        session_arg = args[0] if args else kwargs.get("tmux_session")
+        text_arg = args[1] if len(args) > 1 else kwargs.get("text", kwargs.get("prompt_text"))
+        assert session_arg.startswith("aque-resp-1-")
+        assert "aque-foo-1" in text_arg  # the prompt mentions the partner
+
+
+class TestSendSystemPrompt:
+    @patch("aque.responder.libtmux.Server")
+    @patch("aque.responder.time.sleep")
+    def test_send_system_prompt_types_into_pane(self, mock_sleep, mock_server_cls):
+        from aque.responder import _send_system_prompt
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        session = MagicMock()
+        pane = MagicMock()
+        session.active_pane = pane
+        mock_server.sessions.get.return_value = session
+
+        _send_system_prompt("aque-resp-1-2", "Hello partner")
+
+        mock_sleep.assert_called_once()  # waited for CLI startup
+        pane.send_keys.assert_called_once_with("Hello partner", enter=True)
+
+    @patch("aque.responder.libtmux.Server")
+    @patch("aque.responder.time.sleep")
+    def test_send_system_prompt_tolerates_missing_session(self, mock_sleep, mock_server_cls):
+        from aque.responder import _send_system_prompt
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_server.sessions.get.return_value = None
+        # Should not raise.
+        _send_system_prompt("aque-resp-1-2", "Hello")
+
 
 class TestNudge:
     def _make_pair(self):
