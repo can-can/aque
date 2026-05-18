@@ -31,6 +31,7 @@ class FolderTree(DirectoryTree):
             if p.is_dir() and not p.name.startswith(".")
         ]
 
+from aque import responder
 from aque.config import load_config
 from aque.debug import dbg
 from aque.dir_history import DirHistoryManager
@@ -917,13 +918,16 @@ class DeskApp(App):
         agent = next((a for a in state.agents if a.id == agent_id), None)
         if agent is None:
             return
+        server = self._get_tmux_server()
         try:
-            server = self._get_tmux_server()
             session = server.sessions.get(session_name=agent.tmux_session)
             if session:
                 session.kill()
         except Exception:
             pass
+        # If killing a partner, also clean up its responder.
+        if not agent.is_responder:
+            responder.cleanup(agent, self.state_mgr, server, aque_dir=self.aque_dir)
         self.state_mgr.done_agent(agent_id, self.history_mgr)
 
     def _hold_agent(self, agent_id: int) -> None:

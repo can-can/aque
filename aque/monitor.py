@@ -10,7 +10,7 @@ import libtmux
 from aque import responder
 from aque.config import load_config
 from aque.debug import dbg
-from aque.state import AgentState, StateManager
+from aque.state import AgentInfo, AgentState, StateManager
 
 MONITORED_STATES = {AgentState.RUNNING}
 
@@ -106,6 +106,19 @@ def session_exists(server: libtmux.Server, session_name: str) -> bool:
         return server.sessions.get(session_name=session_name) is not None
     except Exception:
         return False
+
+
+def handle_session_gone(
+    agent: AgentInfo,
+    state_manager: StateManager,
+    server: libtmux.Server,
+    *,
+    aque_dir: Path,
+) -> None:
+    """Flip agent to EXITED. If it's a non-responder partner, clean up its responder."""
+    state_manager.update_agent_state(agent.id, AgentState.EXITED)
+    if not agent.is_responder:
+        responder.cleanup(agent, state_manager, server, aque_dir=aque_dir)
 
 
 def check_signal_files(signals_dir: Path) -> set[int]:
@@ -244,7 +257,7 @@ def run_monitor(aque_dir: Path) -> None:
 
                 if not session_exists(server, agent.tmux_session):
                     dbg("monitor.session-gone->exited", aque_dir, agent_id=agent.id)
-                    mgr.update_agent_state(agent.id, AgentState.EXITED)
+                    handle_session_gone(agent, mgr, server, aque_dir=aque_dir)
                     detector.remove_agent(agent.id)
                     continue
 

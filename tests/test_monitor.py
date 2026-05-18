@@ -254,3 +254,22 @@ class TestResponderNudgeIntegration:
         config = {"responder_idle_gap": 5, "responder_enabled": True}
         process_pending_nudges(mgr, MagicMock(), config)
         mock_nudge.assert_not_called()
+
+
+class TestResponderCleanupIntegration:
+    @patch("aque.monitor.responder.cleanup")
+    def test_cleanup_called_on_running_to_exited(self, mock_cleanup, tmp_aque_dir):
+        """When monitor flips partner running→exited, cleanup fires."""
+        from aque.monitor import handle_session_gone
+
+        mgr = StateManager(tmp_aque_dir)
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        )
+        mgr.add_agent(partner)
+        handle_session_gone(partner, mgr, MagicMock(), aque_dir=tmp_aque_dir)
+
+        state = mgr.load()
+        assert state.agents[0].state == AgentState.EXITED
+        mock_cleanup.assert_called_once()

@@ -173,13 +173,17 @@ def kill(agent_id: int = typer.Argument(..., help="Agent ID to terminate")) -> N
         console.print(f"[red]Agent #{agent_id} not found.[/red]")
         raise typer.Exit(1)
 
+    server = libtmux.Server()
     try:
-        server = libtmux.Server()
         session = server.sessions.get(session_name=agent.tmux_session)
         if session:
             session.kill()
     except Exception:
         pass
+
+    # If killing a partner, also clean up its responder.
+    if not agent.is_responder:
+        responder.cleanup(agent, mgr, server, aque_dir=AQUE_DIR)
 
     mgr.done_agent(agent_id, hmgr)
     console.print(f"[red]Agent #{agent_id} done — moved to history.[/red]")

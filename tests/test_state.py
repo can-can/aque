@@ -279,3 +279,25 @@ class TestDoneAgent:
         hmgr = HistoryManager(tmp_aque_dir)
         with pytest.raises(KeyError):
             mgr.done_agent(999, hmgr)
+
+
+class TestDoneAgentLeavesResponderToCaller:
+    def test_done_agent_does_not_remove_responder_directly(self, tmp_aque_dir):
+        """done_agent removes the partner only — responder cleanup is caller-driven."""
+        from aque.history import HistoryManager
+        mgr = StateManager(tmp_aque_dir)
+        hmgr = HistoryManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        ))
+        mgr.done_agent(1, hmgr)
+        state = mgr.load()
+        ids = {a.id for a in state.agents}
+        assert 1 not in ids
+        assert 2 in ids
