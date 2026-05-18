@@ -157,3 +157,85 @@ class TestCreateFor:
 
         expected = tmp_aque_dir / "responders" / "1"
         assert expected.is_dir()
+
+
+class TestNudge:
+    def _make_pair(self):
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=100,
+        )
+        responder = AgentInfo(
+            id=2, tmux_session="aque-resp-1-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        )
+        return partner, responder
+
+    def test_nudge_types_into_responder_pane(self, tmp_aque_dir):
+        from aque.responder import nudge
+
+        partner, responder = self._make_pair()
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+
+        server = MagicMock()
+        session = MagicMock()
+        pane = MagicMock()
+        session.active_pane = pane
+        server.sessions.get.return_value = session
+
+        result = nudge(partner, responder, server, state_manager=mgr)
+        assert result is True
+
+        pane.send_keys.assert_called_once()
+        line = pane.send_keys.call_args.args[0]
+        assert line.startswith("AQUE:")
+        assert "aque-foo-1" in line
+        assert "id=1" in line
+
+        reloaded = mgr.load()
+        partner_now = next(a for a in reloaded.agents if a.id == 1)
+        assert partner_now.last_nudge_at is not None
+
+    def test_nudge_skips_when_auto_respond_false(self, tmp_aque_dir):
+        from aque.responder import nudge
+
+        partner, responder = self._make_pair()
+        partner.auto_respond = False
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+
+        server = MagicMock()
+        result = nudge(partner, responder, server, state_manager=mgr)
+        assert result is False
+        server.sessions.get.assert_not_called()
+
+    def test_nudge_skips_when_responder_focused(self, tmp_aque_dir):
+        from aque.responder import nudge
+
+        partner, responder = self._make_pair()
+        responder.state = AgentState.FOCUSED
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+
+        server = MagicMock()
+        result = nudge(partner, responder, server, state_manager=mgr)
+        assert result is False
+
+    def test_nudge_skips_when_session_missing(self, tmp_aque_dir):
+        from aque.responder import nudge
+
+        partner, responder = self._make_pair()
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+
+        server = MagicMock()
+        server.sessions.get.return_value = None
+
+        result = nudge(partner, responder, server, state_manager=mgr)
+        assert result is False

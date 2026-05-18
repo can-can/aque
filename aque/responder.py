@@ -7,10 +7,13 @@ module only handles creation, nudging, and cleanup of the paired agent.
 from __future__ import annotations
 
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
+import libtmux
+
 from aque.run import launch_agent
-from aque.state import AgentInfo, StateManager
+from aque.state import AgentInfo, AgentState, StateManager
 
 
 def system_prompt(partner: AgentInfo) -> str:
@@ -76,3 +79,52 @@ def create_for(
         is_responder=True,
         partner_id=partner.id,
     )
+
+
+def nudge(
+    partner: AgentInfo,
+    responder: AgentInfo,
+    server: libtmux.Server,
+    *,
+    state_manager: StateManager,
+) -> bool:
+    """Type a one-line nudge into the responder's pane.
+
+    No-op (returns False) when:
+    - partner.auto_respond is False
+    - responder is in FOCUSED state
+    - responder's tmux session is missing
+
+    On a successful nudge, updates partner.last_nudge_at and returns True.
+    """
+    if not partner.auto_respond:
+        return False
+    if responder.state == AgentState.FOCUSED:
+        return False
+
+    try:
+        session = server.sessions.get(session_name=responder.tmux_session)
+    except Exception:
+        session = None
+    if session is None:
+        return False
+
+    line = (
+        f"AQUE: partner {partner.tmux_session} (id={partner.id}) is waiting. "
+        f"Inspect with `tmux capture-pane` and reply."
+    )
+    try:
+        session.active_pane.send_keys(line, enter=True)
+    except Exception:
+        return False
+
+    # Persist last_nudge_at on the partner.
+    now = datetime.now(timezone.utc).isoformat()
+    with state_manager._locked():
+        state = state_manager.load()
+        for a in state.agents:
+            if a.id == partner.id:
+                a.last_nudge_at = now
+        state_manager.save(state)
+
+    return True
