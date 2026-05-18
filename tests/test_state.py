@@ -81,6 +81,52 @@ class TestAgentInfo:
         agent = AgentInfo.from_dict(d)
         assert agent.agent_type is None
 
+    def test_responder_fields_default(self):
+        agent = AgentInfo(
+            id=1, tmux_session="aque-1", label="test",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        )
+        assert agent.is_responder is False
+        assert agent.partner_id is None
+        assert agent.auto_respond is True
+        assert agent.last_nudge_at is None
+
+    def test_responder_fields_set_explicitly(self):
+        agent = AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        )
+        assert agent.is_responder is True
+        assert agent.partner_id == 1
+
+    def test_responder_fields_roundtrip_through_dict(self):
+        agent = AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1, auto_respond=False,
+            last_nudge_at="2026-05-16T10:00:00+00:00",
+        )
+        d = agent.to_dict()
+        restored = AgentInfo.from_dict(d)
+        assert restored.is_responder is True
+        assert restored.partner_id == 1
+        assert restored.auto_respond is False
+        assert restored.last_nudge_at == "2026-05-16T10:00:00+00:00"
+
+    def test_from_dict_handles_missing_responder_fields(self):
+        """Backward compat: pre-upgrade state.json entries."""
+        d = {
+            "id": 1, "tmux_session": "aque-1", "label": "test",
+            "dir": "/tmp", "command": ["claude"], "state": "running", "pid": 100,
+            "created_at": "2026-05-16T10:00:00Z", "last_change_at": "2026-05-16T10:00:00Z",
+        }
+        agent = AgentInfo.from_dict(d)
+        assert agent.is_responder is False
+        assert agent.partner_id is None
+        assert agent.auto_respond is True
+        assert agent.last_nudge_at is None
+
 
 class TestStateManager:
     def test_load_empty_state(self, tmp_aque_dir):

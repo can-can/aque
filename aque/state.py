@@ -31,6 +31,10 @@ class AgentInfo:
     created_at: str = ""
     last_change_at: str = ""
     agent_type: str | None = None
+    is_responder: bool = False
+    partner_id: int | None = None
+    auto_respond: bool = True
+    last_nudge_at: str | None = None
 
     def __post_init__(self):
         now = datetime.now(timezone.utc).isoformat()
@@ -49,6 +53,10 @@ class AgentInfo:
         d = d.copy()
         d["state"] = AgentState(d["state"])
         d.setdefault("agent_type", None)
+        d.setdefault("is_responder", False)
+        d.setdefault("partner_id", None)
+        d.setdefault("auto_respond", True)
+        d.setdefault("last_nudge_at", None)
         return cls(**d)
 
 
