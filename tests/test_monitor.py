@@ -149,3 +149,108 @@ class TestSignalFiles:
         cleanup_stale_signals(signals_dir, active_ids)
         assert (signals_dir / "1.json").exists()
         assert not (signals_dir / "99.json").exists()
+
+
+"""Append these tests to tests/test_monitor.py."""
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
+from aque.state import AgentInfo, AgentState, StateManager
+
+
+class TestResponderNudgeIntegration:
+    def _make_state(self, tmp_aque_dir, *, waiting_seconds_ago: int):
+        mgr = StateManager(tmp_aque_dir)
+        last_change = (datetime.now(timezone.utc) - timedelta(seconds=waiting_seconds_ago)).isoformat()
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=100,
+            last_change_at=last_change,
+        )
+        responder = AgentInfo(
+            id=2, tmux_session="aque-resp-1-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        )
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+        return mgr
+
+    @patch("aque.monitor.responder.nudge")
+    def test_nudge_fires_after_idle_gap(self, mock_nudge, tmp_aque_dir):
+        from aque.monitor import process_pending_nudges
+
+        mgr = self._make_state(tmp_aque_dir, waiting_seconds_ago=10)
+        config = {"responder_idle_gap": 5, "responder_enabled": True}
+        process_pending_nudges(mgr, MagicMock(), config)
+        assert mock_nudge.call_count == 1
+
+    @patch("aque.monitor.responder.nudge")
+    def test_no_nudge_before_idle_gap(self, mock_nudge, tmp_aque_dir):
+        from aque.monitor import process_pending_nudges
+
+        mgr = self._make_state(tmp_aque_dir, waiting_seconds_ago=2)
+        config = {"responder_idle_gap": 5, "responder_enabled": True}
+        process_pending_nudges(mgr, MagicMock(), config)
+        mock_nudge.assert_not_called()
+
+    @patch("aque.monitor.responder.nudge")
+    def test_no_nudge_when_responder_enabled_false(self, mock_nudge, tmp_aque_dir):
+        from aque.monitor import process_pending_nudges
+
+        mgr = self._make_state(tmp_aque_dir, waiting_seconds_ago=10)
+        config = {"responder_idle_gap": 5, "responder_enabled": False}
+        process_pending_nudges(mgr, MagicMock(), config)
+        mock_nudge.assert_not_called()
+
+    @patch("aque.monitor.responder.nudge")
+    def test_no_nudge_for_responder_in_waiting(self, mock_nudge, tmp_aque_dir):
+        from aque.monitor import process_pending_nudges
+
+        mgr = StateManager(tmp_aque_dir)
+        last = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+            last_change_at=last,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=101,
+            is_responder=True, partner_id=1, last_change_at=last,
+        ))
+        config = {"responder_idle_gap": 5, "responder_enabled": True}
+        process_pending_nudges(mgr, MagicMock(), config)
+        mock_nudge.assert_not_called()
+
+    @patch("aque.monitor.responder.nudge")
+    def test_renudge_after_another_gap(self, mock_nudge, tmp_aque_dir):
+        from aque.monitor import process_pending_nudges
+
+        mgr = self._make_state(tmp_aque_dir, waiting_seconds_ago=30)
+        with mgr._locked():
+            state = mgr.load()
+            for a in state.agents:
+                if a.id == 1:
+                    a.last_nudge_at = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+            mgr.save(state)
+
+        config = {"responder_idle_gap": 5, "responder_enabled": True}
+        process_pending_nudges(mgr, MagicMock(), config)
+        assert mock_nudge.call_count == 1
+
+    @patch("aque.monitor.responder.nudge")
+    def test_no_renudge_within_gap(self, mock_nudge, tmp_aque_dir):
+        from aque.monitor import process_pending_nudges
+
+        mgr = self._make_state(tmp_aque_dir, waiting_seconds_ago=30)
+        with mgr._locked():
+            state = mgr.load()
+            for a in state.agents:
+                if a.id == 1:
+                    a.last_nudge_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+            mgr.save(state)
+
+        config = {"responder_idle_gap": 5, "responder_enabled": True}
+        process_pending_nudges(mgr, MagicMock(), config)
+        mock_nudge.assert_not_called()

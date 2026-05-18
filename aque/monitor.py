@@ -2,10 +2,12 @@ import hashlib
 import os
 import signal
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import libtmux
 
+from aque import responder
 from aque.config import load_config
 from aque.debug import dbg
 from aque.state import AgentState, StateManager
@@ -141,6 +143,45 @@ def cleanup_stale_signals(signals_dir: Path, active_ids: set[int]) -> None:
             f.unlink(missing_ok=True)
 
 
+def process_pending_nudges(
+    state_manager: StateManager,
+    server: libtmux.Server,
+    config: dict,
+) -> None:
+    """Walk WAITING partners and nudge their responders when idle-gap has elapsed.
+
+    Triggered once per monitor poll.
+    """
+    if not config.get("responder_enabled", True):
+        return
+
+    gap = float(config.get("responder_idle_gap", 30))
+    now = datetime.now(timezone.utc)
+    state = state_manager.load()
+    agents = state.agents
+
+    for partner in agents:
+        if partner.is_responder:
+            continue
+        if partner.state != AgentState.WAITING:
+            continue
+        if not partner.auto_respond:
+            continue
+
+        resp = responder.find_for(partner.id, agents)
+        if resp is None:
+            continue
+
+        if partner.last_nudge_at is None:
+            ref = datetime.fromisoformat(partner.last_change_at)
+        else:
+            ref = datetime.fromisoformat(partner.last_nudge_at)
+        if (now - ref).total_seconds() < gap:
+            continue
+
+        responder.nudge(partner, resp, server, state_manager=state_manager)
+
+
 def run_monitor(aque_dir: Path) -> None:
     config = load_config(aque_dir)
     mgr = StateManager(aque_dir)
@@ -231,6 +272,9 @@ def run_monitor(aque_dir: Path) -> None:
                     dbg("monitor.idle->waiting", aque_dir, agent_id=agent.id)
                     mgr.update_agent_state(agent.id, AgentState.WAITING)
                     detector.remove_agent(agent.id)
+
+            # End of per-agent loop. Now process auto-responder nudges.
+            process_pending_nudges(mgr, server, config)
 
             time.sleep(interval)
     finally:
