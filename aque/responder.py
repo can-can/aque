@@ -49,9 +49,10 @@ def create_for(
 ) -> int:
     """Spawn a responder tmux session paired with `partner`.
 
-    Working dir defaults to `<aque_dir>/responders/<partner_id>/` unless
-    `config['responder_dir']` overrides it. Existing dirs are wiped to
-    guarantee a clean slate on id reuse.
+    Working dir defaults to `<aque_dir>/responders/<partner_id>/`. The
+    default path is wiped-and-recreated to guarantee a clean slate on id
+    reuse. An explicit `config['responder_dir']` override is left as-is —
+    callers own that path.
 
     Returns the new responder's agent id.
     """
