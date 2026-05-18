@@ -309,3 +309,31 @@ class TestAutoRespondToggle:
             by_id = {a.id: a for a in agents}
             assert by_id[1].auto_respond is True
             assert by_id[2].auto_respond is True
+
+
+class TestAutoAttachSkipsResponders:
+    def test_auto_attach_picks_partner_not_responder(self, tmp_aque_dir):
+        from aque.desk import DeskApp
+        from aque.state import AgentInfo, AgentState, StateManager
+
+        mgr = StateManager(tmp_aque_dir)
+        # Partner running.
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        # Responder waiting — must NOT be picked.
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=101,
+            is_responder=True, partner_id=1,
+        ))
+        # Another partner waiting — this is the correct pick.
+        mgr.add_agent(AgentInfo(
+            id=3, tmux_session="aque-3", label="other partner",
+            dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=102,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir)
+        picked = app.pick_auto_attach_target(mgr.load().agents)
+        assert picked is not None
+        assert picked.id == 3

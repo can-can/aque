@@ -757,6 +757,21 @@ class DeskApp(App):
         self._ensure_monitor_running()
         self._try_auto_attach()
 
+    def pick_auto_attach_target(self, agents: list[AgentInfo]) -> AgentInfo | None:
+        """Top-priority WAITING agent that is NOT a responder.
+
+        Used by the auto-attach modal/countdown to choose which waiting agent
+        to surface to the user.
+        """
+        candidates = [
+            a for a in agents
+            if a.state == AgentState.WAITING and not a.is_responder
+        ]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
+        return candidates[0]
+
     def _try_auto_attach(self, state: AppState | None = None) -> None:
         if self._skip_attach or self._countdown_timer is not None or self._auto_attach_suppressed:
             dbg(
@@ -769,10 +784,9 @@ class DeskApp(App):
             return
         if state is None:
             state = self.state_mgr.load()
-        waiting = [a for a in state.agents if a.state == AgentState.WAITING]
-        if not waiting:
+        top = self.pick_auto_attach_target(state.agents)
+        if top is None:
             return
-        top = sorted_agents(waiting)[0]
         dbg(
             "desk.auto_attach.start",
             self.aque_dir,
