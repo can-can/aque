@@ -64,6 +64,32 @@ def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
     return sorted(agents, key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
 
 
+def build_preview_meta(agent: AgentInfo, agents: list[AgentInfo]) -> str:
+    """Return the auto-responder meta-line shown in the preview pane.
+
+    For a partner: 'Auto-response: on (responder: <session>)' / 'off' /
+    'unavailable (no responder)'.
+    For a responder: 'Auto-responder for: <partner label> (id <n>)'.
+    """
+    if agent.is_responder:
+        partner = next(
+            (a for a in agents if a.id == agent.partner_id),
+            None,
+        )
+        if partner is None:
+            return f"Auto-responder for: (partner id={agent.partner_id} missing)"
+        return f"Auto-responder for: {partner.label} (id {partner.id})"
+
+    resp = next(
+        (a for a in agents if a.is_responder and a.partner_id == agent.id),
+        None,
+    )
+    if resp is None:
+        return "Auto-response: unavailable (no responder)"
+    state_word = "on" if agent.auto_respond else "off"
+    return f"Auto-response: {state_word} (responder: {resp.tmux_session})"
+
+
 # ── Widgets ──────────────────────────────────────────────────────────
 
 
@@ -717,6 +743,8 @@ class DeskApp(App):
 
         server = self._get_tmux_server()
         content = capture_pane_content(server, agent.tmux_session)
+        auto_meta_line = build_preview_meta(agent, state.agents)
+        auto_meta = Text.from_markup(f"\n[dim]{auto_meta_line}[/dim]")
         if content:
             lines = content.split("\n")
             last_lines = lines[-30:]
@@ -733,9 +761,14 @@ class DeskApp(App):
                     "\n[dim]Detection: polling[/dim]"
                 )
             body = Text("\n" + "\n".join(last_lines))
-            preview.update(header + meta + body)
+            preview.update(header + meta + body + auto_meta)
         else:
-            preview.update(f"[bold]{agent.label}[/bold]\n[dim]No preview available[/dim]")
+            preview.update(
+                Text.from_markup(
+                    f"[bold]{agent.label}[/bold]\n[dim]No preview available[/dim]"
+                )
+                + auto_meta
+            )
 
     # ── Mode switching ───────────────────────────────────────────
 
