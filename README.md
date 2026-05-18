@@ -73,6 +73,8 @@ The desk shows a **unified dashboard** with all your agents, their states, and a
 | n | Create new agent |
 | k | Kill selected agent (moves to history) |
 | h | Toggle hold on selected agent |
+| R | Toggle responder visibility |
+| a | Toggle auto-response on selected partner |
 | q | Quit desk |
 
 ### Detach Behavior
@@ -107,6 +109,29 @@ Currently supported types:
 When creating an agent from the dashboard (`n`), the new agent form lets you select a type in the first step.
 
 The agent type is shown as a tag in the agent list, and the detection method is shown in the preview panel.
+
+### Auto-Responder
+
+When you launch an agent, aque automatically pairs it with a responder agent — another aque-managed tmux session. After the partner sits in `waiting` for `responder_idle_gap` seconds (default 30), aque types a one-line nudge into the responder's pane. The responder reads the partner's screen with `tmux capture-pane` and replies with `tmux send-keys` using its own toolbelt.
+
+Responders are hidden from the dashboard by default. Press **R** to reveal them, and **a** to toggle auto-response on the selected partner.
+
+To suppress auto-response for a single launch: `aque run --no-responder -- ...`. To override the responder command for a single launch: `aque run --responder-cmd "claude --model haiku" -- ...`.
+
+Disable globally in `~/.aque/config.yaml`:
+
+```yaml
+responder_enabled: false
+```
+
+Configurable keys (with defaults):
+
+```yaml
+responder_enabled: true
+responder_command: ["claude"]
+responder_idle_gap: 30
+responder_dir: null   # null => ~/.aque/responders/<partner_id>/
+```
 
 ### Idle Detection
 
