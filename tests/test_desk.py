@@ -266,3 +266,46 @@ class TestResponderVisibility:
         visible = app.visible_agents(mgr.load().agents)
         ids = {a.id for a in visible}
         assert ids == {1, 2}
+
+
+class TestAutoRespondToggle:
+    @pytest.mark.asyncio
+    async def test_a_key_toggles_auto_respond(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            ol = app.query_one("#agent-option-list", OptionList)
+            ol.highlighted = 0
+            app.action_toggle_auto_respond()
+            assert mgr.load().agents[0].auto_respond is False
+
+    @pytest.mark.asyncio
+    async def test_a_key_noop_on_responder(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1, auto_respond=True,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        app.show_responders = True
+        async with app.run_test() as pilot:
+            ol = app.query_one("#agent-option-list", OptionList)
+            # Find responder (id=2) in the list and highlight it
+            for i in range(ol.option_count):
+                if ol.get_option_at_index(i).id == "2":
+                    ol.highlighted = i
+                    break
+            app.action_toggle_auto_respond()
+            agents = mgr.load().agents
+            by_id = {a.id: a for a in agents}
+            assert by_id[1].auto_respond is True
+            assert by_id[2].auto_respond is True

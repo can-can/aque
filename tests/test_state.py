@@ -301,3 +301,23 @@ class TestDoneAgentLeavesResponderToCaller:
         ids = {a.id for a in state.agents}
         assert 1 not in ids
         assert 2 in ids
+
+
+class TestToggleAutoRespond:
+    def test_toggle_flips_flag(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        assert mgr.load().agents[0].auto_respond is True
+        mgr.toggle_auto_respond(1)
+        assert mgr.load().agents[0].auto_respond is False
+        mgr.toggle_auto_respond(1)
+        assert mgr.load().agents[0].auto_respond is True
+
+    def test_toggle_raises_for_missing(self, tmp_aque_dir):
+        import pytest
+        mgr = StateManager(tmp_aque_dir)
+        with pytest.raises(KeyError):
+            mgr.toggle_auto_respond(999)

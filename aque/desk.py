@@ -471,6 +471,7 @@ class DeskApp(App):
         ("k", "kill_agent", "Kill"),
         ("h", "hold_agent", "Hold"),
         ("R", "toggle_responders", "Toggle responder visibility"),
+        ("a", "toggle_auto_respond", "Toggle auto-response on selected partner"),
         ("q", "quit_app", "Quit"),
     ]
 
@@ -1132,6 +1133,27 @@ class DeskApp(App):
             return
         self.show_responders = not self.show_responders
         # Force rebuild since the agent list shape changes.
+        self._last_agent_fingerprint = None
+        self._refresh_agent_list()
+
+    def action_toggle_auto_respond(self) -> None:
+        if self._mode != "dashboard":
+            return
+        agent_id = self._get_highlighted_agent_id()
+        if agent_id is None:
+            return
+        state = self.state_mgr.load()
+        agent = next((a for a in state.agents if a.id == agent_id), None)
+        if agent is None:
+            return
+        if agent.is_responder:
+            self.notify(
+                "Auto-response toggle only applies to non-responder agents.",
+                timeout=2,
+            )
+            return
+        new_val = self.state_mgr.toggle_auto_respond(agent.id)
+        self.notify(f"Auto-response: {'on' if new_val else 'off'}", timeout=2)
         self._last_agent_fingerprint = None
         self._refresh_agent_list()
 

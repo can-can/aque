@@ -151,6 +151,17 @@ class StateManager:
             return 1
         return max(a.id for a in state.agents) + 1
 
+    def toggle_auto_respond(self, agent_id: int) -> bool:
+        """Flip `auto_respond` on the matching agent. Returns the new value."""
+        with self._locked():
+            state = self.load()
+            for agent in state.agents:
+                if agent.id == agent_id:
+                    agent.auto_respond = not agent.auto_respond
+                    self.save(state)
+                    return agent.auto_respond
+            raise KeyError(agent_id)
+
     def done_agent(self, agent_id: int, history_manager) -> None:
         with self._locked():
             state = self.load()
