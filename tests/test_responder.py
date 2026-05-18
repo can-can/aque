@@ -239,3 +239,72 @@ class TestNudge:
 
         result = nudge(partner, responder, server, state_manager=mgr)
         assert result is False
+
+
+class TestCleanup:
+    def test_cleanup_kills_session_and_removes_state(self, tmp_aque_dir):
+        from aque.responder import cleanup
+
+        mgr = StateManager(tmp_aque_dir)
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.EXITED, pid=100,
+        )
+        responder = AgentInfo(
+            id=2, tmux_session="aque-resp-1-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        )
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+
+        server = MagicMock()
+        session = MagicMock()
+        server.sessions.get.return_value = session
+
+        (tmp_aque_dir / "responders" / "1").mkdir(parents=True, exist_ok=True)
+
+        cleanup(partner, mgr, server, aque_dir=tmp_aque_dir)
+
+        session.kill.assert_called_once()
+        state = mgr.load()
+        assert all(a.id != 2 for a in state.agents)
+        assert not (tmp_aque_dir / "responders" / "1").exists()
+
+    def test_cleanup_when_no_responder_is_noop(self, tmp_aque_dir):
+        from aque.responder import cleanup
+
+        mgr = StateManager(tmp_aque_dir)
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.EXITED, pid=100,
+        )
+        mgr.add_agent(partner)
+        server = MagicMock()
+
+        cleanup(partner, mgr, server, aque_dir=tmp_aque_dir)
+        state = mgr.load()
+        assert any(a.id == 1 for a in state.agents)
+
+    def test_cleanup_tolerates_missing_tmux_session(self, tmp_aque_dir):
+        from aque.responder import cleanup
+
+        mgr = StateManager(tmp_aque_dir)
+        partner = AgentInfo(
+            id=1, tmux_session="aque-foo-1", label="foo",
+            dir="/tmp", command=["claude"], state=AgentState.EXITED, pid=100,
+        )
+        responder = AgentInfo(
+            id=2, tmux_session="aque-resp-1-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
+            is_responder=True, partner_id=1,
+        )
+        mgr.add_agent(partner)
+        mgr.add_agent(responder)
+
+        server = MagicMock()
+        server.sessions.get.return_value = None  # session already gone
+
+        cleanup(partner, mgr, server, aque_dir=tmp_aque_dir)
+        state = mgr.load()
+        assert all(a.id != 2 for a in state.agents)

@@ -128,3 +128,35 @@ def nudge(
         state_manager.save(state)
 
     return True
+
+
+def cleanup(
+    partner: AgentInfo,
+    state_manager: StateManager,
+    server: libtmux.Server,
+    *,
+    aque_dir: Path,
+) -> None:
+    """Remove the responder paired with `partner`, if any.
+
+    - Kills the responder's tmux session (tolerates missing sessions).
+    - Removes the responder's AgentInfo from state.
+    - Removes the responder's working dir under ~/.aque/responders/<partner_id>/.
+    """
+    state = state_manager.load()
+    responder = find_for(partner.id, state.agents)
+    if responder is None:
+        return
+
+    try:
+        session = server.sessions.get(session_name=responder.tmux_session)
+        if session is not None:
+            session.kill()
+    except Exception:
+        pass
+
+    state_manager.remove_agent(responder.id)
+
+    responder_dir = Path(aque_dir) / "responders" / str(partner.id)
+    if responder_dir.exists():
+        shutil.rmtree(responder_dir, ignore_errors=True)
