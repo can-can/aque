@@ -86,6 +86,8 @@ def build_preview_meta(agent: AgentInfo, agents: list[AgentInfo]) -> str:
     )
     if resp is None:
         return "Auto-response: unavailable (no responder)"
+    if resp.state == AgentState.EXITED:
+        return "Responder exited — auto-response disabled"
     state_word = "on" if agent.auto_respond else "off"
     return f"Auto-response: {state_word} (responder: {resp.tmux_session})"
 

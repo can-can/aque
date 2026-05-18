@@ -392,3 +392,23 @@ class TestPreviewPaneAutoRespondLines:
         text = build_preview_meta(responder_agent, agents)
         assert "Auto-responder for: partner" in text
         assert "id 1" in text or "id=1" in text
+
+    def test_preview_for_partner_shows_exited_when_responder_exited(self, tmp_aque_dir):
+        from aque.desk import build_preview_meta
+        from aque.state import AgentInfo, AgentState, StateManager
+
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="partner",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.EXITED, pid=101,
+            is_responder=True, partner_id=1,
+        ))
+        agents = mgr.load().agents
+        partner = next(a for a in agents if a.id == 1)
+        text = build_preview_meta(partner, agents)
+        assert "Responder exited" in text
+        assert "auto-response disabled" in text
