@@ -623,11 +623,18 @@ class DeskApp(App):
             return
         self.push_screen(OrphanModal(orphans, on_action=self._handle_orphan_action))
 
-    def _handle_orphan_action(self, action: str, agent_id: int) -> None:
+    def _handle_orphan_action(self, action: str, agent_id: int) -> "str | None":
+        """Apply an orphan action. Returns None on success, error message on failure.
+
+        Resume/Relaunch also rebuild the partner's responder (the old one died
+        with the same tmux server that took the partner). Forget cleans up the
+        paired responder so it doesn't sit in state.json with a dangling
+        partner_id.
+        """
         state = self.state_mgr.load()
         agent = next((a for a in state.agents if a.id == agent_id), None)
         if agent is None:
-            return
+            return "Agent not found"
         try:
             if action == "resume" and agent.session_id and agent.agent_type in CAPTURERS:
                 capturer = CAPTURERS[agent.agent_type]
@@ -636,17 +643,40 @@ class DeskApp(App):
                     agent_id=agent_id, command=cmd,
                     state_manager=self.state_mgr, preserve_session_id=True,
                 )
+                self._rebuild_responder(agent_id)
             elif action == "relaunch":
                 relaunch_agent(
                     agent_id=agent_id, command=agent.command,
                     state_manager=self.state_mgr, preserve_session_id=False,
                 )
+                self._rebuild_responder(agent_id)
             elif action == "mark_exited":
                 self.state_mgr.update_agent_state(agent_id, AgentState.EXITED)
             elif action == "forget":
+                if not agent.is_responder:
+                    server = libtmux.Server()
+                    responder.cleanup(agent, self.state_mgr, server, aque_dir=self.aque_dir)
                 self.state_mgr.remove_agent(agent_id)
+            return None
         except Exception as e:
             dbg("desk.orphan_action.error", self.aque_dir, action=action, agent_id=agent_id, err=str(e))
+            return str(e)
+
+    def _rebuild_responder(self, agent_id: int) -> None:
+        """After a partner agent is recovered, drop the dead responder and
+        create a fresh one. No-op for responders themselves or when responder
+        support is globally disabled."""
+        if not self.config.get("responder_enabled", True):
+            return
+        state = self.state_mgr.load()
+        agent = next((a for a in state.agents if a.id == agent_id), None)
+        if agent is None or agent.is_responder:
+            return
+        server = libtmux.Server()
+        responder.cleanup(agent, self.state_mgr, server, aque_dir=self.aque_dir)
+        responder.create_for(
+            agent, self.config, self.state_mgr, aque_dir=self.aque_dir,
+        )
 
     def _on_refresh(self) -> None:
         if self._mode not in ("dashboard", "auto_attach"):

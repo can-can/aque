@@ -17,7 +17,7 @@ from textual.widgets import Button, Static
 from aque.orphans import OrphanedAgent
 
 Action = str  # one of: "resume", "relaunch", "mark_exited", "forget"
-ActionCallback = Callable[[Action, int], None]
+ActionCallback = Callable[[Action, int], "str | None"]  # None = success, str = error
 
 
 class OrphanModal(ModalScreen):
@@ -90,7 +90,12 @@ class OrphanModal(ModalScreen):
     def handle_action(self, action: Action, agent_id: int) -> None:
         if agent_id not in self._orphans:
             return
-        self._on_action(action, agent_id)
+        result = self._on_action(action, agent_id)
+        if result is not None:
+            # Action failed — show inline error, keep orphan in modal so the
+            # user can retry or pick a different action.
+            self._show_inline_error(agent_id, str(result))
+            return
         del self._orphans[agent_id]
         try:
             self.query_one(f"#orphan-row-{agent_id}").remove()
@@ -99,6 +104,13 @@ class OrphanModal(ModalScreen):
             pass
         if not self._orphans:
             self.dismiss()
+
+    def _show_inline_error(self, agent_id: int, message: str) -> None:
+        try:
+            row = self.query_one(f"#orphan-row-{agent_id}")
+            row.mount(Static(f"Error: {message}", classes="orphan-error"))
+        except Exception:
+            pass
 
     def action_dismiss_modal(self) -> None:
         self.dismiss()

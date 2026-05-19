@@ -78,3 +78,28 @@ async def test_orphan_modal_esc_dismisses_without_action():
         await pilot.pause()
         assert actions == []
         assert not isinstance(pilot.app.screen, OrphanModal)
+
+
+@pytest.mark.asyncio
+async def test_orphan_modal_keeps_orphan_when_action_returns_error():
+    """If on_action returns a non-None string (error), the orphan stays
+    in the modal with an inline error message and the modal does not dismiss."""
+    from textual.app import App
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(OrphanModal(
+                [_orphan(1)],
+                on_action=lambda a, oid: "Working directory missing",
+            ))
+
+    async with Host().run_test() as pilot:
+        await pilot.pause()
+        modal = pilot.app.screen
+        assert isinstance(modal, OrphanModal)
+        modal.handle_action("relaunch", 1)
+        await pilot.pause()
+        # Orphan still listed because action failed
+        assert len(modal.remaining_orphans()) == 1
+        # Modal stays open
+        assert isinstance(pilot.app.screen, OrphanModal)

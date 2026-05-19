@@ -498,3 +498,83 @@ def test_desk_orphan_scan_skipped_when_skip_attach_true(monkeypatch, tmp_aque_di
     app._scan_for_orphans()
 
     assert pushed == []
+
+
+def test_handle_orphan_action_resume_rebuilds_responder(monkeypatch, tmp_aque_dir):
+    """After Resume succeeds, the partner's dead responder is cleaned up and a
+    fresh one is created. Verifies spec edge case for responder lifecycle."""
+    from aque import desk, responder
+    from aque.state import AgentInfo, AgentState
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    app.config = {"responder_enabled": True, "responder_command": ["claude"], "session_prefix": "aque"}
+
+    app.state_mgr.add_agent(AgentInfo(
+        id=1, tmux_session="aque-1", label="builder", dir="/tmp",
+        command=["claude"], state=AgentState.RUNNING, pid=1,
+        agent_type="claude", session_id="uuid-1",
+    ))
+
+    cleanup_calls: list = []
+    create_calls: list = []
+    monkeypatch.setattr(responder, "cleanup",
+                        lambda partner, sm, server, *, aque_dir: cleanup_calls.append(partner.id))
+    monkeypatch.setattr(responder, "create_for",
+                        lambda partner, cfg, sm, *, aque_dir: create_calls.append(partner.id) or 99)
+    monkeypatch.setattr(desk, "relaunch_agent",
+                        lambda agent_id, command, state_manager, *, preserve_session_id=True: None)
+    monkeypatch.setattr(desk.libtmux, "Server", lambda: object())
+
+    result = app._handle_orphan_action("resume", 1)
+
+    assert result is None
+    assert cleanup_calls == [1]
+    assert create_calls == [1]
+
+
+def test_handle_orphan_action_forget_cleans_up_responder(monkeypatch, tmp_aque_dir):
+    """Forget on a partner orphan must also clean up the paired responder."""
+    from aque import desk, responder
+    from aque.state import AgentInfo, AgentState
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+
+    app.state_mgr.add_agent(AgentInfo(
+        id=1, tmux_session="aque-1", label="builder", dir="/tmp",
+        command=["claude"], state=AgentState.RUNNING, pid=1,
+        agent_type="claude",
+    ))
+
+    cleanup_calls: list = []
+    monkeypatch.setattr(responder, "cleanup",
+                        lambda partner, sm, server, *, aque_dir: cleanup_calls.append(partner.id))
+    monkeypatch.setattr(desk.libtmux, "Server", lambda: object())
+
+    app._handle_orphan_action("forget", 1)
+
+    assert cleanup_calls == [1]
+    assert all(a.id != 1 for a in app.state_mgr.load().agents)
+
+
+def test_handle_orphan_action_returns_error_on_failure(monkeypatch, tmp_aque_dir):
+    """When relaunch_agent raises, _handle_orphan_action returns the error
+    string so OrphanModal can show an inline error and keep the orphan listed."""
+    from aque import desk
+    from aque.state import AgentInfo, AgentState
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+
+    app.state_mgr.add_agent(AgentInfo(
+        id=1, tmux_session="aque-1", label="x", dir="/nonexistent",
+        command=["claude"], state=AgentState.RUNNING, pid=1,
+        agent_type="claude",
+    ))
+
+    def boom(*a, **kw):
+        raise RuntimeError("dir missing")
+    monkeypatch.setattr(desk, "relaunch_agent", boom)
+
+    result = app._handle_orphan_action("relaunch", 1)
+    assert result == "dir missing"
+    # Agent still in state
+    assert any(a.id == 1 for a in app.state_mgr.load().agents)
