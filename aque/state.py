@@ -35,6 +35,7 @@ class AgentInfo:
     partner_id: int | None = None
     auto_respond: bool = True
     last_nudge_at: str | None = None
+    session_id: str | None = None
 
     def __post_init__(self):
         now = datetime.now(timezone.utc).isoformat()
@@ -57,6 +58,7 @@ class AgentInfo:
         d.setdefault("partner_id", None)
         d.setdefault("auto_respond", True)
         d.setdefault("last_nudge_at", None)
+        d.setdefault("session_id", None)
         return cls(**d)
 
 

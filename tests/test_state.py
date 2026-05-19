@@ -321,3 +321,36 @@ class TestToggleAutoRespond:
         mgr = StateManager(tmp_aque_dir)
         with pytest.raises(KeyError):
             mgr.toggle_auto_respond(999)
+
+
+class TestSessionIdField:
+    def test_agent_info_session_id_defaults_to_none(self):
+        from aque.state import AgentInfo, AgentState
+        a = AgentInfo(
+            id=1, tmux_session="aque-1", label="x", dir="/tmp",
+            command=["claude"], state=AgentState.RUNNING, pid=1,
+        )
+        assert a.session_id is None
+
+    def test_agent_info_session_id_round_trip(self):
+        from aque.state import AgentInfo, AgentState
+        a = AgentInfo(
+            id=1, tmux_session="aque-1", label="x", dir="/tmp",
+            command=["claude"], state=AgentState.RUNNING, pid=1,
+            session_id="abc-123",
+        )
+        d = a.to_dict()
+        assert d["session_id"] == "abc-123"
+        a2 = AgentInfo.from_dict(d)
+        assert a2.session_id == "abc-123"
+
+    def test_agent_info_session_id_missing_in_old_dict(self):
+        from aque.state import AgentInfo
+        d = {
+            "id": 1, "tmux_session": "aque-1", "label": "x", "dir": "/tmp",
+            "command": ["claude"], "state": "running", "pid": 1,
+            "created_at": "2026-03-28T10:00:00Z",
+            "last_change_at": "2026-03-28T10:00:00Z",
+        }
+        a = AgentInfo.from_dict(d)
+        assert a.session_id is None
