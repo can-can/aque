@@ -498,8 +498,8 @@ class DeskApp(App):
         ("n", "new_agent", "New Agent"),
         ("k", "kill_agent", "Kill"),
         ("h", "hold_agent", "Hold"),
-        ("R", "toggle_responders", "Toggle responder visibility"),
-        ("a", "toggle_auto_respond", "Toggle auto-response on selected partner"),
+        ("R", "toggle_responders", "Responders"),
+        ("a", "toggle_auto_respond", "Auto-reply"),
         ("q", "quit_app", "Quit"),
     ]
 
