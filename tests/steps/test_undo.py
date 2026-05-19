@@ -31,6 +31,11 @@ def test_undo_clears_history_entry():
     pass
 
 
+@scenario(FEATURE, 'Pressing "u" with nothing to undo is a no-op')
+def test_undo_no_op_when_empty():
+    pass
+
+
 # ── Context ───────────────────────────────────────────────────────────
 
 

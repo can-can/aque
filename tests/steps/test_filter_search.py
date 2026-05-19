@@ -50,6 +50,16 @@ def test_active_filter_indicator():
     pass
 
 
+@scenario(FEATURE, "Filter and search compose — both must match")
+def test_filter_and_search_combine():
+    pass
+
+
+@scenario(FEATURE, "Pressing Escape clears both the filter and the search query")
+def test_escape_clears_both():
+    pass
+
+
 # ── Context ───────────────────────────────────────────────────────────
 
 

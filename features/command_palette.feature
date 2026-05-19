@@ -28,3 +28,16 @@ Feature: Command palette
     And the palette receives the query "brav"
     Then the palette should contain an item labelled "Attach bravo"
     And the palette should not contain an item labelled "Attach alpha"
+
+  Scenario: Selecting an attach item closes the palette and attaches
+    When the dashboard loads
+    And the user presses "ctrl+k"
+    And the palette dispatches "Attach bravo"
+    Then the command palette should be dismissed
+    And agent "bravo" should be in "focused" state
+
+  Scenario: Pressing Escape closes the palette without acting
+    When the dashboard loads
+    And the user presses "ctrl+k"
+    And the user presses Escape
+    Then the command palette should be dismissed

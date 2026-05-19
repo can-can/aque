@@ -72,6 +72,11 @@ def test_snooze_decays():
     pass
 
 
+@scenario(FEATURE, "Pill shows the queue length when more than one agent is waiting")
+def test_pill_queue_indicator():
+    pass
+
+
 # ── Context ────────────────────────────────────────────────────────────
 
 

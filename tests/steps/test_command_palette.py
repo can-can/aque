@@ -28,6 +28,16 @@ def test_palette_filters():
     pass
 
 
+@scenario(FEATURE, "Selecting an attach item closes the palette and attaches")
+def test_palette_attach_dispatch():
+    pass
+
+
+@scenario(FEATURE, "Pressing Escape closes the palette without acting")
+def test_palette_escape_closes():
+    pass
+
+
 class Ctx:
     def __init__(self, tmp_aque_dir):
         self.tmp_aque_dir = tmp_aque_dir
@@ -148,6 +158,57 @@ def when_palette_receives_query(ctx, q):
             await ctx.pilot.pause()
 
     ctx.run(_type())
+
+
+@when(parsers.parse('the palette dispatches "{label}"'))
+def when_palette_dispatches(ctx, label):
+    """Select the palette item whose label matches and confirm."""
+    # Mock the attach so the test doesn't need a real tmux session.
+    def _mock_attach(agent):
+        ctx.state_mgr.update_agent_state(agent.id, AgentState.FOCUSED)
+        ctx.app._dismiss_triage_widget()
+    ctx.app._attach_to_agent = _mock_attach
+
+    async def _dispatch():
+        with ctx.app._context():
+            palette = ctx.app.screen
+            assert isinstance(palette, CommandPalette), "Palette not active"
+            ol = palette.query_one("#cmdk-list")
+            for i in range(ol.option_count):
+                opt = ol.get_option_at_index(i)
+                if label in str(opt.prompt):
+                    ol.highlighted = i
+                    break
+            palette._select_current()
+            await ctx.pilot.pause()
+
+    ctx.run(_dispatch())
+
+
+@when("the user presses Escape")
+def when_user_presses_escape(ctx):
+    async def _press():
+        await ctx.pilot.press("escape")
+        await ctx.pilot.pause()
+
+    ctx.run(_press())
+
+
+@then("the command palette should be dismissed")
+def then_palette_dismissed(ctx):
+    assert not isinstance(ctx.app.screen, CommandPalette), (
+        f"Expected palette dismissed, but {type(ctx.app.screen).__name__} is active"
+    )
+
+
+@then(parsers.parse('agent "{label}" should be in "{state_str}" state'))
+def then_agent_in_state(ctx, label, state_str):
+    state = ctx.state_mgr.load()
+    agent = next((a for a in state.agents if a.label == label), None)
+    assert agent is not None, f"Agent '{label}' not found"
+    assert agent.state.value == state_str, (
+        f"Expected '{label}' in '{state_str}', got '{agent.state.value}'"
+    )
 
 
 @then("the command palette should be visible")

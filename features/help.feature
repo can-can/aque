@@ -20,3 +20,8 @@ Feature: Keyboard shortcut help overlay
     Given the help modal is open
     When the user presses Escape
     Then the help modal should be dismissed
+
+  Scenario: Pressing "?" again closes the help overlay
+    Given the help modal is open
+    When the user presses "?"
+    Then the help modal should be dismissed

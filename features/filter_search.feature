@@ -54,3 +54,21 @@ Feature: Filter and search the agent list
     When the dashboard loads
     And the user presses "1"
     Then the status bar should show "[●"
+
+  # ── Combination ───────────────────────────────────────────────
+
+  Scenario: Filter and search compose — both must match
+    When the dashboard loads
+    And the user presses "1"
+    And the user opens search and types "alph"
+    Then the agent list should contain "alpha"
+    And the agent list should not contain "bravo"
+    And the agent list should not contain "charlie"
+
+  Scenario: Pressing Escape clears both the filter and the search query
+    When the dashboard loads
+    And the user presses "1"
+    And the user opens search and types "alph"
+    And the user presses Escape
+    Then the agent list should contain "bravo"
+    And the agent list should contain "charlie"

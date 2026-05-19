@@ -28,6 +28,11 @@ def test_help_closes():
     pass
 
 
+@scenario(FEATURE, 'Pressing "?" again closes the help overlay')
+def test_help_closes_on_question_mark():
+    pass
+
+
 class Ctx:
     def __init__(self, tmp_aque_dir):
         self.tmp_aque_dir = tmp_aque_dir

@@ -81,3 +81,14 @@ Feature: Triage pill for waiting agents
     And the periodic refresh runs
     Then a triage pill should appear
     And the triage pill should mention "fixer"
+
+  # ── Queue indicator ────────────────────────────────────────────
+
+  Scenario: Pill shows the queue length when more than one agent is waiting
+    Given the following agents exist:
+      | label   | state   | last_change_at          |
+      | first   | waiting | 2026-03-29T04:00:00+00  |
+      | second  | waiting | 2026-03-29T05:00:00+00  |
+      | third   | waiting | 2026-03-29T06:00:00+00  |
+    When the user returns to the dashboard
+    Then the triage pill should mention "more waiting"

@@ -30,3 +30,10 @@ Feature: Undo a destructive action
     Then the history should contain 1 entry
     When the user presses "u"
     Then the history should contain 0 entries
+
+  Scenario: Pressing "u" with nothing to undo is a no-op
+    Given 0 agents are in history
+    And agent "fixer" is running and highlighted
+    When the user presses "u"
+    Then the active agents should include "fixer"
+    And the history should contain 0 entries

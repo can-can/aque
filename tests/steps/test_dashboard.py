@@ -113,6 +113,21 @@ def test_row_change_cue():
     pass
 
 
+@scenario(FEATURE, "Type chip carries the vendor's accent color")
+def test_type_chip_color():
+    pass
+
+
+@scenario(FEATURE, 'Exited agent shows the "review / done / hold" strip')
+def test_exited_action_strip():
+    pass
+
+
+@scenario(FEATURE, 'Status bar shows "No agents" when state is empty')
+def test_status_bar_empty():
+    pass
+
+
 # ── Context holder ─────────────────────────────────────────────────────────────
 
 
@@ -422,6 +437,31 @@ def then_row_has_change_cue(ctx, label):
                 f"Expected change cue '▴' on row for '{label}', got: {text!r}"
             )
             return
+    pytest.fail(f"Agent '{label}' not found in option list")
+
+
+@then(parsers.parse('the agent row for "{label}" should be coloured with vendor "{vendor}"'))
+def then_row_has_vendor_color(ctx, label, vendor):
+    """Inspect the row's Rich spans to find a span of the vendor's hex colour.
+
+    We compare against ``desk_tokens.TYPE_COLORS`` so the test stays in
+    sync with whatever palette is in use.
+    """
+    from aque.desk_tokens import TYPE_COLORS
+
+    expected_hex = TYPE_COLORS[vendor].lower()
+    option_list = ctx.app.query_one("#agent-option-list")
+    for i in range(option_list.option_count):
+        opt = option_list.get_option_at_index(i)
+        prompt = opt.prompt  # rich.text.Text
+        if label not in str(prompt):
+            continue
+        styles = [str(span.style).lower() for span in prompt.spans]
+        assert any(expected_hex in s for s in styles), (
+            f"Expected a span with colour {expected_hex} on row for '{label}'.\n"
+            f"Found span styles: {styles}"
+        )
+        return
     pytest.fail(f"Agent '{label}' not found in option list")
 
 

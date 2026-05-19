@@ -134,6 +134,32 @@ Feature: Dashboard
     And the periodic refresh runs
     Then the agent row for "builder" should carry a change cue
 
+  # ── Vendor type chip color ────────────────────────────────────
+
+  Scenario: Type chip carries the vendor's accent color
+    Given the following agents exist:
+      | label   | state   | agent_type |
+      | builder | running | claude     |
+    When the dashboard loads
+    Then the agent row for "builder" should be coloured with vendor "claude"
+
+  # ── Action strip variants ─────────────────────────────────────
+
+  Scenario: Exited agent shows the "review / done / hold" strip
+    Given the following agents exist:
+      | label  | state  |
+      | finder | exited |
+    When the user highlights "finder"
+    Then the preview pane should show "actions:"
+    And the preview pane should show "review"
+    And the preview pane should show "done"
+
+  # ── Empty status bar ──────────────────────────────────────────
+
+  Scenario: Status bar shows "No agents" when state is empty
+    When the dashboard loads
+    Then the status bar should show "No agents"
+
   # ── Keyboard shortcuts ─────────────────────────────────────────
 
   Scenario: Press "n" to open new agent form
