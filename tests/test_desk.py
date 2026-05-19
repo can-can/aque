@@ -412,3 +412,62 @@ class TestPreviewPaneAutoRespondLines:
         text = build_preview_meta(partner, agents)
         assert "Responder exited" in text
         assert "auto-response disabled" in text
+
+
+def test_desk_orphan_scan_called_on_startup(monkeypatch, tmp_aque_dir):
+    """When state.json has an agent whose tmux session is gone, desk's
+    startup pushes an OrphanModal."""
+    import json
+    from aque import desk
+    from aque.widgets.orphan_modal import OrphanModal
+
+    state_path = tmp_aque_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "agents": [{
+            "id": 1, "tmux_session": "aque-1", "label": "x", "dir": "/tmp",
+            "command": ["claude"], "state": "running", "pid": 1,
+            "created_at": "2026-05-18T00:00:00Z",
+            "last_change_at": "2026-05-18T00:00:00Z",
+            "agent_type": "claude", "session_id": "uuid-1",
+        }],
+        "monitor_pid": None,
+    }))
+
+    pushed: list = []
+    monkeypatch.setattr(desk.DeskApp, "push_screen",
+                        lambda self, screen: pushed.append(screen))
+
+    # Fake libtmux.Server so session_exists always returns False (no live session).
+    class _FakeServer:
+        @property
+        def sessions(self):
+            class L:
+                def get(self, session_name=None, default=None):
+                    return default  # nothing live
+            return L()
+    monkeypatch.setattr(desk.libtmux, "Server", lambda: _FakeServer())
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir)
+    app._scan_for_orphans()
+
+    assert len(pushed) == 1
+    assert isinstance(pushed[0], OrphanModal)
+
+
+def test_desk_orphan_scan_skips_modal_when_no_orphans(monkeypatch, tmp_aque_dir):
+    """When all agents have live tmux sessions, no modal is pushed."""
+    import json
+    from aque import desk
+
+    state_path = tmp_aque_dir / "state.json"
+    state_path.write_text(json.dumps({"agents": [], "monitor_pid": None}))
+
+    pushed: list = []
+    monkeypatch.setattr(desk.DeskApp, "push_screen",
+                        lambda self, screen: pushed.append(screen))
+    monkeypatch.setattr(desk.libtmux, "Server", lambda: object())
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir)
+    app._scan_for_orphans()
+
+    assert pushed == []

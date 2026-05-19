@@ -37,9 +37,12 @@ from aque.debug import dbg
 from aque.dir_history import DirHistoryManager
 from aque.history import HistoryManager
 from aque.monitor import capture_pane_content, start_monitor_daemon, stop_monitor
-from aque.run import launch_agent
+from aque.orphans import find_orphans
+from aque.run import launch_agent, relaunch_agent
+from aque.sessions import CAPTURERS
 from aque.state import AgentInfo, AppState, AgentState, StateManager
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
+from aque.widgets.orphan_modal import OrphanModal
 
 STATE_COLORS = {
     AgentState.RUNNING: "green",
@@ -590,6 +593,7 @@ class DeskApp(App):
         self._refresh_status_bar()
         self._start_refresh()
         self._focus_agent_list()
+        self._scan_for_orphans()
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -608,6 +612,39 @@ class DeskApp(App):
                 ol.highlighted = 0
         except Exception:
             pass
+
+    def _scan_for_orphans(self) -> None:
+        state = self.state_mgr.load()
+        server = libtmux.Server()
+        orphans = find_orphans(state, server)
+        if not orphans:
+            return
+        self.push_screen(OrphanModal(orphans, on_action=self._handle_orphan_action))
+
+    def _handle_orphan_action(self, action: str, agent_id: int) -> None:
+        state = self.state_mgr.load()
+        agent = next((a for a in state.agents if a.id == agent_id), None)
+        if agent is None:
+            return
+        try:
+            if action == "resume" and agent.session_id and agent.agent_type in CAPTURERS:
+                capturer = CAPTURERS[agent.agent_type]
+                cmd = capturer.resume_command(agent.command, agent.session_id)
+                relaunch_agent(
+                    agent_id=agent_id, command=cmd,
+                    state_manager=self.state_mgr, preserve_session_id=True,
+                )
+            elif action == "relaunch":
+                relaunch_agent(
+                    agent_id=agent_id, command=agent.command,
+                    state_manager=self.state_mgr, preserve_session_id=False,
+                )
+            elif action == "mark_exited":
+                self.state_mgr.update_agent_state(agent_id, AgentState.EXITED)
+            elif action == "forget":
+                self.state_mgr.remove_agent(agent_id)
+        except Exception as e:
+            dbg("desk.orphan_action.error", self.aque_dir, action=action, agent_id=agent_id, err=str(e))
 
     def _on_refresh(self) -> None:
         if self._mode not in ("dashboard", "auto_attach"):
