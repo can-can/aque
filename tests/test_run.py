@@ -435,3 +435,56 @@ def test_relaunch_agent_clears_session_id_when_requested(tmp_aque_dir, monkeypat
 
     a = mgr.load().agents[0]
     assert a.session_id is None
+
+
+def test_finalize_capture_does_not_block_synchronous_launch(monkeypatch, tmp_path):
+    """_capture_session_id runs in its own thread inside _finalize, so a
+    synchronous launch (background=False) returns immediately after
+    sending the command, even if the capture poll would otherwise wait
+    up to 30s for a session file to appear."""
+    import time
+    from aque import run
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude" / "projects" / "-tmp-x").mkdir(parents=True)
+
+    captured = {"started": False}
+
+    def slow_capture(*a, **kw):
+        captured["started"] = True
+        time.sleep(5.0)  # would hang launch_agent for 5s if not threaded
+
+    monkeypatch.setattr(run, "_capture_session_id", slow_capture)
+
+    fake_pane = type("P", (), {
+        "pane_pid": "1",
+        "capture_pane": lambda self: [""],
+        "send_keys": lambda self, *a, **kw: None,
+    })()
+    fake_session = type("S", (), {
+        "set_option": lambda self, *a, **kw: None,
+        "active_pane": fake_pane,
+    })()
+    fake_server = type("Srv", (), {
+        "sessions": type("X", (), {
+            "get": lambda self, session_name=None, default=None: default,
+        })(),
+        "new_session": lambda self, **kw: fake_session,
+    })()
+    monkeypatch.setattr(run.libtmux, "Server", lambda: fake_server)
+    monkeypatch.setattr(run.shutil, "which", lambda x: "/usr/bin/tmux")
+    monkeypatch.setattr(run, "_wait_for_shell", lambda *a, **kw: None)
+
+    from aque.state import StateManager
+    mgr = StateManager(tmp_path)
+
+    start = time.monotonic()
+    run.launch_agent(
+        command=["claude"], working_dir="/tmp/x", label="x",
+        state_manager=mgr, agent_type="claude",
+    )
+    elapsed = time.monotonic() - start
+
+    # The capture thread was started, but launch_agent returned without waiting.
+    assert captured["started"] is True
+    assert elapsed < 2.0, f"launch_agent blocked for {elapsed:.1f}s (capture must run in a thread)"

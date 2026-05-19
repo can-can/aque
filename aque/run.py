@@ -137,7 +137,11 @@ def launch_agent(
             if agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
             pane.send_keys(cmd_str, enter=True)
-            _capture_session_id(agent_id, agent_type, working_dir, state_manager)
+            threading.Thread(
+                target=_capture_session_id,
+                args=(agent_id, agent_type, working_dir, state_manager),
+                daemon=True,
+            ).start()
         except Exception:
             pass
 
@@ -216,7 +220,11 @@ def relaunch_agent(
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
             pane.send_keys(cmd_str, enter=True)
             if not preserve_session_id:
-                _capture_session_id(agent_id, agent.agent_type, agent.dir, state_manager)
+                threading.Thread(
+                    target=_capture_session_id,
+                    args=(agent_id, agent.agent_type, agent.dir, state_manager),
+                    daemon=True,
+                ).start()
         except Exception:
             pass
 

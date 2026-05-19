@@ -471,3 +471,30 @@ def test_desk_orphan_scan_skips_modal_when_no_orphans(monkeypatch, tmp_aque_dir)
     app._scan_for_orphans()
 
     assert pushed == []
+
+
+def test_desk_orphan_scan_skipped_when_skip_attach_true(monkeypatch, tmp_aque_dir):
+    """The _skip_attach flag (used by BDD test fixtures) must suppress
+    orphan scanning so phantom modals don't steal focus in tests."""
+    import json
+    from aque import desk
+
+    state_path = tmp_aque_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "agents": [{
+            "id": 1, "tmux_session": "aque-1", "label": "x", "dir": "/tmp",
+            "command": ["claude"], "state": "running", "pid": 1,
+            "created_at": "2026-05-18T00:00:00Z",
+            "last_change_at": "2026-05-18T00:00:00Z",
+        }],
+        "monitor_pid": None,
+    }))
+
+    pushed: list = []
+    monkeypatch.setattr(desk.DeskApp, "push_screen",
+                        lambda self, screen: pushed.append(screen))
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    app._scan_for_orphans()
+
+    assert pushed == []

@@ -614,6 +614,8 @@ class DeskApp(App):
             pass
 
     def _scan_for_orphans(self) -> None:
+        if self._skip_attach:
+            return
         state = self.state_mgr.load()
         server = libtmux.Server()
         orphans = find_orphans(state, server)
