@@ -2,12 +2,14 @@ import re
 import shlex
 import shutil
 import threading
+import time
 from pathlib import Path
 
 import libtmux
 from libtmux.pane import Pane
 from libtmux.test.retry import retry_until
 
+from aque import sessions
 from aque.state import AgentInfo, AgentState, StateManager
 
 SHELL_PROMPT_RE = re.compile(r"[\$#%>➜❯→⟩›]\s*$")
@@ -31,6 +33,35 @@ def _wait_for_shell(pane: Pane, timeout: float = 5.0) -> None:
         return False
 
     retry_until(_check, seconds=timeout, raises=False)
+
+
+def _capture_session_id(
+    agent_id: int,
+    agent_type: str | None,
+    working_dir: str,
+    state_manager: StateManager,
+    timeout: float = 30.0,
+) -> None:
+    """Poll the type's session dir for a new UUID and persist it on the agent.
+
+    No-op for agent types without a registered capturer. On timeout or
+    ambiguous matches (zero or multiple new UUIDs), the agent's session_id
+    stays None — Resume will be disabled in the orphan modal.
+    """
+    if agent_type not in sessions.CAPTURERS:
+        return
+    capturer = sessions.CAPTURERS[agent_type]
+    before = capturer.existing_uuids(working_dir)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        new_uuids = capturer.existing_uuids(working_dir) - before
+        if len(new_uuids) == 1:
+            state_manager.set_session_id(agent_id, new_uuids.pop())
+            return
+        if len(new_uuids) > 1:
+            # Ambiguous — bail out, leave session_id unset.
+            return
+        time.sleep(0.5)
 
 
 def launch_agent(
@@ -105,6 +136,7 @@ def launch_agent(
             if agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
             pane.send_keys(cmd_str, enter=True)
+            _capture_session_id(agent_id, agent_type, working_dir, state_manager)
         except Exception:
             pass
 

@@ -280,3 +280,71 @@ class TestSignalsDir:
             agent_type="claude",
         )
         assert (tmp_aque_dir / "signals").is_dir()
+
+
+def test_finalize_captures_claude_session_id(monkeypatch, tmp_path):
+    """When agent_type=claude, _finalize polls the session dir and persists
+    the newly-appeared UUID via state_manager.set_session_id."""
+    from aque import run, sessions
+    from aque.state import AgentInfo, AgentState
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    session_dir = tmp_path / ".claude" / "projects" / "-tmp-x"
+    session_dir.mkdir(parents=True)
+
+    captured: dict = {}
+
+    class FakeMgr:
+        aque_dir = tmp_path / ".aque"
+        def set_session_id(self, aid, sid):
+            captured["agent_id"] = aid
+            captured["session_id"] = sid
+
+    # Spawn the new UUID file partway through the poll window.
+    import threading, time
+    def delayed_write():
+        time.sleep(0.6)
+        (session_dir / "new-uuid.jsonl").write_text("")
+    threading.Thread(target=delayed_write, daemon=True).start()
+
+    run._capture_session_id(
+        agent_id=7,
+        agent_type="claude",
+        working_dir="/tmp/x",
+        state_manager=FakeMgr(),
+        timeout=5.0,
+    )
+
+    assert captured == {"agent_id": 7, "session_id": "new-uuid"}
+
+
+def test_finalize_capture_noop_for_unknown_type(tmp_path):
+    from aque import run
+
+    class FakeMgr:
+        def set_session_id(self, *a, **kw):
+            raise AssertionError("should not be called for unsupported types")
+
+    # Should return silently for None / 'aider' / unknown types.
+    run._capture_session_id(
+        agent_id=7, agent_type=None,
+        working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.1,
+    )
+    run._capture_session_id(
+        agent_id=7, agent_type="aider",
+        working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.1,
+    )
+
+
+def test_finalize_capture_timeout_leaves_session_id_unset(monkeypatch, tmp_path):
+    from aque import run
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    class FakeMgr:
+        def set_session_id(self, *a, **kw):
+            raise AssertionError("should not be called on timeout")
+
+    run._capture_session_id(
+        agent_id=7, agent_type="claude",
+        working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.3,
+    )
