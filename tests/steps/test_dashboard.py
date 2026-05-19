@@ -103,6 +103,16 @@ def test_untyped_agent_shows_no_type_tag():
     pass
 
 
+@scenario(FEATURE, "Preview shows action strip for the selected agent")
+def test_preview_shows_action_strip():
+    pass
+
+
+@scenario(FEATURE, "A row marks itself with a cue after its state changes")
+def test_row_change_cue():
+    pass
+
+
 # ── Context holder ─────────────────────────────────────────────────────────────
 
 
@@ -393,6 +403,28 @@ def when_periodic_refresh_runs(ctx):
     ctx.run(_refresh())
 
 
+@when(parsers.parse('the monitor changes agent "{label}" to "{state_str}"'))
+def when_monitor_changes_state(ctx, label, state_str):
+    state = ctx.state_mgr.load()
+    agent = next((a for a in state.agents if a.label == label), None)
+    assert agent is not None, f"Agent '{label}' not found"
+    ctx.state_mgr.update_agent_state(agent.id, AgentState(state_str))
+
+
+@then(parsers.parse('the agent row for "{label}" should carry a change cue'))
+def then_row_has_change_cue(ctx, label):
+    option_list = ctx.app.query_one("#agent-option-list")
+    for i in range(option_list.option_count):
+        opt = option_list.get_option_at_index(i)
+        text = str(opt.prompt)
+        if label in text:
+            assert "▴" in text, (
+                f"Expected change cue '▴' on row for '{label}', got: {text!r}"
+            )
+            return
+    pytest.fail(f"Agent '{label}' not found in option list")
+
+
 @then(parsers.parse('the highlighted agent should still be "{label}"'))
 def then_highlighted_agent_still_is(ctx, label):
     option_list = ctx.app.query_one("#agent-option-list")
@@ -598,19 +630,14 @@ def when_user_highlights(ctx, label):
 
 @then(parsers.parse('the agent list should show a "{type_name}" type tag for "{label}"'))
 def then_agent_list_shows_type_tag(ctx, type_name, label):
-    """Check for type tag in the raw Rich markup string.
-
-    desk.py renders type tags as: [dim]\\[typename][/dim]
-    So str(option.prompt) contains '\\[typename]' (escaped bracket).
-    """
+    """Type tags render as ``[type]`` in the user-visible row text."""
     option_list = ctx.app.query_one("#agent-option-list")
     for i in range(option_list.option_count):
         option = option_list.get_option_at_index(i)
         label_text = str(option.prompt)
         if label in label_text:
-            # The type tag appears as \[typename] in the markup string
-            assert f"\\[{type_name}]" in label_text, (
-                f"Expected type tag '\\[{type_name}]' in prompt for '{label}', got: '{label_text}'"
+            assert f"[{type_name}]" in label_text, (
+                f"Expected type tag '[{type_name}]' in row for '{label}', got: '{label_text}'"
             )
             return
     pytest.fail(f"Agent '{label}' not found in option list")
@@ -618,20 +645,14 @@ def then_agent_list_shows_type_tag(ctx, type_name, label):
 
 @then(parsers.parse('the agent list should not show a type tag for "{label}"'))
 def then_agent_list_shows_no_type_tag(ctx, label):
-    """Check that no type tag markup is present.
-
-    desk.py renders type tags as: [dim]\\[typename][/dim]
-    An untyped agent should have no '\\[' in its prompt.
-    """
-    import re
+    """Untyped agents have no ``[`` bracket in their visible row."""
     option_list = ctx.app.query_one("#agent-option-list")
     for i in range(option_list.option_count):
         option = option_list.get_option_at_index(i)
         label_text = str(option.prompt)
         if label in label_text:
-            # Type tag markup looks like \[typename] — check it's absent
-            assert not re.search(r'\\\[', label_text), (
-                f"Expected no type tag in prompt for '{label}', got: '{label_text}'"
+            assert "[" not in label_text, (
+                f"Expected no type tag in row for '{label}', got: '{label_text}'"
             )
             return
     pytest.fail(f"Agent '{label}' not found in option list")

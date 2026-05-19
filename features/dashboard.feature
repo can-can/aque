@@ -116,6 +116,24 @@ Feature: Dashboard
     Given the agent list is empty
     Then the preview pane should show "Select an agent to preview"
 
+  Scenario: Preview shows action strip for the selected agent
+    Given agent "builder" is running with tmux session "aque-builder-1"
+    When the user highlights "builder"
+    Then the preview pane should show "actions:"
+    And the preview pane should show "kill"
+    And the preview pane should show "hold"
+
+  # ── State-change row cue ──────────────────────────────────────
+
+  Scenario: A row marks itself with a cue after its state changes
+    Given the following agents exist:
+      | label   | state   |
+      | builder | running |
+    When the dashboard loads
+    And the monitor changes agent "builder" to "waiting"
+    And the periodic refresh runs
+    Then the agent row for "builder" should carry a change cue
+
   # ── Keyboard shortcuts ─────────────────────────────────────────
 
   Scenario: Press "n" to open new agent form

@@ -48,3 +48,12 @@ class HistoryManager:
 
     def count(self) -> int:
         return len(self.load())
+
+    def remove_entry(self, agent_id: int) -> None:
+        """Drop the most recent history entry for ``agent_id``. Used by undo."""
+        entries = self.load()
+        for i in range(len(entries) - 1, -1, -1):
+            if entries[i].get("id") == agent_id:
+                entries.pop(i)
+                self._save(entries)
+                return

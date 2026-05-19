@@ -1,0 +1,32 @@
+Feature: Undo a destructive action
+  As a user who sometimes presses "k" too quickly
+  I want a short window to undo a kill or done action
+  So that I can recover from a mistake without restarting the workflow
+
+  Background:
+    Given the aque desk is open
+
+  # ── Undo bar appearance ─────────────────────────────────────────
+
+  Scenario: Undo bar appears after killing an agent
+    Given agent "fixer" is running and highlighted
+    When the user presses "k"
+    Then the undo bar should be visible
+    And the undo bar should mention "fixer"
+
+  # ── Undo restores the agent ─────────────────────────────────────
+
+  Scenario: Pressing "u" restores a killed agent
+    Given agent "fixer" is running and highlighted
+    When the user presses "k"
+    And the user presses "u"
+    Then the undo bar should be dismissed
+    And the active agents should include "fixer"
+
+  Scenario: After undo, the history count returns to its prior value
+    Given 0 agents are in history
+    And agent "fixer" is running and highlighted
+    When the user presses "k"
+    Then the history should contain 1 entry
+    When the user presses "u"
+    Then the history should contain 0 entries

@@ -144,16 +144,19 @@ class TestNarrowMode:
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="s-1", label="claude . my-project",
-            dir="/tmp/my-project", command=["claude"], state=AgentState.RUNNING, pid=100,
+            dir="/tmp/my-project", command=["claude"], state=AgentState.RUNNING,
+            pid=100, agent_type="claude",
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test(size=(120, 24)) as pilot:
             ol = app.query_one("#agent-option-list", OptionList)
             opt = ol.get_option_at_index(0)
             label = str(opt.prompt)
-            # Wide mode should contain state text and dir
+            # Project layout: state text, type chip, and name. Dir lives in
+            # the preview pane, not the row.
             assert "running" in label.lower()
-            assert "/tmp" in label
+            assert "[claude]" in label
+            assert "claude . my-project" in label
 
 
     @pytest.mark.asyncio
