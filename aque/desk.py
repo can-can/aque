@@ -1144,6 +1144,15 @@ class DeskApp(App):
                 background=True,
                 agent_type=agent_type,
             )
+            if self.config.get("responder_enabled", True):
+                partner = next(
+                    (a for a in self.state_mgr.load().agents if a.id == agent_id),
+                    None,
+                )
+                if partner is not None:
+                    responder.create_for(
+                        partner, self.config, self.state_mgr, aque_dir=self.aque_dir
+                    )
             self.dir_history_mgr.record_use(form._selected_dir)
             self._ensure_monitor_running()
             for w in self.query("NewAgentForm"):
