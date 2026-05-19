@@ -3,6 +3,7 @@ import shlex
 import shutil
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import libtmux
@@ -148,3 +149,77 @@ def launch_agent(
         _finalize()
 
     return agent_id
+
+
+def relaunch_agent(
+    agent_id: int,
+    command: list[str],
+    state_manager: StateManager,
+    *,
+    preserve_session_id: bool = True,
+    prefix: str = "aque",
+) -> None:
+    """Re-launch an existing agent in place, reusing its ID.
+
+    Creates a fresh tmux session and updates the AgentInfo's tmux_session,
+    pid, command, state (=RUNNING), and last_change_at. Used by the orphan
+    modal's Resume and Relaunch actions so the displayed agent ID stays
+    stable across the operation.
+
+    If preserve_session_id is False, clears session_id so the capture loop
+    on the new launch repopulates it (fresh conversation).
+    """
+    state = state_manager.load()
+    agent = next((a for a in state.agents if a.id == agent_id), None)
+    if agent is None:
+        raise KeyError(agent_id)
+
+    if not shutil.which("tmux"):
+        raise RuntimeError("tmux is not installed. Install it with: brew install tmux")
+
+    sanitized_label = _sanitize_session_name(agent.label)
+    session_name = f"{prefix}-{sanitized_label}-{agent_id}-r{int(time.monotonic())}"
+
+    server = libtmux.Server()
+    existing = server.sessions.get(session_name=session_name, default=None)
+    if existing:
+        existing.kill()
+
+    session = server.new_session(
+        session_name=session_name,
+        start_directory=agent.dir,
+        detach=True,
+    )
+    session.set_option("remain-on-exit", "on")
+    pane = session.active_pane
+
+    # Persist the new tmux state before sending keys so other readers see it.
+    state = state_manager.load()
+    for a in state.agents:
+        if a.id == agent_id:
+            a.tmux_session = session_name
+            a.command = command
+            a.state = AgentState.RUNNING
+            a.pid = int(pane.pane_pid)
+            a.last_change_at = datetime.now(timezone.utc).isoformat()
+            if not preserve_session_id:
+                a.session_id = None
+            break
+    state_manager.save(state)
+
+    cmd_str = shlex.join(command)
+
+    def _finalize() -> None:
+        try:
+            _wait_for_shell(pane)
+            if agent.agent_type is not None:
+                pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
+            pane.send_keys(cmd_str, enter=True)
+            if not preserve_session_id:
+                _capture_session_id(agent_id, agent.agent_type, agent.dir, state_manager)
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=_finalize, daemon=True)
+    thread.start()
+    _background_threads.append(thread)

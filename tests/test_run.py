@@ -348,3 +348,90 @@ def test_finalize_capture_timeout_leaves_session_id_unset(monkeypatch, tmp_path)
         agent_id=7, agent_type="claude",
         working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.3,
     )
+
+
+def test_relaunch_agent_updates_existing_record_in_place(tmp_aque_dir, monkeypatch):
+    """relaunch_agent reuses the same agent ID, swaps tmux_session/pid/state,
+    and (optionally) preserves session_id."""
+    from aque import run
+    from aque.state import AgentInfo, AgentState, StateManager
+
+    mgr = StateManager(tmp_aque_dir)
+    mgr.add_agent(AgentInfo(
+        id=5, tmux_session="aque-old", label="x", dir="/tmp",
+        command=["claude"], state=AgentState.EXITED, pid=999,
+        agent_type="claude", session_id="old-uuid",
+    ))
+
+    fake_session = type("S", (), {
+        "set_option": lambda self, *a, **kw: None,
+        "active_pane": type("P", (), {
+            "pane_pid": "1234",
+            "capture_pane": lambda self: [""],
+            "send_keys": lambda self, *a, **kw: None,
+        })(),
+    })()
+    fake_server = type("Srv", (), {
+        "sessions": type("S", (), {
+            "get": lambda self, session_name=None, default=None: default,
+        })(),
+        "new_session": lambda self, **kw: fake_session,
+    })()
+    monkeypatch.setattr(run.libtmux, "Server", lambda: fake_server)
+    monkeypatch.setattr(run.shutil, "which", lambda x: "/usr/bin/tmux")
+    monkeypatch.setattr(run, "_wait_for_shell", lambda *a, **kw: None)
+
+    run.relaunch_agent(
+        agent_id=5,
+        command=["claude", "--resume", "old-uuid"],
+        state_manager=mgr,
+        preserve_session_id=True,
+    )
+
+    loaded = mgr.load()
+    a = loaded.agents[0]
+    assert a.id == 5
+    assert a.state == AgentState.RUNNING
+    assert a.pid == 1234
+    assert a.tmux_session != "aque-old"  # new session name minted
+    assert a.session_id == "old-uuid"   # preserved
+
+
+def test_relaunch_agent_clears_session_id_when_requested(tmp_aque_dir, monkeypatch):
+    from aque import run
+    from aque.state import AgentInfo, AgentState, StateManager
+
+    mgr = StateManager(tmp_aque_dir)
+    mgr.add_agent(AgentInfo(
+        id=5, tmux_session="aque-old", label="x", dir="/tmp",
+        command=["claude"], state=AgentState.EXITED, pid=1,
+        agent_type="claude", session_id="old-uuid",
+    ))
+
+    fake_session = type("S", (), {
+        "set_option": lambda self, *a, **kw: None,
+        "active_pane": type("P", (), {
+            "pane_pid": "1",
+            "capture_pane": lambda self: [""],
+            "send_keys": lambda self, *a, **kw: None,
+        })(),
+    })()
+    fake_server = type("Srv", (), {
+        "sessions": type("S", (), {
+            "get": lambda self, session_name=None, default=None: default,
+        })(),
+        "new_session": lambda self, **kw: fake_session,
+    })()
+    monkeypatch.setattr(run.libtmux, "Server", lambda: fake_server)
+    monkeypatch.setattr(run.shutil, "which", lambda x: "/usr/bin/tmux")
+    monkeypatch.setattr(run, "_wait_for_shell", lambda *a, **kw: None)
+
+    run.relaunch_agent(
+        agent_id=5,
+        command=["claude"],
+        state_manager=mgr,
+        preserve_session_id=False,
+    )
+
+    a = mgr.load().agents[0]
+    assert a.session_id is None
