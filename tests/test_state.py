@@ -354,3 +354,23 @@ class TestSessionIdField:
         }
         a = AgentInfo.from_dict(d)
         assert a.session_id is None
+
+    def test_set_session_id_writes_to_state(self, tmp_aque_dir):
+        from aque.state import AgentInfo, AgentState, StateManager
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="x", dir="/tmp",
+            command=["claude"], state=AgentState.RUNNING, pid=1,
+        ))
+
+        mgr.set_session_id(1, "abc-uuid")
+
+        loaded = mgr.load()
+        assert loaded.agents[0].session_id == "abc-uuid"
+
+    def test_set_session_id_raises_for_unknown_agent(self, tmp_aque_dir):
+        import pytest
+        from aque.state import StateManager
+        mgr = StateManager(tmp_aque_dir)
+        with pytest.raises(KeyError):
+            mgr.set_session_id(999, "abc")

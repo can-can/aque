@@ -164,6 +164,16 @@ class StateManager:
                     return agent.auto_respond
             raise KeyError(agent_id)
 
+    def set_session_id(self, agent_id: int, session_id: str) -> None:
+        with self._locked():
+            state = self.load()
+            for agent in state.agents:
+                if agent.id == agent_id:
+                    agent.session_id = session_id
+                    self.save(state)
+                    return
+            raise KeyError(agent_id)
+
     def done_agent(self, agent_id: int, history_manager) -> None:
         with self._locked():
             state = self.load()
