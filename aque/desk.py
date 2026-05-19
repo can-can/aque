@@ -377,13 +377,23 @@ class NewAgentForm(Vertical):
 
     def show_label_step(self) -> None:
         self._step = "label"
-        self._label = ""
+        # Pre-fill a sensible default label: ``<command-word> . <dir-basename>``.
+        # Mirrors the prompt-style convention the rest of the desk uses
+        # (``aider . docs``, ``claude . monorepo``) so users can launch
+        # without typing while still being able to override.
+        cmd_word = (self._command.split() or ["agent"])[0]
+        dir_base = Path(self._selected_dir).name or "agent"
+        self._label = f"{cmd_word} . {dir_base}"
         self.query_one("#new-agent-step").update(
             f"Step 4/4: Label  (dir: {self._selected_dir}, cmd: {self._command})"
         )
         self.query_one("#command-input").remove()
         self.mount(
-            Input(value="", placeholder="Agent label (optional)", id="label-input"),
+            Input(
+                value=self._label,
+                placeholder="Agent label (optional)",
+                id="label-input",
+            ),
             after=self.query_one("#new-agent-step"),
         )
         self.query_one("#new-agent-hint").update(
@@ -402,10 +412,6 @@ class NewAgentForm(Vertical):
             self.query_one("#command-input").remove()
         except Exception:
             pass
-        try:
-            self.query_one("#new-agent-hint").remove()
-        except Exception:
-            pass
         self.mount(
             DirectoryPicker(
                 dir_history_mgr=self._dir_history_mgr,
@@ -414,13 +420,21 @@ class NewAgentForm(Vertical):
             ),
             after=self.query_one("#new-agent-step"),
         )
-        self.mount(
-            Static(
-                "   ".join([key_hint("Enter", "select"), key_hint("b", "browse"), key_hint("Esc", "back")]),
-                id="new-agent-hint",
-            ),
-            after=self.query_one("#dir-picker"),
-        )
+        # Update the existing hint in place — ``Widget.remove`` is async,
+        # so removing-and-remounting races the new mount and trips a
+        # DuplicateIds error.
+        hint_text = "   ".join([
+            key_hint("Enter", "select"),
+            key_hint("b", "browse"),
+            key_hint("Esc", "back"),
+        ])
+        try:
+            self.query_one("#new-agent-hint").update(hint_text)
+        except Exception:
+            self.mount(
+                Static(hint_text, id="new-agent-hint"),
+                after=self.query_one("#dir-picker"),
+            )
 
     def show_tree_fallback(self) -> None:
         """Switch to tree browse mode."""

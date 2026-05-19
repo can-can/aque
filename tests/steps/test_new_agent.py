@@ -84,7 +84,7 @@ def test_returning_from_tree_to_picker():
     pass
 
 
-@scenario(FEATURE, "Pressing Escape on directory picker cancels the form")
+@scenario(FEATURE, "Pressing Escape twice from directory picker returns to dashboard")
 def test_escape_on_dir_picker_cancels():
     pass
 
@@ -545,6 +545,11 @@ def given_user_on_command_step(ctx, tmp_path):
         ctx.app._show_new_agent_form()
         await ctx.pilot.pause()
         form = ctx.app.query_one("NewAgentForm")
+        # Advance past the type selector first — show_command_step assumes
+        # the type-list has been dismissed, so navigating directly to it
+        # from step 1 leaves orphan widgets and triggers DuplicateIds.
+        form.select_type()
+        await ctx.pilot.pause()
         form._selected_dir = str(myapp_dir)
         form.show_command_step()
         await ctx.pilot.pause()
@@ -893,7 +898,10 @@ def when_completes_agent_creation(ctx):
     from unittest.mock import patch as _patch
     from aque.state import AgentInfo, AgentState
 
-    def _fake_launch(command, working_dir, label, state_manager, prefix="aque", background=False):
+    def _fake_launch(
+        command, working_dir, label, state_manager,
+        prefix="aque", background=False, agent_type=None,
+    ):
         agent_id = state_manager.next_id()
         agent = AgentInfo(
             id=agent_id,
@@ -903,9 +911,16 @@ def when_completes_agent_creation(ctx):
             command=command,
             state=AgentState.RUNNING,
             pid=99999,
+            agent_type=agent_type,
         )
         state_manager.add_agent(agent)
         return agent_id
+
+    # Disable responder pairing and the monitor fork — neither is what
+    # this scenario is exercising, and both punch real holes through the
+    # test isolation if left enabled.
+    ctx.app.config["responder_enabled"] = False
+    ctx.app._ensure_monitor_running = lambda: None
 
     async def _complete():
         # We should be on the command step; type a command and press Enter
@@ -964,6 +979,10 @@ def given_user_has_typed_in_search(ctx, query, tmp_path):
 
     async def _open_and_type():
         ctx.app._show_new_agent_form()
+        await ctx.pilot.pause()
+        # Form opens on the type selector — advance to the dir picker.
+        form = ctx.app.query_one("NewAgentForm")
+        form.select_type()
         await ctx.pilot.pause()
         search_input = ctx.app.query_one("#dir-search-input")
         search_input.focus()
@@ -1137,6 +1156,9 @@ def then_a_above_b(ctx, raw_a, raw_b):
     async def _open():
         ctx.app._show_new_agent_form()
         await ctx.pilot.pause()
+        form = ctx.app.query_one("NewAgentForm")
+        form.select_type()
+        await ctx.pilot.pause()
 
     ctx.run(_open())
 
@@ -1179,6 +1201,10 @@ def given_path_exists_on_disk(ctx, raw_path, tmp_path):
 
     async def _open_form():
         ctx.app._show_new_agent_form()
+        await ctx.pilot.pause()
+        # Advance past the type selector so the dir picker mounts.
+        form = ctx.app.query_one("NewAgentForm")
+        form.select_type()
         await ctx.pilot.pause()
         # Update the picker's default_dir as well so it scans tmp_path
         try:
@@ -1344,8 +1370,11 @@ def given_user_on_label_step(ctx, tmp_path):
     async def _navigate_to_label():
         ctx.app._show_new_agent_form()
         await ctx.pilot.pause()
-        # Navigate directly to command step via form method (sets _selected_dir)
         form = ctx.app.query_one("NewAgentForm")
+        # Advance past the type selector before jumping to the command step,
+        # otherwise the type-list lingers and the form trips on duplicate ids.
+        form.select_type()
+        await ctx.pilot.pause()
         form._selected_dir = str(myapp_dir)
         form.show_command_step()
         await ctx.pilot.pause()
@@ -1373,7 +1402,10 @@ def given_label_is(ctx, label_text):
     # finds a valid object and calls _show_dashboard() rather than crashing.
     launch_dir = ctx.data.get("launch_dir", "/tmp/myapp")
 
-    def _fake_launch(command, working_dir, label, state_manager, prefix="aque", background=False):
+    def _fake_launch(
+        command, working_dir, label, state_manager,
+        prefix="aque", background=False, agent_type=None,
+    ):
         agent_id = state_manager.next_id()
         agent = AgentInfo(
             id=agent_id,
@@ -1383,6 +1415,7 @@ def given_label_is(ctx, label_text):
             command=command,
             state=AgentState.RUNNING,
             pid=99999,
+            agent_type=agent_type,
         )
         state_manager.add_agent(agent)
         return agent_id
@@ -1391,6 +1424,13 @@ def given_label_is(ctx, label_text):
     mock_obj = patcher.start()
     ctx.data["mock_launch_agent"] = mock_obj
     ctx.data["_mock_patcher"] = patcher
+
+    # Disable the responder pairing — ``responder.create_for`` spawns a real
+    # tmux session via its own ``launch_agent`` import, which the patcher
+    # above doesn't reach.
+    ctx.app.config["responder_enabled"] = False
+    # And short-circuit the monitor fork so the test stays single-process.
+    ctx.app._ensure_monitor_running = lambda: None
 
     async def _set_label():
         label_input = ctx.app.query_one("#label-input")

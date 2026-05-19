@@ -166,9 +166,10 @@ Feature: New agent creation
 
   # ── Cancellation ───────────────────────────────────────────────
 
-  Scenario: Pressing Escape on directory picker cancels the form
+  Scenario: Pressing Escape twice from directory picker returns to dashboard
     Given the user is on the directory picker
     When the user presses Escape
+    And the user presses Escape
     Then the dashboard should be visible
     And no agent should be created
 
