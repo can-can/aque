@@ -3,8 +3,20 @@ from click.exceptions import Exit
 import pytest
 from textual.widgets import OptionList
 
+from aque import desk_tokens
+import aque.desk as desk
 from aque.desk import DeskApp, STATE_PRIORITY
 from aque.state import AgentState, AgentInfo, StateManager
+
+
+def test_no_focused_in_token_maps():
+    assert AgentState.RUNNING in desk_tokens.STATE_COLORS
+    assert all(
+        getattr(s, "name", "") != "FOCUSED" for s in desk_tokens.STATE_COLORS
+    )
+    assert all(
+        getattr(s, "name", "") != "FOCUSED" for s in desk.STATE_PRIORITY
+    )
 
 
 class TestStatePriority:

@@ -52,9 +52,8 @@ STATE_PRIORITY = {
     AgentState.WAITING: 0,
     AgentState.EXITED: 1,
     AgentState.RUNNING: 2,
-    AgentState.FOCUSED: 3,
-    AgentState.ON_HOLD: 4,
-    AgentState.DONE: 5,
+    AgentState.ON_HOLD: 3,
+    AgentState.DONE: 4,
 }
 
 # How long the row state-change cue (the leading ``▴``) stays visible after
