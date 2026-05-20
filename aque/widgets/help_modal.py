@@ -32,7 +32,7 @@ HELP_ROWS = [
         ("a",      "toggle auto-response"),
         ("R",      "show responders"),
         ("u",      "undo last action"),
-        ("Ctrl+K", "command palette"),
+        ("⌘K", "command palette"),
         ("?",      "this help"),
         ("q",      "quit"),
     ]),

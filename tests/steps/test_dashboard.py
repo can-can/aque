@@ -276,14 +276,19 @@ def then_agent_list_ordered(ctx, datatable):
     assert option_list.option_count == len(expected), (
         f"Expected {len(expected)} agents, got {option_list.option_count}"
     )
+    agents_by_label = {a.label: a for a in ctx.state_mgr.load().agents}
     for i, row in enumerate(expected):
         option = option_list.get_option_at_index(i)
         label_text = str(option.prompt)
         assert row["label"] in label_text, (
             f"Position {i}: expected label '{row['label']}' in '{label_text}'"
         )
-        assert row["state"] in label_text, (
-            f"Position {i}: expected state '{row['state']}' in '{label_text}'"
+        # The project layout drops the state word from the row (state is the
+        # dot's colour), so confirm ordering against the agent's real state.
+        agent = agents_by_label.get(row["label"])
+        assert agent is not None and agent.state.value == row["state"], (
+            f"Position {i}: expected '{row['label']}' to be '{row['state']}', "
+            f"got '{agent.state.value if agent else None}'"
         )
 
 

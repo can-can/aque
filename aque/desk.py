@@ -12,7 +12,6 @@ from textual.containers import Horizontal, Vertical
 from textual.timer import Timer
 from textual.widgets import (
     DirectoryTree,
-    Footer,
     Header,
     Input,
     OptionList,
@@ -497,6 +496,13 @@ class DeskApp(App):
         height: 1;
         background: $surface;
     }
+    #key-hint-footer {
+        dock: bottom;
+        padding: 0 2;
+        height: 1;
+        background: $surface;
+        color: $text-muted;
+    }
     #dashboard {
         height: 1fr;
     }
@@ -648,10 +654,44 @@ class DeskApp(App):
         yield Header()
         yield self._make_status_bar()
         yield self._make_dashboard()
-        yield Footer()
+        yield Static(id="key-hint-footer")
 
     def _make_status_bar(self) -> StatusBar:
         return StatusBar()
+
+    def _refresh_footer(self) -> None:
+        """Render the curated key-hint footer from the design.
+
+        Wide carries ``key + label`` pairs; narrow keeps only the key glyphs
+        (the design hides the labels below the narrow breakpoint). The version
+        descriptor hugs the right edge, padded the same way as the status-bar
+        brand.
+        """
+        try:
+            footer = self.query_one("#key-hint-footer", Static)
+        except Exception:
+            return
+        from aque import __version__
+
+        hints = [
+            ("n", "new"),
+            ("↵", "attach"),
+            ("Space", "peek"),
+            ("/", "filter"),
+            ("⌘K", "command"),
+            ("?", "help"),
+        ]
+        if self._is_narrow:
+            footer.update("  ".join(f"[b]{k}[/b]" for k, _ in hints))
+            return
+        left = "   ".join(f"[b]{k}[/b] [dim]{lbl}[/dim]" for k, lbl in hints)
+        tag = f"[dim]v{__version__} · improved interactions[/dim]"
+        try:
+            avail = max(self.size.width - 4, 0)
+            gap = max(2, avail - Text.from_markup(left).cell_len - Text.from_markup(tag).cell_len)
+        except Exception:
+            gap = 4
+        footer.update(f"{left}{' ' * gap}{tag}")
 
     def _make_dashboard(self) -> Horizontal:
         dashboard = Horizontal(id="dashboard")
@@ -683,6 +723,7 @@ class DeskApp(App):
 
     def on_resize(self, event) -> None:
         self._apply_layout(width=event.size.width)
+        self._refresh_footer()
         if self._mode == "dashboard":
             self._last_agent_fingerprint = None  # Force label rebuild
             self._refresh_agent_list()
@@ -692,6 +733,7 @@ class DeskApp(App):
         self._apply_layout()
         self._refresh_agent_list(reset_highlight=True)
         self._refresh_status_bar()
+        self._refresh_footer()
         self._start_refresh()
         self._focus_agent_list()
         self._scan_for_orphans()
@@ -802,11 +844,13 @@ class DeskApp(App):
                 AgentState.RUNNING: ("run", "running"),
                 AgentState.WAITING: ("wait", "waiting"),
                 AgentState.ON_HOLD: ("hold", "on_hold"),
+                AgentState.EXITED: ("exit", "exited"),
             }
             for st, color in [
                 (AgentState.RUNNING, "green"),
                 (AgentState.WAITING, "yellow"),
                 (AgentState.ON_HOLD, "magenta"),
+                (AgentState.EXITED, "grey50"),
             ]:
                 c = counts.get(st, 0)
                 if c:
@@ -826,7 +870,20 @@ class DeskApp(App):
             if self._search:
                 parts.append(f"[dim]/[/dim] [italic]{self._search}[/italic]")
             joiner = " " if narrow else "    "
-            old.update(joiner.join(parts) if parts else "[dim]No agents[/dim]")
+            left = joiner.join(parts) if parts else "[dim]No agents[/dim]"
+            # Right-aligned brand watermark, matching the design's StatusBar
+            # (``● aque desk``). Pad with spaces computed from the bar's plain
+            # widths so it hugs the right edge without a layout container —
+            # callers read the bar via ``str(render())`` for substring checks.
+            brand = "[green]●[/green] [b]aque[/b] [dim]desk[/dim]"
+            try:
+                avail = max(self.size.width - 4, 0)
+                left_w = Text.from_markup(left).cell_len
+                brand_w = Text.from_markup(brand).cell_len
+                gap = max(2, avail - left_w - brand_w)
+            except Exception:
+                gap = 4
+            old.update(f"{left}{' ' * gap}{brand}")
         except Exception:
             pass
 
@@ -899,46 +956,47 @@ class DeskApp(App):
             w.remove()
 
     def _build_row_label(self, agent: AgentInfo, has_responder: bool) -> Text:
-        """Render an agent row in the project layout.
+        """Render an agent row in the locked Project layout.
 
-        Wide:    ●  state    [type]  name                              auto
-        Narrow:  ●  [type]   name                                      auto
+        Wide:    ●  [type]   name                              auto
+        Narrow:  ●  [type]   name                              auto
 
-        The state dot is the design's quiet anchor; the type chip is a small
-        vendor-coloured badge; the name is bold; the auto chip is a soft
-        right-edge indicator that the row's responder is on/off.
+        The layout encodes the design's four cells — state dot, vendor type
+        chip, bold name, soft auto chip — and nothing else. State is carried
+        by the dot's colour alone (the design dropped the state word from the
+        row; it lives in the preview header). Typeless agents show a dim
+        bracket-free ``polling`` marker in place of the vendor chip.
 
         Returns a ``rich.text.Text`` so ``str(prompt)`` yields the plain row
         without markup tags — callers can still substring-search for labels
-        and state names without false positives from tags like ``[/bold]``.
+        without false positives from tags like ``[/bold]``.
         """
         state_color = STATE_COLORS.get(agent.state, "white")
         state_dot = f"[{state_color}]●[/{state_color}]"
         indent = "↳ " if agent.is_responder else ""
         type_chip = type_chip_markup(agent.agent_type)
+        # Polling placeholder is intentionally bracket-free so it never reads
+        # as a vendor ``[type]`` tag (rows assert on the bracket).
+        type_disp = type_chip if type_chip else "[dim]polling[/dim]"
         auto_chip = auto_chip_markup(agent.auto_respond, has_responder)
         auto_part = f"  {auto_chip}" if auto_chip else ""
         # Brief state-change cue: a leading ``▴`` for ~3 s after we detect
-        # this agent's state changing. Catches the eye when a row reorders
-        # without making the change blocking.
+        # this agent's state changing. The TUI stand-in for the design's
+        # animated (FLIP) row reorder — catches the eye without blocking.
         recent = (
             time.monotonic() - self._change_at.get(agent.id, 0.0) < CHANGE_CUE_SECS
         )
         cue = f"[{state_color}]▴[/{state_color}]" if recent else " "
 
         if self._is_narrow:
-            type_part = f"  {type_chip}" if type_chip else ""
             return Text.from_markup(
-                f"{cue} {state_dot}{type_part}  {indent}[bold]{agent.label}[/bold]{auto_part}"
+                f"{cue} {state_dot}  {type_disp}  {indent}[bold]{agent.label}[/bold]{auto_part}"
             )
 
-        # Wide: include dim state text so the row carries it textually too.
-        state_text = f"[dim]{agent.state.value:<8}[/dim]"
-        type_part = f"  {type_chip}" if type_chip else "         "  # roughly align
+        # Wide: pad the name so the auto chip lands in a tidy right column.
         name_padded = f"{indent}{agent.label:<24}"
         return Text.from_markup(
-            f"{cue} {state_dot}  {state_text}{type_part}  "
-            f"[bold]{name_padded}[/bold]{auto_part}"
+            f"{cue} {state_dot}  {type_disp}  [bold]{name_padded}[/bold]{auto_part}"
         )
 
     def _refresh_agent_list(self, reset_highlight: bool = False, state: AppState | None = None) -> None:

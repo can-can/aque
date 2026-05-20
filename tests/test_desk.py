@@ -152,9 +152,9 @@ class TestNarrowMode:
             ol = app.query_one("#agent-option-list", OptionList)
             opt = ol.get_option_at_index(0)
             label = str(opt.prompt)
-            # Project layout: state text, type chip, and name. Dir lives in
-            # the preview pane, not the row.
-            assert "running" in label.lower()
+            # Project layout: dot (colour only), type chip, and name. The
+            # state word and dir live in the preview pane, not the row.
+            assert "running" not in label.lower()
             assert "[claude]" in label
             assert "claude . my-project" in label
 
@@ -203,13 +203,17 @@ class TestNarrowMode:
         async with app.run_test(size=(120, 24)) as pilot:
             ol = app.query_one("#agent-option-list", OptionList)
             wide_label = str(ol.get_option_at_index(0).prompt)
-            assert "running" in wide_label.lower()
+            # Wide pads the name into a right-hand column; resize must rebuild.
+            assert "claude . proj" in wide_label
+            assert "running" not in wide_label.lower()
 
             await pilot.resize_terminal(45, 24)
             await pilot.pause()
             narrow_label = str(ol.get_option_at_index(0).prompt)
             assert "running" not in narrow_label.lower()
             assert "claude . proj" in narrow_label
+            # Narrow drops the name padding, so its row is shorter than wide.
+            assert len(narrow_label) < len(wide_label)
 
 
 class TestDeskTmuxCheck:

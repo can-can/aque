@@ -88,12 +88,12 @@ class TriagePill(Vertical):
         yield Static(
             "[bold]Enter[/bold] attach   "
             "[bold]Space[/bold] peek   "
-            "[bold]s[/bold] snooze",
+            "[bold]s[/bold] snooze 5m",
             classes="triage-actions",
         )
 
         if self.queue_len > 1:
             yield Static(
-                f"[dim]+ {self.queue_len - 1} more waiting[/dim]",
+                f"[dim]+ {self.queue_len - 1} more waiting after this[/dim]",
                 classes="triage-stack",
             )
