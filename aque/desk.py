@@ -46,6 +46,7 @@ from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
 from aque.widgets.triage_pill import TriagePill
 from aque.widgets.undo_bar import UndoBar
+from aque.terminal.widget import TerminalView
 
 STATE_PRIORITY = {
     AgentState.WAITING: 0,
@@ -809,7 +810,7 @@ class DeskApp(App):
 
         agent_panel._add_child(OptionList(id="agent-option-list"))
 
-        preview_panel._add_child(PreviewPane())
+        preview_panel._add_child(TerminalView(id="embedded-terminal"))
         dashboard._add_child(agent_panel)
         dashboard._add_child(preview_panel)
         return dashboard
@@ -824,6 +825,11 @@ class DeskApp(App):
             self.query_one("#agent-panel").set_class(narrow, "narrow")
         except Exception:
             pass
+        if narrow:
+            try:
+                self.query_one("#embedded-terminal", TerminalView).detach()
+            except Exception:
+                pass
         for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
                 self.query_one(selector).set_class(narrow, "narrow")
@@ -846,6 +852,7 @@ class DeskApp(App):
         self._start_refresh()
         self._focus_agent_list()
         self._scan_for_orphans()
+        self.call_after_refresh(self._attach_highlighted_terminal)
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -936,7 +943,6 @@ class DeskApp(App):
         state = self.state_mgr.load()
         self._refresh_status_bar(state)
         self._refresh_agent_list(state=state)
-        self._refresh_preview()
         self._try_show_triage(state)
 
     def _refresh_status_bar(self, state: AppState | None = None) -> None:
@@ -1172,69 +1178,6 @@ class DeskApp(App):
         if option_list.option_count > 0 and option_list.highlighted is None:
             option_list.highlighted = 0
 
-    def _refresh_preview(self) -> None:
-        try:
-            option_list = self.query_one("#agent-option-list", OptionList)
-            preview = self.query_one("#preview-pane", Static)
-        except Exception:
-            return
-
-        if option_list.highlighted is None or option_list.option_count == 0:
-            preview.update("[dim]Select an agent to preview[/dim]")
-            return
-
-        option = option_list.get_option_at_index(option_list.highlighted)
-        agent_id = int(option.id)
-        state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
-        if agent is None:
-            preview.update("[dim]Agent not found[/dim]")
-            return
-
-        server = self._get_tmux_server()
-        content = capture_pane_content(server, agent.tmux_session)
-        # Structured responder panel (replaces the old single-line footnote).
-        # The panel mines its own reply log from the responder's pane and
-        # reads optional rules from disk, so we pass both inputs through.
-        responder_pane = None
-        if not agent.is_responder:
-            resp = next(
-                (a for a in state.agents if a.is_responder and a.partner_id == agent.id),
-                None,
-            )
-            if resp is not None:
-                responder_pane = capture_pane_content(server, resp.tmux_session)
-        auto_meta = Text.from_markup(build_responder_panel(
-            agent, state.agents,
-            pane_content=responder_pane,
-            aque_dir=self.aque_dir,
-        ))
-        actions = Text.from_markup(self._build_action_strip(agent))
-        if content:
-            lines = content.split("\n")
-            last_lines = lines[-30:]
-            color = STATE_COLORS.get(agent.state, "white")
-            header = Text.from_markup(
-                f"[bold]{agent.label}[/bold]  [{color}]{agent.state.value}[/{color}]"
-            )
-            if agent.agent_type:
-                meta = Text.from_markup(
-                    f"\n[dim]Type: {agent.agent_type}  Detection: hook[/dim]"
-                )
-            else:
-                meta = Text.from_markup(
-                    "\n[dim]Detection: polling[/dim]"
-                )
-            body = Text("\n" + "\n".join(last_lines))
-            preview.update(header + meta + actions + body + auto_meta)
-        else:
-            preview.update(
-                Text.from_markup(
-                    f"[bold]{agent.label}[/bold]\n[dim]No preview available[/dim]"
-                )
-                + actions
-                + auto_meta
-            )
 
     def _build_action_strip(self, agent: AgentInfo) -> str:
         """Quick-action affordances for the currently-selected agent.
@@ -1275,7 +1218,7 @@ class DeskApp(App):
             pass
         self._refresh_agent_list(reset_highlight=True)
         self._refresh_status_bar()
-        self._refresh_preview()
+        self._attach_highlighted_terminal()
         self._start_refresh()
         self._focus_agent_list()
         self._ensure_monitor_running()
@@ -1411,7 +1354,7 @@ class DeskApp(App):
                 if opt.id == str(agent_id):
                     ol.highlighted = i
                     break
-            self._refresh_preview()
+            self._attach_highlighted_terminal()
         except Exception:
             pass
 
@@ -1773,11 +1716,29 @@ class DeskApp(App):
             return
         if self._preview_debounce_timer is not None:
             self._preview_debounce_timer.stop()
-        self._preview_debounce_timer = self.set_timer(0.15, self._debounced_preview)
+        self._preview_debounce_timer = self.set_timer(0.15, self._attach_highlighted_terminal)
 
-    def _debounced_preview(self) -> None:
+    def _attach_highlighted_terminal(self) -> None:
         self._preview_debounce_timer = None
-        self._refresh_preview()
+        if self._skip_attach:
+            return  # tests / headless: never spawn a real tmux client
+        if self._narrow:
+            return  # terminal panel hidden in narrow layout
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+            term = self.query_one("#embedded-terminal", TerminalView)
+        except Exception:
+            return
+        if ol.highlighted is None or ol.option_count == 0:
+            term.detach()
+            return
+        option = ol.get_option_at_index(ol.highlighted)
+        agent_id = int(option.id)
+        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        if agent is None:
+            term.detach()
+            return
+        term.attach(agent.tmux_session)
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""
