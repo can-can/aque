@@ -422,12 +422,12 @@ def then_agent_detected_idle_via_polling(name, ctx):
 
 @when(parsers.parse('the user attaches to agent "{name}"'))
 def when_user_attaches(name, ctx):
-    # Agent transitions to FOCUSED. The next monitor poll will invoke the
+    # Agent gets an attached tmux client. The next monitor poll will invoke the
     # shared prune_detector() helper with running_ids that no longer contain
     # this agent. Call the exact same helper here so the scenario exercises
     # the real prune logic (not a reimplementation).
     assert ctx["agent_name"] == name
-    ctx["agent_state"] = "focused"
+    ctx["agent_state"] = "attached"
     running_ids = {ctx["agent_id"]} if ctx["agent_state"] == "running" else set()
     prune_detector(ctx["detector"], running_ids)
 
