@@ -17,6 +17,8 @@ _NAMED = {
     "left": b"\x1bOD",
     "home": b"\x1b[H",
     "end": b"\x1b[F",
+    "ctrl+home": b"\x1b[1;5H",
+    "ctrl+end": b"\x1b[1;5F",
     "pageup": b"\x1b[5~",
     "pagedown": b"\x1b[6~",
     "delete": b"\x1b[3~",

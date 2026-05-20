@@ -22,3 +22,22 @@ def test_cursor_cell_is_reverse_for_default_colors():
 def test_cell_style_explicit_colors_for_cursor():
     style = cell_style(fg="default", bg="default", is_cursor=True)
     assert style.reverse is True
+
+
+def test_scroll_forwards_to_session():
+    from aque.terminal.widget import TerminalView
+
+    class FakeSession:
+        def __init__(self): self.writes = []
+        def write(self, data): self.writes.append(data)
+
+    class FakeEvent:
+        def __init__(self): self.stopped = False
+        def stop(self): self.stopped = True
+
+    tv = TerminalView()
+    tv.session = FakeSession()
+    up = FakeEvent(); tv.on_mouse_scroll_up(up)
+    down = FakeEvent(); tv.on_mouse_scroll_down(down)
+    assert len(tv.session.writes) == 2
+    assert up.stopped and down.stopped

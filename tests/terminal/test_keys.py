@@ -32,3 +32,8 @@ def test_alt_is_esc_prefixed():
 
 def test_unknown_returns_empty():
     assert encode_key("f5") == b""
+
+
+def test_ctrl_end_and_ctrl_home_have_sequences():
+    assert encode_key("ctrl+end") != b""
+    assert encode_key("ctrl+home") != b""

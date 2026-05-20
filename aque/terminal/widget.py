@@ -136,6 +136,23 @@ class TerminalView(Widget, can_focus=True):
     def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
         return self.size.height
 
+    # mouse wheel
+    def on_mouse_scroll_up(self, event) -> None:
+        # Forward wheel to tmux so its scrollback/copy-mode responds, rather
+        # than scrolling pyte's own buffer. Uses SGR mouse-wheel button 64
+        # (wheel-up). NOTE: exact SGR sequence may need live tuning against
+        # tmux mouse mode (e.g. `set -g mouse on`); verified only structurally,
+        # NOT against a live tmux session — known unverified item.
+        if self.session is not None:
+            self.session.write(b"\x1b[<64;1;1M")
+            event.stop()
+
+    def on_mouse_scroll_down(self, event) -> None:
+        # SGR mouse-wheel button 65 (wheel-down). Same caveat as scroll-up.
+        if self.session is not None:
+            self.session.write(b"\x1b[<65;1;1M")
+            event.stop()
+
     # input
     def on_key(self, event) -> None:
         if self.session is None:
