@@ -642,3 +642,38 @@ class TestEnsureMonitorRunning:
         app._ensure_monitor_running()
         assert started["n"] == 1
         assert (4242, signal.SIGTERM) in killed  # hung monitor was terminated first
+
+
+class TestAttachDoesNotChangeState:
+    def test_attach_does_not_change_agent_state(self, tmp_path, monkeypatch):
+        import contextlib
+        import subprocess
+        from aque.desk import DeskApp
+        from aque.state import AgentInfo, AgentState, StateManager
+
+        aque_dir = tmp_path / ".aque"
+        aque_dir.mkdir()
+        mgr = StateManager(aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="test-agent",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+
+        app = DeskApp(aque_dir=aque_dir)
+        agent = app.state_mgr.load().agents[0]
+
+        calls = []
+        monkeypatch.setattr(app.state_mgr, "update_agent_state",
+                            lambda *a, **k: calls.append(a))
+        # Stub suspend() so the body runs without a real terminal
+        monkeypatch.setattr(app, "suspend", lambda: contextlib.nullcontext())
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+        # Stub screen-side-effect methods that need a live Textual app
+        monkeypatch.setattr(app, "_dismiss_triage_widget", lambda: None)
+        monkeypatch.setattr(app, "_stop_refresh", lambda: None)
+        monkeypatch.setattr(app, "_show_dashboard", lambda: None)
+
+        app._attach_to_agent(agent)
+
+        assert calls == []  # no state mutation during attach/detach
+        assert app.state_mgr.load().agents[0].state == AgentState.RUNNING
