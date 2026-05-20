@@ -276,18 +276,25 @@ class TestNudge:
         assert result is False
         server.sessions.get.assert_not_called()
 
-    def test_nudge_skips_when_responder_focused(self, tmp_aque_dir):
+    def test_nudge_does_not_reference_focused(self, tmp_aque_dir):
+        """A RUNNING responder is nudged normally; no FOCUSED special-case exists."""
         from aque.responder import nudge
 
         partner, responder = self._make_pair()
-        responder.state = AgentState.FOCUSED
+        # responder.state is already RUNNING (from _make_pair)
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(partner)
         mgr.add_agent(responder)
 
         server = MagicMock()
+        session = MagicMock()
+        pane = MagicMock()
+        session.active_pane = pane
+        server.sessions.get.return_value = session
+
         result = nudge(partner, responder, server, state_manager=mgr)
-        assert result is False
+        assert result is True
+        pane.send_keys.assert_called_once()
 
     def test_nudge_skips_when_session_missing(self, tmp_aque_dir):
         from aque.responder import nudge

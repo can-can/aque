@@ -126,14 +126,11 @@ def nudge(
 
     No-op (returns False) when:
     - partner.auto_respond is False
-    - responder is in FOCUSED state
     - responder's tmux session is missing
 
     On a successful nudge, updates partner.last_nudge_at and returns True.
     """
     if not partner.auto_respond:
-        return False
-    if responder.state == AgentState.FOCUSED:
         return False
 
     try:
