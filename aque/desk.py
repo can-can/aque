@@ -1443,6 +1443,23 @@ class DeskApp(App):
         )
         self._apply_layout()
 
+    def _quick_launch_task(self, task: dict) -> None:
+        """Launch a recent task. Prompt for a type first when it's unknown."""
+        if not task["type_known"]:
+            self.query_one(QuickLaunchForm).show_type_step(task)
+            return
+        self._launch_quick_task_with_type(task, task["agent_type"])
+
+    def _launch_quick_task_with_type(self, task: dict, agent_type: str | None) -> None:
+        for w in self.query("QuickLaunchForm"):
+            w.remove()
+        self._perform_launch(
+            command=list(task["command"]),
+            working_dir=task["dir"],
+            label=task["label"] or None,
+            agent_type=agent_type,
+        )
+
     def _perform_launch(
         self,
         command: list[str],
@@ -1727,6 +1744,17 @@ class DeskApp(App):
         if self._mode == "new_agent_form" and event.option_list.id == "type-list":
             form = self.query_one(NewAgentForm)
             form.select_type()
+            return
+        if self._mode == "quick_launch_form":
+            form = self.query_one(QuickLaunchForm)
+            if event.option_list.id == "quick-launch-list":
+                task = form.selected_task()
+                if task is not None:
+                    self._quick_launch_task(task)
+            elif event.option_list.id == "quick-launch-type-list":
+                task = form._pending_task
+                if task is not None:
+                    self._launch_quick_task_with_type(task, form.selected_type())
             return
         if self._mode != "dashboard":
             return

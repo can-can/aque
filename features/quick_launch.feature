@@ -23,3 +23,9 @@ Feature: Quick Launch
     When the user presses "r"
     And the user presses Escape
     Then the dashboard should be visible
+
+  Scenario: Selecting a typed recent task launches a new agent
+    Given the history has a recent "claude" task in "/tmp/api" labeled "claude . api"
+    When the user presses "r"
+    And the user selects the first recent task
+    Then a new agent should be launched with command "claude" in "/tmp/api"

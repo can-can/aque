@@ -169,3 +169,33 @@ def then_list_contains(ctx, text):
 def then_dashboard_visible(ctx):
     assert ctx.app._mode == "dashboard"
     assert ctx.app.query_one("#dashboard").display is True
+
+
+@scenario(FEATURE, "Selecting a typed recent task launches a new agent")
+def test_select_typed_task_launches():
+    pass
+
+
+@when("the user selects the first recent task")
+def when_select_first_task(ctx):
+    _install_fake_launch(ctx)
+
+    async def _select():
+        ol = ctx.app.query_one("#quick-launch-list")
+        ol.highlighted = 0
+        await ctx.pilot.pause()
+        await ctx.pilot.press("enter")
+        await ctx.pilot.pause()
+
+    ctx.run(_select())
+
+
+@then(parsers.parse('a new agent should be launched with command "{command}" in "{dir}"'))
+def then_agent_launched(ctx, command, dir):
+    mock = ctx.data.get("mock_launch")
+    assert mock is not None and mock.called, "launch_agent was not called"
+    _, kwargs = mock.call_args
+    assert kwargs["command"] == [command], kwargs
+    assert kwargs["working_dir"] == dir, kwargs
+    state = ctx.app.state_mgr.load()
+    assert any(a.dir == dir for a in state.agents), "agent not in state"
