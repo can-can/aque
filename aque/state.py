@@ -186,6 +186,7 @@ class StateManager:
                 dir=agent.dir,
                 command=agent.command,
                 created_at=agent.created_at,
+                agent_type=agent.agent_type,
             )
             state.agents = [a for a in state.agents if a.id != agent_id]
             self.save(state)

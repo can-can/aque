@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 
@@ -273,3 +274,31 @@ class TestResponderCleanupIntegration:
         state = mgr.load()
         assert state.agents[0].state == AgentState.EXITED
         mock_cleanup.assert_called_once()
+
+
+def test_run_monitor_refreshes_pid_heartbeat(tmp_aque_dir, monkeypatch):
+    """Each poll iteration should rewrite monitor.pid, bumping its mtime."""
+    import aque.monitor as monitor
+
+    pid_file = tmp_aque_dir / "monitor.pid"
+    seen_mtimes = []
+
+    def fake_sleep(_interval):
+        # Capture the heartbeat mtime as seen at the end of this iteration.
+        seen_mtimes.append(pid_file.stat().st_mtime)
+        if len(seen_mtimes) >= 2:
+            raise KeyboardInterrupt
+        # Backdate the file so a refresh on the next iteration is observable.
+        old = pid_file.stat().st_mtime
+        os.utime(pid_file, (old - 100, old - 100))
+
+    monkeypatch.setattr(monitor.time, "sleep", fake_sleep)
+    # No agents in state, so the per-agent tmux loop is a no-op.
+    try:
+        monitor.run_monitor(tmp_aque_dir)
+    except KeyboardInterrupt:
+        pass
+
+    assert len(seen_mtimes) == 2
+    # Second iteration must have refreshed the backdated mtime forward.
+    assert seen_mtimes[1] > seen_mtimes[0]

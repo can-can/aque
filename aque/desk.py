@@ -484,6 +484,101 @@ class NewAgentForm(Vertical):
             pass
 
 
+class QuickLaunchForm(Vertical):
+    """Relaunch a recent task. Lists `recent_tasks()`; selecting one launches.
+
+    When a task's type is unknown (legacy entry with no inferrable type), the
+    form shows a one-step type picker before launching.
+    """
+
+    def __init__(self, tasks: list[dict], plugin_names: list[str] | None = None) -> None:
+        super().__init__(id="quick-launch-form")
+        self._tasks = tasks
+        self._plugin_names = plugin_names or []
+        self._step = "tasks"  # "tasks" | "type"
+        self._pending_task: dict | None = None
+
+    def _task_options(self) -> list:
+        opts = []
+        for i, t in enumerate(self._tasks):
+            label = t["label"] or " ".join(t["command"])
+            chip = type_chip_markup(t["agent_type"])
+            opts.append(Option(f"{label}   [dim]{t['dir']}[/dim] {chip}", id=str(i)))
+        return opts
+
+    def compose(self) -> ComposeResult:
+        yield Static("Quick Launch", id="quick-launch-title")
+        if not self._tasks:
+            yield Static("[dim]No recent tasks yet[/dim]", id="quick-launch-empty")
+            yield Static(key_hint("Esc", "back"), id="quick-launch-hint")
+            return
+        yield OptionList(*self._task_options(), id="quick-launch-list")
+        yield Static(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")]),
+            id="quick-launch-hint",
+        )
+
+    def on_mount(self) -> None:
+        try:
+            self.query_one("#quick-launch-list", OptionList).focus()
+        except Exception:
+            pass
+
+    def selected_task(self) -> dict | None:
+        try:
+            ol = self.query_one("#quick-launch-list", OptionList)
+        except Exception:
+            return None
+        if ol.highlighted is None:
+            return None
+        idx = int(ol.get_option_at_index(ol.highlighted).id)
+        return self._tasks[idx]
+
+    def show_type_step(self, task: dict) -> None:
+        """Prompt for an agent type for a task whose type is unknown."""
+        self._step = "type"
+        self._pending_task = task
+        try:
+            self.query_one("#quick-launch-list").remove()
+        except Exception:
+            pass
+        type_options = [Option("none (polling only)", id="none")]
+        for name in self._plugin_names:
+            type_options.append(Option(name, id=name))
+        self.mount(
+            OptionList(*type_options, id="quick-launch-type-list"),
+            after=self.query_one("#quick-launch-title"),
+        )
+        self.query_one("#quick-launch-hint").update(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")])
+        )
+        self.query_one("#quick-launch-type-list", OptionList).focus()
+
+    def show_tasks_step(self) -> None:
+        """Restore the recent-task list (used when stepping back from type)."""
+        self._step = "tasks"
+        self._pending_task = None
+        try:
+            self.query_one("#quick-launch-type-list").remove()
+        except Exception:
+            pass
+        self.mount(
+            OptionList(*self._task_options(), id="quick-launch-list"),
+            after=self.query_one("#quick-launch-title"),
+        )
+        self.query_one("#quick-launch-list", OptionList).focus()
+
+    def selected_type(self) -> str | None:
+        try:
+            ol = self.query_one("#quick-launch-type-list", OptionList)
+        except Exception:
+            return None
+        if ol.highlighted is None:
+            return None
+        option = ol.get_option_at_index(ol.highlighted)
+        return None if option.id == "none" else option.id
+
+
 # ── Main App ─────────────────────────────────────────────────────────
 
 
@@ -573,6 +668,20 @@ class DeskApp(App):
     #new-agent-form.narrow {
         padding: 1 1;
     }
+    #quick-launch-form {
+        padding: 2 4;
+    }
+    #quick-launch-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #quick-launch-hint {
+        color: $text-muted;
+        margin-top: 1;
+    }
+    #quick-launch-form.narrow {
+        padding: 1 1;
+    }
     """
 
     BINDINGS = [
@@ -584,6 +693,7 @@ class DeskApp(App):
         ("question_mark", "show_help", "?"),
         ("q", "quit_app", "Quit"),
         Binding("R", "toggle_responders", "Responders", show=False),
+        Binding("r", "quick_launch", "Relaunch", show=False),
         Binding("1", "filter_state('running')", "Filter running", show=False),
         Binding("2", "filter_state('waiting')", "Filter waiting", show=False),
         Binding("3", "filter_state('on_hold')", "Filter on_hold", show=False),
@@ -675,6 +785,7 @@ class DeskApp(App):
 
         hints = [
             ("n", "new"),
+            ("r", "relaunch"),
             ("↵", "attach"),
             ("Space", "peek"),
             ("/", "filter"),
@@ -715,7 +826,7 @@ class DeskApp(App):
             self.query_one("#agent-panel").set_class(narrow, "narrow")
         except Exception:
             pass
-        for selector in ("#action-menu", "#new-agent-form"):
+        for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
                 self.query_one(selector).set_class(narrow, "narrow")
             except Exception:
@@ -1157,7 +1268,7 @@ class DeskApp(App):
         self._dismiss_triage_widget()
         self._triage_agent = None
         self._mode = "dashboard"
-        for w in self.query("ActionMenu, NewAgentForm"):
+        for w in self.query("ActionMenu, NewAgentForm, QuickLaunchForm"):
             w.remove()
         try:
             self.query_one("#dashboard").display = True
@@ -1355,6 +1466,89 @@ class DeskApp(App):
         )
         self._apply_layout()
 
+    def _show_quick_launch_form(self) -> None:
+        self._dismiss_triage_widget()
+        self._triage_agent = None
+        self._mode = "quick_launch_form"
+        self._stop_refresh()
+        try:
+            self.query_one("#dashboard").display = False
+            self.query_one("#status-bar").display = False
+        except Exception:
+            pass
+        from aque.plugins import discover_plugins
+        plugin_names = sorted(discover_plugins().keys())
+        tasks = self.history_mgr.recent_tasks()
+        self.mount(
+            QuickLaunchForm(tasks=tasks, plugin_names=plugin_names),
+            after=self.query_one(Header),
+        )
+        self._apply_layout()
+
+    def _quick_launch_task(self, task: dict) -> None:
+        """Launch a recent task. Prompt for a type first when it's unknown."""
+        if not task["type_known"]:
+            self.query_one(QuickLaunchForm).show_type_step(task)
+            return
+        self._launch_quick_task_with_type(task, task["agent_type"])
+
+    def _launch_quick_task_with_type(self, task: dict, agent_type: str | None) -> None:
+        for w in self.query("QuickLaunchForm"):
+            w.remove()
+        self._perform_launch(
+            command=list(task["command"]),
+            working_dir=task["dir"],
+            label=task["label"] or None,
+            agent_type=agent_type,
+        )
+
+    def _perform_launch(
+        self,
+        command: list[str],
+        working_dir: str,
+        label: str | None,
+        agent_type: str | None,
+    ) -> int:
+        """Launch an agent and run the shared post-launch flow.
+
+        Used by both the new-agent wizard and Quick Launch. Installs the
+        agent-type hook if needed, creates a paired responder (when enabled),
+        records directory use, ensures the monitor is running, and attaches to
+        the new agent (or returns to the dashboard when attach is skipped).
+        """
+        if agent_type:
+            from aque.plugins import get_plugin
+            plugin = get_plugin(agent_type)
+            if plugin and not plugin.is_installed():
+                plugin.install_hook()
+        agent_id = launch_agent(
+            command=command,
+            working_dir=working_dir,
+            label=label or None,
+            state_manager=self.state_mgr,
+            prefix=self.config["session_prefix"],
+            background=True,
+            agent_type=agent_type,
+        )
+        if self.config.get("responder_enabled", True):
+            partner = next(
+                (a for a in self.state_mgr.load().agents if a.id == agent_id),
+                None,
+            )
+            if partner is not None:
+                responder.create_for(
+                    partner, self.config, self.state_mgr, aque_dir=self.aque_dir
+                )
+        self.dir_history_mgr.record_use(working_dir)
+        self._ensure_monitor_running()
+        state = self.state_mgr.load()
+        agent = next((a for a in state.agents if a.id == agent_id), None)
+        if agent and not self._skip_attach:
+            self._attach_to_agent(agent)
+        else:
+            self._show_dashboard()
+        return agent_id
+
     # ── Agent actions ────────────────────────────────────────────
 
     def _attach_to_agent(self, agent: AgentInfo) -> None:
@@ -1516,14 +1710,41 @@ class DeskApp(App):
 
     def _ensure_monitor_running(self) -> None:
         import os
+        import signal
+        import time as _time
+
         state = self.state_mgr.load()
-        if state.monitor_pid:
+        pid = state.monitor_pid
+        pid_file = self.aque_dir / "monitor.pid"
+
+        if pid:
+            alive = True
             try:
-                os.kill(state.monitor_pid, 0)
+                os.kill(pid, 0)
+            except (ProcessLookupError, PermissionError):
+                alive = False
+
+            fresh = False
+            try:
+                age = _time.time() - pid_file.stat().st_mtime
+                staleness = max(self.config["snapshot_interval"] * 3, 6)
+                fresh = age <= staleness
+            except OSError:
+                fresh = False
+
+            if alive and fresh:
                 return
-            except ProcessLookupError:
-                state.monitor_pid = None
-                self.state_mgr.save(state)
+
+            # Dead, hung, or PID reused. If something is still holding the pid
+            # (a hung monitor), terminate it so we don't end up with two.
+            if alive:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+            state.monitor_pid = None
+            self.state_mgr.save(state)
+
         start_monitor_daemon(self.aque_dir)
 
     def _get_highlighted_agent_id(self) -> int | None:
@@ -1565,6 +1786,17 @@ class DeskApp(App):
         if self._mode == "new_agent_form" and event.option_list.id == "type-list":
             form = self.query_one(NewAgentForm)
             form.select_type()
+            return
+        if self._mode == "quick_launch_form":
+            form = self.query_one(QuickLaunchForm)
+            if event.option_list.id == "quick-launch-list":
+                task = form.selected_task()
+                if task is not None:
+                    self._quick_launch_task(task)
+            elif event.option_list.id == "quick-launch-type-list":
+                task = form._pending_task
+                if task is not None:
+                    self._launch_quick_task_with_type(task, form.selected_type())
             return
         if self._mode != "dashboard":
             return
@@ -1638,46 +1870,27 @@ class DeskApp(App):
         elif event.input.id == "label-input":
             form._label = event.value.strip()
             agent_type = form._selected_type
-            if agent_type:
-                from aque.plugins import get_plugin
-                plugin = get_plugin(agent_type)
-                if plugin and not plugin.is_installed():
-                    plugin.install_hook()
             command = shlex.split(form._command)
-            agent_id = launch_agent(
-                command=command,
-                working_dir=form._selected_dir,
-                label=form._label or None,
-                state_manager=self.state_mgr,
-                prefix=self.config["session_prefix"],
-                background=True,
-                agent_type=agent_type,
-            )
-            if self.config.get("responder_enabled", True):
-                partner = next(
-                    (a for a in self.state_mgr.load().agents if a.id == agent_id),
-                    None,
-                )
-                if partner is not None:
-                    responder.create_for(
-                        partner, self.config, self.state_mgr, aque_dir=self.aque_dir
-                    )
-            self.dir_history_mgr.record_use(form._selected_dir)
-            self._ensure_monitor_running()
+            working_dir = form._selected_dir
+            label = form._label or None
             for w in self.query("NewAgentForm"):
                 w.remove()
-            state = self.state_mgr.load()
-            agent = next((a for a in state.agents if a.id == agent_id), None)
-            if agent and not self._skip_attach:
-                self._attach_to_agent(agent)
-            else:
-                self._show_dashboard()
+            self._perform_launch(
+                command=command,
+                working_dir=working_dir,
+                label=label,
+                agent_type=agent_type,
+            )
 
     # ── Key handling ─────────────────────────────────────────────
 
     def action_new_agent(self) -> None:
         if self._mode == "dashboard":
             self._show_new_agent_form()
+
+    def action_quick_launch(self) -> None:
+        if self._mode == "dashboard":
+            self._show_quick_launch_form()
 
     def action_kill_agent(self) -> None:
         if self._mode == "dashboard":
@@ -1858,6 +2071,18 @@ class DeskApp(App):
                     if form._selected_dir:
                         form.show_command_step()
                     return
+            return
+
+        if self._mode == "quick_launch_form":
+            if event.key == "escape":
+                form = self.query_one(QuickLaunchForm)
+                if form._step == "type":
+                    form.show_tasks_step()
+                    return
+                for w in self.query("QuickLaunchForm"):
+                    w.remove()
+                self._show_dashboard()
+                return
             return
 
         if self._mode == "action_menu":
