@@ -1355,6 +1355,53 @@ class DeskApp(App):
         )
         self._apply_layout()
 
+    def _perform_launch(
+        self,
+        command: list[str],
+        working_dir: str,
+        label: str | None,
+        agent_type: str | None,
+    ) -> int:
+        """Launch an agent and run the shared post-launch flow.
+
+        Used by both the new-agent wizard and Quick Launch. Installs the
+        agent-type hook if needed, creates a paired responder (when enabled),
+        records directory use, ensures the monitor is running, and attaches to
+        the new agent (or returns to the dashboard when attach is skipped).
+        """
+        if agent_type:
+            from aque.plugins import get_plugin
+            plugin = get_plugin(agent_type)
+            if plugin and not plugin.is_installed():
+                plugin.install_hook()
+        agent_id = launch_agent(
+            command=command,
+            working_dir=working_dir,
+            label=label or None,
+            state_manager=self.state_mgr,
+            prefix=self.config["session_prefix"],
+            background=True,
+            agent_type=agent_type,
+        )
+        if self.config.get("responder_enabled", True):
+            partner = next(
+                (a for a in self.state_mgr.load().agents if a.id == agent_id),
+                None,
+            )
+            if partner is not None:
+                responder.create_for(
+                    partner, self.config, self.state_mgr, aque_dir=self.aque_dir
+                )
+        self.dir_history_mgr.record_use(working_dir)
+        self._ensure_monitor_running()
+        state = self.state_mgr.load()
+        agent = next((a for a in state.agents if a.id == agent_id), None)
+        if agent and not self._skip_attach:
+            self._attach_to_agent(agent)
+        else:
+            self._show_dashboard()
+        return agent_id
+
     # ── Agent actions ────────────────────────────────────────────
 
     def _attach_to_agent(self, agent: AgentInfo) -> None:
@@ -1665,40 +1712,17 @@ class DeskApp(App):
         elif event.input.id == "label-input":
             form._label = event.value.strip()
             agent_type = form._selected_type
-            if agent_type:
-                from aque.plugins import get_plugin
-                plugin = get_plugin(agent_type)
-                if plugin and not plugin.is_installed():
-                    plugin.install_hook()
             command = shlex.split(form._command)
-            agent_id = launch_agent(
-                command=command,
-                working_dir=form._selected_dir,
-                label=form._label or None,
-                state_manager=self.state_mgr,
-                prefix=self.config["session_prefix"],
-                background=True,
-                agent_type=agent_type,
-            )
-            if self.config.get("responder_enabled", True):
-                partner = next(
-                    (a for a in self.state_mgr.load().agents if a.id == agent_id),
-                    None,
-                )
-                if partner is not None:
-                    responder.create_for(
-                        partner, self.config, self.state_mgr, aque_dir=self.aque_dir
-                    )
-            self.dir_history_mgr.record_use(form._selected_dir)
-            self._ensure_monitor_running()
+            working_dir = form._selected_dir
+            label = form._label or None
             for w in self.query("NewAgentForm"):
                 w.remove()
-            state = self.state_mgr.load()
-            agent = next((a for a in state.agents if a.id == agent_id), None)
-            if agent and not self._skip_attach:
-                self._attach_to_agent(agent)
-            else:
-                self._show_dashboard()
+            self._perform_launch(
+                command=command,
+                working_dir=working_dir,
+                label=label,
+                agent_type=agent_type,
+            )
 
     # ── Key handling ─────────────────────────────────────────────
 
