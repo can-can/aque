@@ -498,18 +498,21 @@ class QuickLaunchForm(Vertical):
         self._step = "tasks"  # "tasks" | "type"
         self._pending_task: dict | None = None
 
+    def _task_options(self) -> list:
+        opts = []
+        for i, t in enumerate(self._tasks):
+            label = t["label"] or " ".join(t["command"])
+            chip = type_chip_markup(t["agent_type"])
+            opts.append(Option(f"{label}   [dim]{t['dir']}[/dim] {chip}", id=str(i)))
+        return opts
+
     def compose(self) -> ComposeResult:
         yield Static("Quick Launch", id="quick-launch-title")
         if not self._tasks:
             yield Static("[dim]No recent tasks yet[/dim]", id="quick-launch-empty")
             yield Static(key_hint("Esc", "back"), id="quick-launch-hint")
             return
-        options = []
-        for i, t in enumerate(self._tasks):
-            label = t["label"] or " ".join(t["command"])
-            chip = type_chip_markup(t["agent_type"])
-            options.append(Option(f"{label}   [dim]{t['dir']}[/dim] {chip}", id=str(i)))
-        yield OptionList(*options, id="quick-launch-list")
+        yield OptionList(*self._task_options(), id="quick-launch-list")
         yield Static(
             "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")]),
             id="quick-launch-hint",
@@ -531,10 +534,49 @@ class QuickLaunchForm(Vertical):
         idx = int(ol.get_option_at_index(ol.highlighted).id)
         return self._tasks[idx]
 
+    def show_type_step(self, task: dict) -> None:
+        """Prompt for an agent type for a task whose type is unknown."""
+        self._step = "type"
+        self._pending_task = task
+        try:
+            self.query_one("#quick-launch-list").remove()
+        except Exception:
+            pass
+        type_options = [Option("none (polling only)", id="none")]
+        for name in self._plugin_names:
+            type_options.append(Option(name, id=name))
+        self.mount(
+            OptionList(*type_options, id="quick-launch-type-list"),
+            after=self.query_one("#quick-launch-title"),
+        )
+        self.query_one("#quick-launch-hint").update(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")])
+        )
+        self.query_one("#quick-launch-type-list", OptionList).focus()
+
     def show_tasks_step(self) -> None:
         """Restore the recent-task list (used when stepping back from type)."""
         self._step = "tasks"
         self._pending_task = None
+        try:
+            self.query_one("#quick-launch-type-list").remove()
+        except Exception:
+            pass
+        self.mount(
+            OptionList(*self._task_options(), id="quick-launch-list"),
+            after=self.query_one("#quick-launch-title"),
+        )
+        self.query_one("#quick-launch-list", OptionList).focus()
+
+    def selected_type(self) -> str | None:
+        try:
+            ol = self.query_one("#quick-launch-type-list", OptionList)
+        except Exception:
+            return None
+        if ol.highlighted is None:
+            return None
+        option = ol.get_option_at_index(ol.highlighted)
+        return None if option.id == "none" else option.id
 
 
 # ── Main App ─────────────────────────────────────────────────────────

@@ -199,3 +199,49 @@ def then_agent_launched(ctx, command, dir):
     assert kwargs["working_dir"] == dir, kwargs
     state = ctx.app.state_mgr.load()
     assert any(a.dir == dir for a in state.agents), "agent not in state"
+
+
+@scenario(FEATURE, "Selecting an untyped task prompts for a type")
+def test_untyped_prompts_for_type():
+    pass
+
+
+@scenario(FEATURE, "Picking a type after the prompt launches the agent")
+def test_pick_type_launches():
+    pass
+
+
+@given(parsers.parse('the history has a legacy task in "{dir}" labeled "{label}"'))
+def given_legacy_task(ctx, dir, label):
+    # Write a raw entry with NO agent_type field, simulating pre-feature history.
+    import json
+    cmd_word = label.split()[0]
+    entry = {
+        "id": 1, "label": label, "dir": dir, "command": [cmd_word],
+        "created_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-01T00:01:00Z",
+    }
+    (ctx.tmp_aque_dir / "history.json").write_text(json.dumps({"agents": [entry]}))
+
+
+@then("the quick launch type picker should be visible")
+def then_type_picker_visible(ctx):
+    pickers = ctx.app.query("#quick-launch-type-list")
+    assert len(pickers) > 0, "Expected the type picker to be visible"
+
+
+@when(parsers.parse('the user picks type "{type_label}"'))
+def when_pick_type(ctx, type_label):
+    if ctx.data.get("mock_launch") is None:
+        _install_fake_launch(ctx)
+
+    async def _pick():
+        ol = ctx.app.query_one("#quick-launch-type-list")
+        for i in range(ol.option_count):
+            if type_label in str(ol.get_option_at_index(i).prompt):
+                ol.highlighted = i
+                break
+        await ctx.pilot.pause()
+        await ctx.pilot.press("enter")
+        await ctx.pilot.pause()
+
+    ctx.run(_pick())

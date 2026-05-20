@@ -29,3 +29,16 @@ Feature: Quick Launch
     When the user presses "r"
     And the user selects the first recent task
     Then a new agent should be launched with command "claude" in "/tmp/api"
+
+  Scenario: Selecting an untyped task prompts for a type
+    Given the history has a legacy task in "/tmp/old" labeled "mystery . old"
+    When the user presses "r"
+    And the user selects the first recent task
+    Then the quick launch type picker should be visible
+
+  Scenario: Picking a type after the prompt launches the agent
+    Given the history has a legacy task in "/tmp/old" labeled "mystery . old"
+    When the user presses "r"
+    And the user selects the first recent task
+    And the user picks type "none (polling only)"
+    Then a new agent should be launched with command "mystery" in "/tmp/old"
