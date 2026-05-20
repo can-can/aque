@@ -520,7 +520,6 @@ class DeskApp(App):
         ("a", "toggle_auto_respond", "Auto"),
         ("ctrl+k", "command_palette", "⌘K"),
         ("question_mark", "show_help", "?"),
-        ("q", "quit_app", "Quit"),
         Binding("R", "toggle_responders", "Responders", show=False),
         Binding("r", "quick_launch", "Relaunch", show=False),
         Binding("1", "filter_state('running')", "Filter running", show=False),
@@ -683,6 +682,11 @@ class DeskApp(App):
         self._focus_agent_list()
         self._scan_for_orphans()
         self.call_after_refresh(self._attach_highlighted_terminal)
+        sc = self.config["shortcuts"]
+        self.bind(sc["quit"], "quit_app", description="Quit")
+        self.bind(sc["attach_fullscreen"], "attach_fullscreen", description="Full-screen")
+        self.bind(sc["switch_focus"], "switch_focus", description="Focus")
+        self.bind(sc["switch_agent"], "switch_agent", description="Switch")
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -1762,6 +1766,47 @@ class DeskApp(App):
     def action_quit_app(self) -> None:
         stop_monitor(self.aque_dir)
         self.exit()
+
+    def action_attach_fullscreen(self) -> None:
+        if self._mode != "dashboard":
+            return
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+        except Exception:
+            return
+        if ol.highlighted is None:
+            return
+        agent_id = int(ol.get_option_at_index(ol.highlighted).id)
+        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        if agent is not None and not self._skip_attach:
+            self._attach_to_agent(agent)
+
+    def action_switch_focus(self) -> None:
+        """Toggle keyboard focus between the agent list and the embedded terminal."""
+        if self._mode != "dashboard":
+            return
+        try:
+            term = self.query_one("#embedded-terminal", TerminalView)
+            ol = self.query_one("#agent-option-list", OptionList)
+        except Exception:
+            return
+        if self.focused is term:
+            ol.focus()
+        else:
+            term.focus()
+
+    def action_switch_agent(self) -> None:
+        """Move highlight to the next agent (wraps)."""
+        if self._mode != "dashboard":
+            return
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+        except Exception:
+            return
+        if ol.option_count == 0:
+            return
+        nxt = 0 if ol.highlighted is None else (ol.highlighted + 1) % ol.option_count
+        ol.highlighted = nxt
 
     def on_key(self, event) -> None:
         # Triage pill takes priority — it's the most recent surface and the

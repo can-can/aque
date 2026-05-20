@@ -3,6 +3,15 @@ from pathlib import Path
 from aque.config import load_config, DEFAULT_CONFIG
 
 
+def test_shortcuts_defaults(tmp_path):
+    cfg = load_config(tmp_path)
+    s = cfg["shortcuts"]
+    assert s["quit"] == "ctrl+shift+q"
+    assert s["attach_fullscreen"] == "f2"
+    assert s["switch_focus"].startswith("ctrl+shift+")
+    assert s["switch_agent"].startswith("ctrl+shift+")
+
+
 class TestConfig:
     def test_default_config_values(self):
         assert DEFAULT_CONFIG["idle_timeout"] == 15

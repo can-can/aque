@@ -22,6 +22,14 @@ DEFAULT_CONFIG = {
     "responder_command": ["claude"],
     "responder_idle_gap": 30,
     "responder_dir": None,
+    "shortcuts": {
+        "quit": "ctrl+shift+q",
+        "attach_fullscreen": "f2",
+        # Priority actions live on ctrl+shift chords because plain F-keys and
+        # letters collide with terminal apps running inside the embed. Rebind freely.
+        "switch_focus": "ctrl+shift+a",
+        "switch_agent": "ctrl+shift+j",
+    },
 }
 
 
