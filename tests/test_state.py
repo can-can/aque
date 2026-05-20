@@ -337,6 +337,24 @@ def test_done_agent_records_agent_type(tmp_aque_dir):
     assert hm.load()[0]["agent_type"] == "claude"
 
 
+def test_focused_is_not_a_state():
+    assert not hasattr(AgentState, "FOCUSED")
+
+
+def test_legacy_focused_loads_as_running():
+    legacy = {
+        "id": 1,
+        "tmux_session": "aque-1",
+        "label": "old",
+        "dir": "/tmp",
+        "command": ["claude"],
+        "state": "focused",
+        "pid": 123,
+    }
+    agent = AgentInfo.from_dict(legacy)
+    assert agent.state == AgentState.RUNNING
+
+
 class TestSessionIdField:
     def test_agent_info_session_id_defaults_to_none(self):
         from aque.state import AgentInfo, AgentState
