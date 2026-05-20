@@ -484,6 +484,59 @@ class NewAgentForm(Vertical):
             pass
 
 
+class QuickLaunchForm(Vertical):
+    """Relaunch a recent task. Lists `recent_tasks()`; selecting one launches.
+
+    When a task's type is unknown (legacy entry with no inferrable type), the
+    form shows a one-step type picker before launching.
+    """
+
+    def __init__(self, tasks: list[dict], plugin_names: list[str] | None = None) -> None:
+        super().__init__(id="quick-launch-form")
+        self._tasks = tasks
+        self._plugin_names = plugin_names or []
+        self._step = "tasks"  # "tasks" | "type"
+        self._pending_task: dict | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Static("Quick Launch", id="quick-launch-title")
+        if not self._tasks:
+            yield Static("[dim]No recent tasks yet[/dim]", id="quick-launch-empty")
+            yield Static(key_hint("Esc", "back"), id="quick-launch-hint")
+            return
+        options = []
+        for i, t in enumerate(self._tasks):
+            label = t["label"] or " ".join(t["command"])
+            chip = type_chip_markup(t["agent_type"])
+            options.append(Option(f"{label}   [dim]{t['dir']}[/dim] {chip}", id=str(i)))
+        yield OptionList(*options, id="quick-launch-list")
+        yield Static(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")]),
+            id="quick-launch-hint",
+        )
+
+    def on_mount(self) -> None:
+        try:
+            self.query_one("#quick-launch-list", OptionList).focus()
+        except Exception:
+            pass
+
+    def selected_task(self) -> dict | None:
+        try:
+            ol = self.query_one("#quick-launch-list", OptionList)
+        except Exception:
+            return None
+        if ol.highlighted is None:
+            return None
+        idx = int(ol.get_option_at_index(ol.highlighted).id)
+        return self._tasks[idx]
+
+    def show_tasks_step(self) -> None:
+        """Restore the recent-task list (used when stepping back from type)."""
+        self._step = "tasks"
+        self._pending_task = None
+
+
 # ── Main App ─────────────────────────────────────────────────────────
 
 
@@ -573,6 +626,20 @@ class DeskApp(App):
     #new-agent-form.narrow {
         padding: 1 1;
     }
+    #quick-launch-form {
+        padding: 2 4;
+    }
+    #quick-launch-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #quick-launch-hint {
+        color: $text-muted;
+        margin-top: 1;
+    }
+    #quick-launch-form.narrow {
+        padding: 1 1;
+    }
     """
 
     BINDINGS = [
@@ -584,6 +651,7 @@ class DeskApp(App):
         ("question_mark", "show_help", "?"),
         ("q", "quit_app", "Quit"),
         Binding("R", "toggle_responders", "Responders", show=False),
+        Binding("r", "quick_launch", "Relaunch", show=False),
         Binding("1", "filter_state('running')", "Filter running", show=False),
         Binding("2", "filter_state('waiting')", "Filter waiting", show=False),
         Binding("3", "filter_state('on_hold')", "Filter on_hold", show=False),
@@ -675,6 +743,7 @@ class DeskApp(App):
 
         hints = [
             ("n", "new"),
+            ("r", "relaunch"),
             ("↵", "attach"),
             ("Space", "peek"),
             ("/", "filter"),
@@ -715,7 +784,7 @@ class DeskApp(App):
             self.query_one("#agent-panel").set_class(narrow, "narrow")
         except Exception:
             pass
-        for selector in ("#action-menu", "#new-agent-form"):
+        for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
                 self.query_one(selector).set_class(narrow, "narrow")
             except Exception:
@@ -1157,7 +1226,7 @@ class DeskApp(App):
         self._dismiss_triage_widget()
         self._triage_agent = None
         self._mode = "dashboard"
-        for w in self.query("ActionMenu, NewAgentForm"):
+        for w in self.query("ActionMenu, NewAgentForm, QuickLaunchForm"):
             w.remove()
         try:
             self.query_one("#dashboard").display = True
@@ -1351,6 +1420,25 @@ class DeskApp(App):
                 default_dir=self.config.get("default_dir", str(Path.home())),
                 plugin_names=plugin_names,
             ),
+            after=self.query_one(Header),
+        )
+        self._apply_layout()
+
+    def _show_quick_launch_form(self) -> None:
+        self._dismiss_triage_widget()
+        self._triage_agent = None
+        self._mode = "quick_launch_form"
+        self._stop_refresh()
+        try:
+            self.query_one("#dashboard").display = False
+            self.query_one("#status-bar").display = False
+        except Exception:
+            pass
+        from aque.plugins import discover_plugins
+        plugin_names = sorted(discover_plugins().keys())
+        tasks = self.history_mgr.recent_tasks()
+        self.mount(
+            QuickLaunchForm(tasks=tasks, plugin_names=plugin_names),
             after=self.query_one(Header),
         )
         self._apply_layout()
@@ -1730,6 +1818,10 @@ class DeskApp(App):
         if self._mode == "dashboard":
             self._show_new_agent_form()
 
+    def action_quick_launch(self) -> None:
+        if self._mode == "dashboard":
+            self._show_quick_launch_form()
+
     def action_kill_agent(self) -> None:
         if self._mode == "dashboard":
             agent_id = self._get_highlighted_agent_id()
@@ -1909,6 +2001,18 @@ class DeskApp(App):
                     if form._selected_dir:
                         form.show_command_step()
                     return
+            return
+
+        if self._mode == "quick_launch_form":
+            if event.key == "escape":
+                form = self.query_one(QuickLaunchForm)
+                if form._step == "type":
+                    form.show_tasks_step()
+                    return
+                for w in self.query("QuickLaunchForm"):
+                    w.remove()
+                self._show_dashboard()
+                return
             return
 
         if self._mode == "action_menu":
