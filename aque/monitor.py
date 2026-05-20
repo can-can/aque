@@ -224,6 +224,13 @@ def run_monitor(aque_dir: Path) -> None:
 
     try:
         while True:
+            # Heartbeat: bump monitor.pid mtime each poll so the desk can tell a
+            # live monitor from a dead/hung one (kill(pid,0) alone can't).
+            try:
+                pid_file.write_text(str(os.getpid()))
+            except OSError:
+                pass
+
             state = mgr.load()
             active_agents = [
                 a for a in state.agents if a.state in MONITORED_STATES
