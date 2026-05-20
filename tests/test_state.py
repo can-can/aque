@@ -323,6 +323,20 @@ class TestToggleAutoRespond:
             mgr.toggle_auto_respond(999)
 
 
+def test_done_agent_records_agent_type(tmp_aque_dir):
+    from aque.state import AgentInfo, AgentState, StateManager
+    from aque.history import HistoryManager
+    sm = StateManager(tmp_aque_dir)
+    hm = HistoryManager(tmp_aque_dir)
+    sm.add_agent(AgentInfo(
+        id=1, tmux_session="aque-1", label="claude . api", dir="/tmp/api",
+        command=["claude"], state=AgentState.RUNNING, pid=123,
+        agent_type="claude",
+    ))
+    sm.done_agent(1, hm)
+    assert hm.load()[0]["agent_type"] == "claude"
+
+
 class TestSessionIdField:
     def test_agent_info_session_id_defaults_to_none(self):
         from aque.state import AgentInfo, AgentState

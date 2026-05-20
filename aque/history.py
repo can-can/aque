@@ -37,10 +37,11 @@ class HistoryManager:
                 pass
             raise
 
-    def add_entry(self, agent_id: int, label: str, dir: str, command: list[str], created_at: str) -> None:
+    def add_entry(self, agent_id: int, label: str, dir: str, command: list[str], created_at: str, agent_type: str | None = None) -> None:
         entries = self.load()
         entries.append({
             "id": agent_id, "label": label, "dir": dir, "command": command,
+            "agent_type": agent_type,
             "created_at": created_at,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         })
