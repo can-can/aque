@@ -585,3 +585,48 @@ def test_handle_orphan_action_returns_error_on_failure(monkeypatch, tmp_aque_dir
     assert result == "dir missing"
     # Agent still in state
     assert any(a.id == 1 for a in app.state_mgr.load().agents)
+
+
+class TestEnsureMonitorRunning:
+    def _app(self, tmp_aque_dir):
+        from aque.desk import DeskApp
+        return DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+
+    def test_starts_when_no_pid(self, tmp_aque_dir, monkeypatch):
+        import aque.desk as desk
+        started = {"n": 0}
+        monkeypatch.setattr(desk, "start_monitor_daemon", lambda d: started.__setitem__("n", started["n"] + 1))
+        app = self._app(tmp_aque_dir)
+        app._ensure_monitor_running()
+        assert started["n"] == 1
+
+    def test_no_restart_when_alive_and_fresh(self, tmp_aque_dir, monkeypatch):
+        import os, aque.desk as desk
+        started = {"n": 0}
+        monkeypatch.setattr(desk, "start_monitor_daemon", lambda d: started.__setitem__("n", started["n"] + 1))
+        monkeypatch.setattr(os, "kill", lambda pid, sig: None)  # pretend alive
+        (tmp_aque_dir / "monitor.pid").write_text("4242")  # fresh mtime = now
+        app = self._app(tmp_aque_dir)
+        state = app.state_mgr.load(); state.monitor_pid = 4242; app.state_mgr.save(state)
+        app._ensure_monitor_running()
+        assert started["n"] == 0
+
+    def test_restart_when_heartbeat_stale(self, tmp_aque_dir, monkeypatch):
+        import os, signal, aque.desk as desk
+        started = {"n": 0}
+        killed = []
+        monkeypatch.setattr(desk, "start_monitor_daemon", lambda d: started.__setitem__("n", started["n"] + 1))
+        def fake_kill(pid, sig):
+            if sig == 0:
+                return  # alive
+            killed.append((pid, sig))
+        monkeypatch.setattr(os, "kill", fake_kill)
+        pid_file = tmp_aque_dir / "monitor.pid"
+        pid_file.write_text("4242")
+        old = pid_file.stat().st_mtime
+        os.utime(pid_file, (old - 3600, old - 3600))  # 1h stale
+        app = self._app(tmp_aque_dir)
+        state = app.state_mgr.load(); state.monitor_pid = 4242; app.state_mgr.save(state)
+        app._ensure_monitor_running()
+        assert started["n"] == 1
+        assert (4242, signal.SIGTERM) in killed  # hung monitor was terminated first

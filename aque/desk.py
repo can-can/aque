@@ -1516,14 +1516,41 @@ class DeskApp(App):
 
     def _ensure_monitor_running(self) -> None:
         import os
+        import signal
+        import time as _time
+
         state = self.state_mgr.load()
-        if state.monitor_pid:
+        pid = state.monitor_pid
+        pid_file = self.aque_dir / "monitor.pid"
+
+        if pid:
+            alive = True
             try:
-                os.kill(state.monitor_pid, 0)
+                os.kill(pid, 0)
+            except (ProcessLookupError, PermissionError):
+                alive = False
+
+            fresh = False
+            try:
+                age = _time.time() - pid_file.stat().st_mtime
+                staleness = max(self.config["snapshot_interval"] * 3, 6)
+                fresh = age <= staleness
+            except OSError:
+                fresh = False
+
+            if alive and fresh:
                 return
-            except ProcessLookupError:
-                state.monitor_pid = None
-                self.state_mgr.save(state)
+
+            # Dead, hung, or PID reused. If something is still holding the pid
+            # (a hung monitor), terminate it so we don't end up with two.
+            if alive:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+            state.monitor_pid = None
+            self.state_mgr.save(state)
+
         start_monitor_daemon(self.aque_dir)
 
     def _get_highlighted_agent_id(self) -> int | None:
