@@ -66,178 +66,12 @@ def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
     return sorted(agents, key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
 
 
-def build_preview_meta(agent: AgentInfo, agents: list[AgentInfo]) -> str:
-    """Return the auto-responder meta-line shown in the preview pane.
-
-    Kept for backwards compatibility with callers that want the single-line
-    summary. New callers should prefer ``build_responder_panel`` for the
-    structured (multi-line) card that mirrors the design.
-    """
-    if agent.is_responder:
-        partner = next(
-            (a for a in agents if a.id == agent.partner_id),
-            None,
-        )
-        if partner is None:
-            return f"Auto-responder for: (partner id={agent.partner_id} missing)"
-        return f"Auto-responder for: {partner.label} (id {partner.id})"
-
-    resp = next(
-        (a for a in agents if a.is_responder and a.partner_id == agent.id),
-        None,
-    )
-    if resp is None:
-        return "Auto-response: unavailable (no responder)"
-    if resp.state == AgentState.EXITED:
-        return "Responder exited — auto-response disabled"
-    state_word = "on" if agent.auto_respond else "off"
-    return f"Auto-response: {state_word} (responder: {resp.tmux_session})"
-
-
-def extract_responder_log(pane_content: str | None, limit: int = 4) -> list[str]:
-    """Pull the last ``limit`` ``AQUE:``-prefixed lines from a responder pane.
-
-    These are the nudges the system has sent the responder — a rough proxy
-    for "what the responder has been asked to do lately". The design's
-    reply log was prototype-only fake data; this is real activity we can
-    surface without changing the responder's storage model.
-    """
-    if not pane_content:
-        return []
-    out: list[str] = []
-    for line in reversed(pane_content.splitlines()):
-        stripped = line.strip()
-        if stripped.startswith("AQUE:"):
-            # Drop the leading 'AQUE: ' for a cleaner display.
-            out.append(stripped[len("AQUE:"):].strip())
-            if len(out) >= limit:
-                break
-    return list(reversed(out))
-
-
-def load_responder_rules(aque_dir: Path, partner_id: int) -> list[str]:
-    """Read optional per-responder rules from
-    ``<aque_dir>/responders/<partner_id>/rules.txt``.
-
-    One rule per non-empty line; lines starting with ``#`` are treated as
-    comments. Returns an empty list if the file is missing — there is no
-    "default" rule set, so the panel just won't render that section.
-    """
-    rules_path = Path(aque_dir) / "responders" / str(partner_id) / "rules.txt"
-    if not rules_path.exists():
-        return []
-    try:
-        text = rules_path.read_text()
-    except OSError:
-        return []
-    rules: list[str] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line and not line.startswith("#"):
-            rules.append(line)
-    return rules
-
-
-def build_responder_panel(
-    agent: AgentInfo,
-    agents: list[AgentInfo],
-    pane_content: str | None = None,
-    aque_dir: Path | None = None,
-) -> str:
-    """Render the responder panel for the preview pane.
-
-    Three branches:
-
-    * **Responder selected** — show "responding for: <partner>" with the
-      partner's state and dir, plus a hint that selecting them jumps to
-      the partner pane.
-    * **Partner without responder** — show a dashed empty-state block.
-    * **Partner with responder** — show eyebrow (auto / paused / exited)
-      + session id + last_nudge_at timestamp, plus a reply log (recent
-      ``AQUE:`` nudges from the responder's pane) and any rules loaded
-      from ``rules.txt`` if both are available.
-
-    Returns Rich markup. The caller wraps it in ``Text.from_markup`` and
-    appends to the preview pane.
-    """
-    if agent.is_responder:
-        partner = next((a for a in agents if a.id == agent.partner_id), None)
-        if partner is None:
-            return (
-                "\n\n[dim]── RESPONDING FOR ──[/dim]\n"
-                f"[red]partner missing (id={agent.partner_id})[/red]"
-            )
-        partner_color = STATE_COLORS.get(partner.state, "white")
-        return (
-            "\n\n[dim]── RESPONDING FOR ──[/dim]\n"
-            f"[bold]{partner.label}[/bold]  "
-            f"[{partner_color}]{partner.state.value}[/{partner_color}]  "
-            f"[dim]{partner.dir}[/dim]\n"
-            "[dim]select the partner row to jump to its pane[/dim]"
-        )
-
-    resp = next(
-        (a for a in agents if a.is_responder and a.partner_id == agent.id),
-        None,
-    )
-    if resp is None:
-        return (
-            "\n\n[dim]── NO RESPONDER ─ ─ ─[/dim]\n"
-            "[dim]This agent runs without a paired responder. "
-            "Every prompt comes straight to you.[/dim]"
-        )
-
-    if resp.state == AgentState.EXITED:
-        eyebrow = "[red]● RESPONDER · EXITED[/red]"
-    elif agent.auto_respond:
-        eyebrow = "[green]● RESPONDER · AUTO[/green]"
-    else:
-        eyebrow = "[yellow]● RESPONDER · PAUSED[/yellow]"
-
-    lines = [
-        "",
-        "",
-        eyebrow,
-        f"[dim]session: {resp.tmux_session}[/dim]",
-    ]
-    if agent.last_nudge_at:
-        lines.append(f"[dim]last nudge: {agent.last_nudge_at}[/dim]")
-
-    # Reply log — recent AQUE: nudges from the responder's pane. Surface
-    # whatever the responder has been asked to handle lately.
-    log = extract_responder_log(pane_content)
-    if log:
-        lines.append("[dim]recent activity:[/dim]")
-        for entry in log:
-            # Truncate to keep the panel readable.
-            display = entry if len(entry) <= 70 else entry[:67] + "…"
-            lines.append(f"  [dim]·[/dim] {display}")
-
-    # Rules — opt-in per-responder policy file. Skip the section entirely
-    # when no rules.txt exists; the panel shouldn't suggest an unconfigured
-    # surface.
-    if aque_dir is not None:
-        rules = load_responder_rules(aque_dir, agent.id)
-        if rules:
-            lines.append("[dim]rules:[/dim]")
-            for rule in rules:
-                lines.append(f"  [dim]·[/dim] {rule}")
-
-    lines.append("[dim]press a to toggle auto-response[/dim]")
-    return "\n".join(lines)
-
-
 # ── Widgets ──────────────────────────────────────────────────────────
 
 
 class StatusBar(Static):
     def __init__(self) -> None:
         super().__init__("[dim]No agents[/dim]", id="status-bar")
-
-
-class PreviewPane(Static):
-    def __init__(self, content: str = "") -> None:
-        super().__init__(content or "[dim]Select an agent to preview[/dim]", id="preview-pane")
 
 
 class ActionMenu(Vertical):
@@ -614,10 +448,6 @@ class DeskApp(App):
     }
     #agent-option-list {
         height: 100%;
-    }
-    #preview-pane {
-        height: 100%;
-        overflow-y: auto;
     }
     #action-menu {
         align: center middle;
