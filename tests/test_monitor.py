@@ -111,7 +111,8 @@ class TestSignalFiles:
         signals_dir.mkdir()
         (signals_dir / "3.json").write_text("not json")
         (signals_dir / "4.json").write_text(json.dumps({"no_event": 1}))
-        assert check_signal_files(signals_dir) == {3: "stop", 4: "stop"}
+        (signals_dir / "5.json").write_text("[]")
+        assert check_signal_files(signals_dir) == {3: "stop", 4: "stop", 5: "stop"}
 
     def test_check_signal_files_consumes_files(self, tmp_path):
         signals_dir = tmp_path / "signals"
@@ -154,7 +155,6 @@ class TestSignalFiles:
         assert not (signals_dir / "99.json").exists()
 
 
-"""Append these tests to tests/test_monitor.py."""
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 

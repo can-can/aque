@@ -164,7 +164,6 @@ def check_signal_files(signals_dir: Path) -> dict[int, str]:
             # Malformed filename (e.g. ".json" from an unset AQUE_AGENT_ID).
             f.unlink(missing_ok=True)
             continue
-        event = "stop"
         try:
             event = json.loads(f.read_text()).get("event", "stop")
         except (json.JSONDecodeError, OSError, AttributeError):
