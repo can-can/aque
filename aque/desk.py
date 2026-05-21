@@ -445,6 +445,10 @@ class DeskApp(App):
     #preview-panel {
         width: 60%;
         padding: 1 2;
+        border: tall $surface-lighten-1;
+    }
+    #preview-panel:focus-within {
+        border: tall $accent;
     }
     #agent-option-list {
         height: 100%;
@@ -1588,14 +1592,26 @@ class DeskApp(App):
         except Exception:
             return
         if ol.highlighted is None or ol.option_count == 0:
+            try:
+                self.query_one("#preview-panel").border_title = ""
+            except Exception:
+                pass
             term.detach()
             return
         option = ol.get_option_at_index(ol.highlighted)
         agent_id = int(option.id)
         agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
         if agent is None:
+            try:
+                self.query_one("#preview-panel").border_title = ""
+            except Exception:
+                pass
             term.detach()
             return
+        try:
+            self.query_one("#preview-panel").border_title = f"▌ {agent.label}"
+        except Exception:
+            pass
         if self._triage_agent is not None:
             # A triage pill owns input right now; don't steal focus back.
             return

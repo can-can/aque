@@ -626,6 +626,25 @@ class TestTerminalFocus:
             await pilot.pause()
             assert app.focused is term
 
+    @pytest.mark.asyncio
+    async def test_panel_title_shows_active_agent(self, tmp_aque_dir, monkeypatch):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . api", dir="/tmp",
+            command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            term = app.query_one("#embedded-terminal", TerminalView)
+            monkeypatch.setattr(term, "attach", lambda sess: term.focus())
+            app._skip_attach = False
+            app.query_one("#agent-option-list", OptionList).highlighted = 0
+            app._attach_highlighted_terminal()
+            await pilot.pause()
+            panel = app.query_one("#preview-panel")
+            assert "claude . api" in str(panel.border_title or "")
+
 
 class TestTriageCoexistence:
     @pytest.mark.asyncio
