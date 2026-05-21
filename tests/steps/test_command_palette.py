@@ -45,6 +45,7 @@ class Ctx:
         self.history_mgr = HistoryManager(tmp_aque_dir)
         self.app = None
         self.pilot = None
+        self.attached_label = None
         self._loop = None
         self._run_test_cm = None
 
@@ -163,8 +164,10 @@ def when_palette_receives_query(ctx, q):
 @when(parsers.parse('the palette dispatches "{label}"'))
 def when_palette_dispatches(ctx, label):
     """Select the palette item whose label matches and confirm."""
-    # Mock the attach so the test doesn't need a real tmux session.
+    # Mock the attach so the test doesn't need a real tmux session; record the
+    # target so we can assert which agent the palette dispatched to.
     def _mock_attach(agent):
+        ctx.attached_label = agent.label
         ctx.app._dismiss_triage_widget()
     ctx.app._attach_to_agent = _mock_attach
 
@@ -200,13 +203,12 @@ def then_palette_dismissed(ctx):
     )
 
 
-@then(parsers.parse('agent "{label}" should be in "{state_str}" state'))
-def then_agent_in_state(ctx, label, state_str):
-    state = ctx.state_mgr.load()
-    agent = next((a for a in state.agents if a.label == label), None)
-    assert agent is not None, f"Agent '{label}' not found"
-    assert agent.state.value == state_str, (
-        f"Expected '{label}' in '{state_str}', got '{agent.state.value}'"
+@then(parsers.parse('the attach should target "{label}"'))
+def then_attach_target(ctx, label):
+    # Attaching is a tmux session takeover that no longer mutates persisted
+    # state, so the observable is the dispatch target the palette chose.
+    assert getattr(ctx, "attached_label", None) == label, (
+        f"Expected attach to target '{label}', got {getattr(ctx, 'attached_label', None)!r}"
     )
 
 

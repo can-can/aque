@@ -88,11 +88,6 @@ def test_dashboard_a_key_noop_on_responder():
     pass
 
 
-@scenario(FEATURE, "No nudge fires while responder is focused")
-def test_no_nudge_while_responder_focused():
-    pass
-
-
 @scenario(FEATURE, "Responders are hidden from the default dashboard list")
 def test_responders_hidden_by_default():
     pass

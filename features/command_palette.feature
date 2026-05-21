@@ -34,7 +34,7 @@ Feature: Command palette
     And the user presses "ctrl+k"
     And the palette dispatches "Attach bravo"
     Then the command palette should be dismissed
-    And agent "bravo" should be in "focused" state
+    And the attach should target "bravo"
 
   Scenario: Pressing Escape closes the palette without acting
     When the dashboard loads

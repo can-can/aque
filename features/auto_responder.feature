@@ -73,15 +73,6 @@ Feature: Auto-responder
     When the user presses "a"
     Then no auto_respond flag should change
 
-  # ── Focused-responder rule ─────────────────────────────────────
-
-  Scenario: No nudge fires while responder is focused
-    Given agent "builder" has a paired responder "resp(builder)"
-    And "resp(builder)" is in "focused" state
-    When agent "builder" transitions to "waiting"
-    And the responder_idle_gap elapses
-    Then the responder "resp(builder)" should receive no nudge
-
   # ── Visibility ─────────────────────────────────────────────────
 
   Scenario: Responders are hidden from the default dashboard list

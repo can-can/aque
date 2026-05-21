@@ -34,6 +34,7 @@ Feature: Agent lifecycle
   Scenario: Any agent can be killed from dashboard
     Given agent "builder" exists in any state
     When the user presses "k" with "builder" highlighted
+    And the user confirms the kill prompt
     Then agent "builder" should be moved to history
     And the tmux session should be killed
 

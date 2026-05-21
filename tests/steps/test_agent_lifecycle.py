@@ -334,6 +334,17 @@ def when_user_presses_key_with_highlighted(ctx, key, label):
     ctx.run(_press())
 
 
+@when("the user confirms the kill prompt")
+def when_user_confirms_kill(ctx):
+    # 'k' now opens a ConfirmModal (a stray key can't destroy an agent); "y"
+    # confirms. Without this the kill never fires and the agent stays active.
+    async def _confirm():
+        await ctx.pilot.press("y")
+        await ctx.pilot.pause()
+
+    ctx.run(_confirm())
+
+
 @then(parsers.parse('agent "{label}" should be in "{state_str}" state'))
 def then_agent_in_state_tui(ctx, label, state_str):
     state = ctx.state_mgr.load()
