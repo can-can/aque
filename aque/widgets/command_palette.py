@@ -95,6 +95,15 @@ class CommandPalette(ModalScreen[CommandItem | None]):
             ))
         items.extend([
             CommandItem("New agent…", "action", "new"),
+            CommandItem("Quick launch from history…", "action", "quick_launch"),
+            # Management actions target the highlighted agent — the one the
+            # embed is showing — mirroring the plain-letter list shortcuts. This
+            # is how they're reached from inside the embed (Ctrl+K then pick).
+            CommandItem("Kill highlighted agent", "action", "kill"),
+            CommandItem("Hold highlighted agent", "action", "hold"),
+            CommandItem("Toggle auto-respond (highlighted)", "action", "auto"),
+            CommandItem("Full-screen attach (highlighted)", "action", "fullscreen"),
+            CommandItem("Undo last action", "action", "undo"),
             CommandItem("Toggle responders", "action", "responders"),
             CommandItem("Show shortcuts (?)", "action", "help"),
             CommandItem("Filter: waiting", "action", "filter:waiting"),

@@ -81,3 +81,7 @@ class TestConfig:
         config_path.write_text("responder_enabled: false\n")
         config = load_config(tmp_aque_dir)
         assert config["responder_enabled"] is False
+
+
+def test_back_to_list_chord(tmp_path):
+    assert load_config(tmp_path)["shortcuts"]["back_to_list"] == "ctrl+shift+l"

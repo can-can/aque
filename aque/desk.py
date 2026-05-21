@@ -705,6 +705,7 @@ class DeskApp(App):
         self.bind(sc["attach_fullscreen"], "attach_fullscreen", description="Full-screen")
         self.bind(sc["next_agent"], "next_agent", description="Next agent")
         self.bind(sc["prev_agent"], "prev_agent", description="Prev agent")
+        self.bind(sc["back_to_list"], "back_to_list", description="List")
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -1777,6 +1778,18 @@ class DeskApp(App):
         action = item.payload
         if action == "new":
             self._show_new_agent_form()
+        elif action == "quick_launch":
+            self.action_quick_launch()
+        elif action == "kill":
+            self.action_kill_agent()
+        elif action == "hold":
+            self.action_hold_agent()
+        elif action == "auto":
+            self.action_toggle_auto_respond()
+        elif action == "fullscreen":
+            self.action_attach_fullscreen()
+        elif action == "undo":
+            self.action_undo()
         elif action == "responders":
             self.action_toggle_responders()
         elif action == "help":
@@ -1868,6 +1881,13 @@ class DeskApp(App):
 
     def action_prev_agent(self) -> None:
         self._move_highlight(-1)
+
+    def action_back_to_list(self) -> None:
+        """Return keyboard focus from the embedded terminal to the agent list,
+        so arrow navigation and the plain-letter shortcuts work again."""
+        if self._mode != "dashboard":
+            return
+        self._focus_dashboard()
 
     def _move_highlight(self, delta: int) -> None:
         if self._mode != "dashboard":

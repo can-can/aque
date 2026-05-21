@@ -749,3 +749,46 @@ class TestAttachDoesNotChangeState:
 
         assert calls == []  # no state mutation during attach/detach
         assert app.state_mgr.load().agents[0].state == AgentState.RUNNING
+
+
+class TestEmbedShortcuts:
+    @pytest.mark.asyncio
+    async def test_back_to_list_focuses_list(self, tmp_aque_dir):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            term = app.query_one("#embedded-terminal", TerminalView)
+            term.focus()
+            await pilot.pause()
+            assert app.focused is term
+            app.action_back_to_list()
+            await pilot.pause()
+            assert app.focused is app.query_one("#agent-option-list", OptionList)
+
+    def test_palette_lists_every_management_action(self):
+        from aque.widgets.command_palette import CommandPalette
+        payloads = {i.payload for i in CommandPalette([])._all_items() if i.kind == "action"}
+        for needed in ("new", "quick_launch", "kill", "hold", "auto",
+                       "fullscreen", "undo", "responders", "help"):
+            assert needed in payloads, f"palette missing action: {needed}"
+
+    def test_palette_dispatch_routes_management_actions(self, tmp_aque_dir, monkeypatch):
+        from aque.widgets.command_palette import CommandItem
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        calls = []
+        routes = {
+            "kill": "action_kill_agent", "hold": "action_hold_agent",
+            "auto": "action_toggle_auto_respond", "quick_launch": "action_quick_launch",
+            "undo": "action_undo", "fullscreen": "action_attach_fullscreen",
+        }
+        for method in set(routes.values()):
+            monkeypatch.setattr(app, method, (lambda m: (lambda: calls.append(m)))(method))
+        for payload, method in routes.items():
+            app._on_command_picked(CommandItem("x", "action", payload))
+        assert sorted(calls) == sorted(routes.values())
