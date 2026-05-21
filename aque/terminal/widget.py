@@ -68,7 +68,6 @@ def render_strip(session: PtySession, y: int, width: int,
 class TerminalView(Widget, can_focus=True):
     DEFAULT_CSS = """
     TerminalView { height: 1fr; width: 1fr; }
-    TerminalView:focus { border: tall $accent; }
     """
 
     def __init__(self, *, id: str | None = None) -> None:
