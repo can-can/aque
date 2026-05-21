@@ -1,3 +1,6 @@
+import os
+import time
+
 from aque.terminal.pty import PtySession
 
 
@@ -33,3 +36,17 @@ def test_dirty_lines_tracked():
     s.clear_dirty()
     s.feed(b"x")
     assert 0 in s.dirty_lines()
+
+
+def test_close_reaps_child():
+    s = PtySession(columns=20, lines=5)
+    s.spawn(["sleep", "5"])
+    pid = s._pid
+    assert pid is not None
+    s.close()
+    time.sleep(0.1)
+    try:
+        result = os.waitpid(pid, os.WNOHANG)
+        assert result == (0, 0), f"child not reaped, got {result}"
+    except ChildProcessError:
+        pass  # already reaped — acceptable

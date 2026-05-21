@@ -103,4 +103,9 @@ class PtySession:
                 os.kill(self._pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            # Reap so the terminated tmux client doesn't linger as a zombie.
+            try:
+                os.waitpid(self._pid, 0)
+            except (ChildProcessError, OSError):
+                pass
             self._pid = None
