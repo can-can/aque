@@ -23,14 +23,38 @@ _PYTE_COLORS = {
     "black", "red", "green", "brown", "blue", "magenta", "cyan", "white",
 }
 
+# pyte emits the bright variants (SGR 90-97 / 100-107) as "bright<name>"; Rich
+# spells them "bright_<name>". pyte has no "yellow", using "brown" (→ yellow).
+_BRIGHT_COLORS = {
+    "brightblack": "bright_black",
+    "brightred": "bright_red",
+    "brightgreen": "bright_green",
+    "brightbrown": "bright_yellow",
+    "brightyellow": "bright_yellow",
+    "brightblue": "bright_blue",
+    "brightmagenta": "bright_magenta",
+    "brightcyan": "bright_cyan",
+    "brightwhite": "bright_white",
+}
+
+_HEX_DIGITS = set("0123456789abcdefABCDEF")
+
 
 def _color(name: str) -> str | None:
     if name in (None, "default"):
         return None
     if name in _PYTE_COLORS:
         return "yellow" if name == "brown" else name
+    if name in _BRIGHT_COLORS:
+        return _BRIGHT_COLORS[name]
     # pyte gives hex strings (e.g. "ff8800") for 256/true-color.
-    return f"#{name}" if len(name) == 6 else name
+    if len(name) == 6 and all(c in _HEX_DIGITS for c in name):
+        return f"#{name}"
+    # Anything else — an unexpected or garbled token (e.g. pyte's real
+    # "bfightmagenta" typo) — must NOT reach Style(color=...): Color.parse()
+    # would raise mid-__init__, leaving a half-built Style that crashes every
+    # repaint and surfaces as the misleading "no attribute '_color'". Default it.
+    return None
 
 
 @lru_cache(maxsize=4096)

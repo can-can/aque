@@ -1,6 +1,33 @@
 from rich.style import Style
 from aque.terminal.pty import PtySession
-from aque.terminal.widget import render_strip, cell_style
+from aque.terminal.widget import render_strip, cell_style, _color
+
+
+def test_render_strip_handles_bright_colors():
+    # pyte emits SGR 90-97/100-107 bright colors as "brightred" etc., which are
+    # NOT valid Rich color names. Passing one to Style(color=...) raises
+    # ColorParseError mid-__init__, crashing every repaint (the desk "freeze").
+    # Claude Code and most CLIs use bright colors constantly, so rendering must
+    # handle them.
+    s = PtySession(columns=10, lines=3)
+    s.feed(b"\x1b[91mERR\x1b[0m")  # SGR 91 = bright red
+    strip = render_strip(s, y=0, width=10, cursor_visible=False)
+    assert "".join(seg.text for seg in strip).startswith("ERR")
+
+
+def test_color_never_yields_an_invalid_rich_color():
+    # _color must never return a token Rich can't parse — an invalid value makes
+    # Style.__init__ raise, leaving a half-built Style whose repr later fails
+    # with the misleading "no attribute '_color'". Garbled input (e.g. pyte's
+    # real "bfightmagenta" typo) must fall back to default (None).
+    assert _color("brightred") == "bright_red"
+    assert _color("brightbrown") == "bright_yellow"
+    assert _color("bfightmagenta") is None
+    assert _color("nonsense") is None
+    for value in ("brightblack", "brightblue", "brightwhite", "ff8800", "default"):
+        c = _color(value)
+        if c is not None:
+            Style(color=c)  # must not raise
 
 
 def test_render_strip_text():
