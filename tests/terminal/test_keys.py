@@ -51,3 +51,26 @@ def test_reserved_chords_are_not_encodable():
     assert encode_key("ctrl+shift+j") == b""
     assert encode_key("ctrl+shift+n") == b""
     assert encode_key("ctrl+k") == b""
+
+
+def test_alt_special_keys_use_csi_modifier():
+    # Alt+arrows/home/end/etc carry the modifier in xterm CSI form (mod 3),
+    # matching tmux/Ghostty — NOT the wrong double-ESC of the SS3 form.
+    assert encode_key("alt+left") == b"\x1b[1;3D"
+    assert encode_key("alt+right") == b"\x1b[1;3C"
+    assert encode_key("alt+up") == b"\x1b[1;3A"
+    assert encode_key("alt+home") == b"\x1b[1;3H"
+    assert encode_key("alt+end") == b"\x1b[1;3F"
+    assert encode_key("alt+pageup") == b"\x1b[5;3~"
+    assert encode_key("alt+delete") == b"\x1b[3;3~"
+
+
+def test_alt_letters_stay_esc_prefixed():
+    assert encode_key("alt+f") == b"\x1bf"
+    assert encode_key("alt+b") == b"\x1bb"
+
+
+def test_ctrl_symbol_keys():
+    assert encode_key("ctrl+space") == b"\x00"
+    assert encode_key("ctrl+backslash") == b"\x1c"
+    assert encode_key("ctrl+underscore") == b"\x1f"

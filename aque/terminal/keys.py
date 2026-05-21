@@ -39,6 +39,29 @@ _NAMED = {
 }
 
 
+# Ctrl + non-letter keys that map to C0 control codes (Textual reports the
+# symbol keys by these names).
+_CTRL_SYMBOL = {
+    "ctrl+space": b"\x00",
+    "ctrl+@": b"\x00",
+    "ctrl+backslash": b"\x1c",
+    "ctrl+right_square_bracket": b"\x1d",
+    "ctrl+circumflex_accent": b"\x1e",
+    "ctrl+underscore": b"\x1f",
+}
+
+# Keys that take an xterm CSI modifier parameter: CSI <prefix> ; <mod> <final>.
+# Arrows/home/end use prefix "1"; the "~" keys use their numeric code. The Alt
+# modifier is 3 (1 + 2), so e.g. Alt+Left -> "\x1b[1;3D" (matches tmux/Ghostty).
+_CSI_MODIFIABLE = {
+    "up": ("1", "A"), "down": ("1", "B"),
+    "right": ("1", "C"), "left": ("1", "D"),
+    "home": ("1", "H"), "end": ("1", "F"),
+    "pageup": ("5", "~"), "pagedown": ("6", "~"),
+    "delete": ("3", "~"), "insert": ("2", "~"),
+}
+
+
 def _ctrl(letter: str) -> bytes:
     # Ctrl+a == 0x01 ... Ctrl+z == 0x1a
     return bytes([ord(letter.lower()) - ord("a") + 1])
@@ -57,11 +80,19 @@ def encode_key(key: str, character: str | None = None) -> bytes:
     if key in _NAMED:
         return _NAMED[key]
 
+    if key in _CTRL_SYMBOL:
+        return _CTRL_SYMBOL[key]
+
     if key.startswith("ctrl+") and len(key) == 6 and key[5].isalpha():
         return _ctrl(key[5])
 
     if key.startswith("alt+"):
         rest = key[4:]
+        # Special keys carry the Alt modifier in xterm CSI form; printable
+        # characters use the readline ESC-prefix form.
+        if rest in _CSI_MODIFIABLE:
+            prefix, final = _CSI_MODIFIABLE[rest]
+            return f"\x1b[{prefix};3{final}".encode("ascii")
         inner = encode_key(rest, character=rest if len(rest) == 1 else None)
         return b"\x1b" + inner if inner else b""
 
