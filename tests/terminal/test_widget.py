@@ -11,17 +11,32 @@ def test_render_strip_text():
     assert text.startswith("hi")
 
 
-def test_cursor_cell_is_reverse_for_default_colors():
+def test_cursor_cell_is_black_on_white():
     s = PtySession(columns=10, lines=3)
     s.feed(b"x")
-    # cursor now at (1,0); render row 0 with cursor drawn
+    # cursor now at (1,0); render row 0 with cursor drawn — the cursor cell is
+    # an explicit black-on-white run (always visible, even if DECTCEM hides it).
     strip = render_strip(s, y=0, width=10, cursor_visible=True)
-    assert any(seg.style and seg.style.reverse for seg in strip)
+    assert any(
+        seg.style and seg.style.bgcolor and seg.style.bgcolor.name in ("#ffffff", "white")
+        for seg in strip
+    )
 
 
 def test_cell_style_explicit_colors_for_cursor():
     style = cell_style(fg="default", bg="default", is_cursor=True)
-    assert style.reverse is True
+    assert style.color.name in ("#000000", "black")
+    assert style.bgcolor.name in ("#ffffff", "white")
+
+
+def test_render_strip_groups_same_style_runs():
+    # Uniform text must coalesce into far fewer Segments than cells (one run for
+    # the text, one for the cursor cell, one for the trailing blanks).
+    s = PtySession(columns=20, lines=3)
+    s.feed(b"hello")
+    strip = render_strip(s, y=0, width=20, cursor_visible=True)
+    assert "".join(seg.text for seg in strip).startswith("hello")
+    assert len(strip) < 20  # grouped, not one Segment per cell
 
 
 def test_scroll_forwards_to_session():

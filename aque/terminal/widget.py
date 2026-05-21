@@ -40,35 +40,48 @@ def cell_style(fg: str, bg: str, *, bold: bool = False, reverse: bool = False,
     # repaint asks for thousands of cells. Building a Rich Style per cell every
     # frame is the dominant cost; caching makes repaints cheap. Style is
     # immutable, so sharing instances across cells is safe.
-    f = _color(fg)
-    b = _color(bg)
-    if is_cursor and f is None and b is None:
-        # Default-colored cell under the cursor: use reverse so it's visible
-        # against any theme without inventing concrete colors.
-        return Style(reverse=True)
     if is_cursor:
-        # Concrete colors: swap to make the cursor explicit.
-        return Style(color=b or "black", bgcolor=f or "white", bold=bold)
-    return Style(color=f, bgcolor=b, bold=bold, reverse=reverse)
+        # Always-visible cursor cell: explicit black-on-white. We draw the
+        # cursor even when DECTCEM hides it (there is no hardware cursor to fall
+        # back on), so reverse-of-default isn't reliable — pin concrete colors.
+        return Style(color="#000000", bgcolor="#ffffff", bold=bold)
+    return Style(color=_color(fg), bgcolor=_color(bg), bold=bold, reverse=reverse)
 
 
 def render_strip(session: PtySession, y: int, width: int,
                  cursor_visible: bool) -> list[Segment]:
-    """Build the Rich segments for buffer row `y`."""
+    """Build the Rich segments for buffer row `y`, coalescing same-style runs.
+
+    Memoized `cell_style` returns identical Style instances for identical cells,
+    so we group consecutive cells with the same style into one Segment — far
+    fewer Segments per row than one-per-cell, which the compositor diffs faster.
+    """
     row = session.buffer_line(y)
     cx, cy = session.cursor()
     segments: list[Segment] = []
+    run_chars: list[str] = []
+    run_style: Style | None = None
+
+    def flush() -> None:
+        if run_chars:
+            segments.append(Segment("".join(run_chars), run_style))
+
     for x in range(width):
         char = row.get(x)
-        ch = char.data if char is not None else " "
+        ch = (char.data if char is not None else " ") or " "
+        is_cursor = cursor_visible and x == cx and y == cy
         if char is not None:
             style = cell_style(char.fg, char.bg, bold=char.bold,
-                               reverse=char.reverse,
-                               is_cursor=(cursor_visible and x == cx and y == cy))
+                               reverse=char.reverse, is_cursor=is_cursor)
         else:
-            style = cell_style("default", "default",
-                               is_cursor=(cursor_visible and x == cx and y == cy))
-        segments.append(Segment(ch or " ", style))
+            style = cell_style("default", "default", is_cursor=is_cursor)
+        if style is run_style:        # memoized styles compare by identity
+            run_chars.append(ch)
+        else:
+            flush()
+            run_style = style
+            run_chars = [ch]
+    flush()
     return segments
 
 
