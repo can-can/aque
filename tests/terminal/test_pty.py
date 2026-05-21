@@ -68,3 +68,35 @@ def test_feed_swallows_arbitrary_bad_sequences():
     s.feed(b"\x1b[?1049h\x1b[?12l\x1b[?25h\x1b[6 q\x1b[>4;2m")
     s.feed(b"ok")
     assert "ok" in s.display()[0]
+
+
+import asyncio
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_event_driven_reader_feeds_and_notifies():
+    """Inside a running loop, spawn() registers an add_reader; output is read,
+    fed into pyte, and on_output is invoked — no polling."""
+    s = PtySession(columns=40, lines=5)
+    calls = []
+    s.on_output = lambda: calls.append(True)
+    s.spawn(["printf", "hello"])
+    try:
+        for _ in range(100):              # up to ~2s, exits as soon as it shows
+            await asyncio.sleep(0.02)
+            if "hello" in s.display()[0]:
+                break
+        assert "hello" in s.display()[0]
+        assert calls, "on_output was never called"
+    finally:
+        s.close()
+
+
+def test_spawn_without_loop_skips_reader():
+    # Outside a running loop (plain sync test), registration is skipped so the
+    # session is still usable via read()/feed(); close() still reaps the child.
+    s = PtySession(columns=20, lines=5)
+    s.spawn(["sleep", "5"])
+    assert s._loop is None
+    s.close()

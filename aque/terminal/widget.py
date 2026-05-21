@@ -93,7 +93,6 @@ class TerminalView(Widget, can_focus=True):
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
         self.session: PtySession | None = None
-        self._poll_timer = None
         self._last_cursor: tuple[int, int] = (0, 0)
         self._attached_session: str | None = None
         self._pending_session: str | None = None
@@ -117,17 +116,15 @@ class TerminalView(Widget, can_focus=True):
             return
         self.detach()
         self.session = PtySession(columns=cols, lines=rows)
+        # Set the repaint callback before spawn so we never miss the first burst.
+        self.session.on_output = self._on_output
         self.session.spawn(["tmux", "attach-session", "-t", tmux_session])
         self._attached_session = tmux_session
         self._pending_session = None
-        self._poll_timer = self.set_interval(0.03, self._poll)
         self.focus()
         self.refresh()
 
     def detach(self) -> None:
-        if self._poll_timer is not None:
-            self._poll_timer.stop()
-            self._poll_timer = None
         if self.session is not None:
             self.session.close()
             self.session = None
@@ -150,20 +147,12 @@ class TerminalView(Widget, can_focus=True):
             self.attach(pending)
 
     # io loop
-    def _poll(self) -> None:
+    def _on_output(self) -> None:
+        """Called by the PtySession (in the event-loop thread) after it reads and
+        feeds new output. Repaint only the rows pyte marked dirty, plus the old
+        and new cursor rows, so the compositor diffs a minimal region."""
         if self.session is None:
             return
-        # Drain everything available this tick and feed it in one go, so a burst
-        # of output repaints once instead of dribbling across many frames. The
-        # iteration cap keeps a noisy producer from starving the event loop.
-        chunks: list[bytes] = []
-        for _ in range(64):
-            data = self.session.read()
-            if not data:
-                break
-            chunks.append(data)
-        if chunks:
-            self.session.feed(b"".join(chunks))
         cx, cy = self.session.cursor()
         dirty = self.session.dirty_lines()
         # Always repaint old + new cursor rows so the cursor never ghosts.

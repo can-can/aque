@@ -7,11 +7,14 @@ Tests construct it without spawning and `feed()` bytes directly.
 
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import os
 import signal
 import struct
 import termios
+import time
+from typing import Callable
 
 import pyte
 
@@ -40,6 +43,10 @@ class PtySession:
         self.stream = pyte.ByteStream(self.screen)
         self._master_fd: int | None = None
         self._pid: int | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        # Called (in the event-loop thread) after output is read+fed, so the
+        # widget can repaint the rows pyte marked dirty.
+        self.on_output: Callable[[], None] | None = None
 
     # emulator
     def feed(self, data: bytes) -> None:
@@ -86,6 +93,41 @@ class PtySession:
         flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
         fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         self._set_winsize(self.lines, self.columns)
+        # Drive reads from the asyncio loop: the fd is watched and `_on_readable`
+        # fires only when output is available — no polling. Outside a running
+        # loop (e.g. unit tests) we skip registration; callers can use `read()`.
+        try:
+            self._loop = asyncio.get_running_loop()
+            self._loop.add_reader(master_fd, self._on_readable)
+        except RuntimeError:
+            self._loop = None
+
+    def _on_readable(self) -> None:
+        if self._master_fd is None:
+            return
+        try:
+            data = os.read(self._master_fd, 4096)
+        except BlockingIOError:
+            return
+        except OSError:
+            data = b""
+        if not data:
+            # EOF — the child (tmux client) exited. Stop watching so a readable
+            # EOF doesn't spin the loop; notify once so the final frame paints.
+            self._stop_reader()
+            if self.on_output is not None:
+                self.on_output()
+            return
+        self.feed(data)
+        if self.on_output is not None:
+            self.on_output()
+
+    def _stop_reader(self) -> None:
+        if self._loop is not None and self._master_fd is not None:
+            try:
+                self._loop.remove_reader(self._master_fd)
+            except Exception:
+                pass
 
     def _set_winsize(self, lines: int, columns: int) -> None:
         if self._master_fd is None:
@@ -114,6 +156,7 @@ class PtySession:
             pass
 
     def close(self) -> None:
+        self._stop_reader()
         if self._master_fd is not None:
             try:
                 os.close(self._master_fd)
@@ -122,12 +165,18 @@ class PtySession:
             self._master_fd = None
         if self._pid is not None:
             try:
-                os.kill(self._pid, signal.SIGTERM)
+                os.kill(self._pid, signal.SIGHUP)
             except ProcessLookupError:
                 pass
-            # Reap so the terminated tmux client doesn't linger as a zombie.
-            try:
-                os.waitpid(self._pid, 0)
-            except (ChildProcessError, OSError):
-                pass
+            # Reap without blocking the UI: poll WNOHANG briefly so rapid
+            # agent-switches don't stall, and don't leave zombies behind.
+            for _ in range(50):  # ~0.5s budget
+                try:
+                    reaped, _ = os.waitpid(self._pid, os.WNOHANG)
+                except (ChildProcessError, OSError):
+                    break
+                if reaped != 0:
+                    break
+                time.sleep(0.01)
             self._pid = None
+        self._loop = None
