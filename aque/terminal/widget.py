@@ -193,21 +193,23 @@ class TerminalView(Widget, can_focus=True):
         return self.size.height
 
     # mouse wheel
+    def _wheel(self, event, button: int) -> None:
+        # Forward the wheel to tmux (so its scrollback/copy-mode responds)
+        # rather than scrolling pyte's own buffer, as an SGR mouse event at the
+        # pointer's cell. SGR coordinates are 1-based; Textual offsets are
+        # 0-based within the widget.
+        if self.session is None:
+            return
+        col = getattr(event, "x", 0) + 1
+        row = getattr(event, "y", 0) + 1
+        self.session.write(f"\x1b[<{button};{col};{row}M".encode("ascii"))
+        event.stop()
+
     def on_mouse_scroll_up(self, event) -> None:
-        # Forward wheel to tmux so its scrollback/copy-mode responds, rather
-        # than scrolling pyte's own buffer. Uses SGR mouse-wheel button 64
-        # (wheel-up). NOTE: exact SGR sequence may need live tuning against
-        # tmux mouse mode (e.g. `set -g mouse on`); verified only structurally,
-        # NOT against a live tmux session — known unverified item.
-        if self.session is not None:
-            self.session.write(b"\x1b[<64;1;1M")
-            event.stop()
+        self._wheel(event, 64)
 
     def on_mouse_scroll_down(self, event) -> None:
-        # SGR mouse-wheel button 65 (wheel-down). Same caveat as scroll-up.
-        if self.session is not None:
-            self.session.write(b"\x1b[<65;1;1M")
-            event.stop()
+        self._wheel(event, 65)
 
     # input
     def on_key(self, event) -> None:
@@ -218,3 +220,15 @@ class TerminalView(Widget, can_focus=True):
             self.session.write(data)
             event.stop()
             event.prevent_default()
+
+    def on_paste(self, event) -> None:
+        # Wrap pasted text in bracketed-paste markers so the agent (vim, shells,
+        # readline) treats it as a literal block rather than interpreting each
+        # character as typed input.
+        if self.session is None:
+            return
+        text = getattr(event, "text", "") or ""
+        if not text:
+            return
+        self.session.write(b"\x1b[200~" + text.encode("utf-8") + b"\x1b[201~")
+        event.stop()

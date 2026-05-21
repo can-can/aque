@@ -103,3 +103,41 @@ def test_render_line_caches_until_invalidated(monkeypatch):
     tv._line_cache.pop(0, None)           # simulate the row going dirty
     s3 = tv.render_line(0)
     assert s3 is not s1                   # rebuilt after invalidation
+
+
+def test_on_paste_wraps_bracketed():
+    from aque.terminal.widget import TerminalView
+
+    class FakeSession:
+        def __init__(self): self.writes = []
+        def write(self, data): self.writes.append(data)
+
+    class FakeEvent:
+        def __init__(self, text): self.text = text; self.stopped = False
+        def stop(self): self.stopped = True
+
+    tv = TerminalView()
+    tv.session = FakeSession()
+    ev = FakeEvent("ls -la")
+    tv.on_paste(ev)
+    assert tv.session.writes == [b"\x1b[200~ls -la\x1b[201~"]
+    assert ev.stopped
+
+
+def test_wheel_uses_pointer_coords():
+    from aque.terminal.widget import TerminalView
+
+    class FakeSession:
+        def __init__(self): self.writes = []
+        def write(self, data): self.writes.append(data)
+
+    class FakeEvent:
+        def __init__(self, x, y): self.x = x; self.y = y; self.stopped = False
+        def stop(self): self.stopped = True
+
+    tv = TerminalView()
+    tv.session = FakeSession()
+    tv.on_mouse_scroll_up(FakeEvent(4, 2))     # 0-based -> 1-based 5;3
+    assert tv.session.writes[-1] == b"\x1b[<64;5;3M"
+    tv.on_mouse_scroll_down(FakeEvent(0, 0))
+    assert tv.session.writes[-1] == b"\x1b[<65;1;1M"
