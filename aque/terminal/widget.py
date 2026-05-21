@@ -94,33 +94,34 @@ class TerminalView(Widget, can_focus=True):
         super().__init__(id=id)
         self.session: PtySession | None = None
         self._last_cursor: tuple[int, int] = (0, 0)
-        self._attached_session: str | None = None
-        self._pending_session: str | None = None
+        self._attached_argv: list[str] | None = None
+        self._pending_argv: list[str] | None = None
         # Rendered Strip per buffer row; entries are dropped when pyte marks the
         # row dirty (or on resize), so unchanged rows skip the rebuild entirely.
         self._line_cache: dict[int, Strip] = {}
 
     # lifecycle
-    def attach(self, tmux_session: str) -> None:
-        """(Re)attach the embed to a tmux session, sized to the widget.
+    def attach(self, argv: list[str]) -> None:
+        """(Re)attach the embed, running ``argv`` on a fresh PTY sized to the
+        widget.
 
         If the widget has no real size yet (not laid out), remember the request
         and spawn on the next resize so the PTY is never born 0x0.
         """
-        if self.session is not None and self._attached_session == tmux_session:
-            return  # already attached to this session — don't re-spawn tmux
+        if self.session is not None and self._attached_argv == argv:
+            return  # already running this command — don't re-spawn
         cols = self.size.width
         rows = self.size.height
         if cols < 1 or rows < 1:
-            self._pending_session = tmux_session
+            self._pending_argv = list(argv)
             return
         self.detach()
         self.session = PtySession(columns=cols, lines=rows)
         # Set the repaint callback before spawn so we never miss the first burst.
         self.session.on_output = self._on_output
-        self.session.spawn(["tmux", "attach-session", "-t", tmux_session])
-        self._attached_session = tmux_session
-        self._pending_session = None
+        self.session.spawn(argv)
+        self._attached_argv = list(argv)
+        self._pending_argv = None
         self.focus()
         self.refresh()
 
@@ -128,8 +129,8 @@ class TerminalView(Widget, can_focus=True):
         if self.session is not None:
             self.session.close()
             self.session = None
-        self._attached_session = None
-        self._pending_session = None
+        self._attached_argv = None
+        self._pending_argv = None
         self._line_cache.clear()
 
     def on_unmount(self) -> None:
@@ -141,9 +142,9 @@ class TerminalView(Widget, can_focus=True):
                                 columns=max(event.size.width, 1))
             self._line_cache.clear()  # geometry changed — every cached row is stale
             self.refresh()
-        elif self._pending_session is not None and event.size.height >= 1 and event.size.width >= 1:
-            pending = self._pending_session
-            self._pending_session = None
+        elif self._pending_argv is not None and event.size.height >= 1 and event.size.width >= 1:
+            pending = self._pending_argv
+            self._pending_argv = None
             self.attach(pending)
 
     # io loop

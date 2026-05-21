@@ -1614,7 +1614,7 @@ class DeskApp(App):
         if self._triage_agent is not None:
             # A triage pill owns input right now; don't steal focus back.
             return
-        term.attach(agent.tmux_session)
+        term.attach(["tmux", "attach-session", "-t", agent.tmux_session])
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""

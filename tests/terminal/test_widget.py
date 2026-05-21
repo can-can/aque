@@ -72,9 +72,10 @@ def test_attach_defers_when_zero_size(monkeypatch):
         def spawn(self, argv): spawned.append(argv)
 
     monkeypatch.setattr("aque.terminal.widget.PtySession", FakeSession)
-    tv.attach("aque-1")
+    argv = ["tmux", "attach-session", "-t", "aque-1"]
+    tv.attach(argv)
     assert spawned == []                      # did NOT spawn into a 0x0 pty
-    assert tv._pending_session == "aque-1"    # remembered for next layout
+    assert tv._pending_argv == argv           # remembered for next layout
 
 
 def test_cell_style_is_memoized():
