@@ -558,6 +558,9 @@ class DeskApp(App):
         self._tmux_server: libtmux.Server | None = None
         self._post_detach_debounce_until: float = 0.0
         self._preview_debounce_timer: Timer | None = None
+        # (session, cols, rows) the embed last pinned the tmux window to, so we
+        # skip redundant resize-window calls during rapid resizes.
+        self._embed_pinned: tuple[str, int, int] | None = None
         self._last_agent_fingerprint: list | None = None
         self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
         self.show_responders: bool = False
@@ -1421,6 +1424,18 @@ class DeskApp(App):
         self._triage_agent = None
         self._stop_refresh()
 
+        # The embed pins this window to its small size; restore auto-sizing so
+        # the full-screen client gets the full terminal. The embed re-pins when
+        # it re-attaches on return (via _show_dashboard).
+        try:
+            subprocess.run(
+                ["tmux", "set-option", "-t", agent.tmux_session, "window-size", "latest"],
+                check=False, capture_output=True,
+            )
+        except Exception:
+            pass
+        self._embed_pinned = None
+
         with self.suspend():
             subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
             # Erase tmux's "[detached (from session ...)]" line so it doesn't
@@ -1640,7 +1655,10 @@ class DeskApp(App):
             term = self.query_one("#embedded-terminal", TerminalView)
         except Exception:
             return
-        term.attach(["tmux", "attach-session", "-t", agent.tmux_session])
+        term.attach(
+            ["tmux", "attach-session", "-t", agent.tmux_session],
+            size_sync=self._embed_size_sync(agent.tmux_session),
+        )
         term.focus()
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
@@ -1689,9 +1707,37 @@ class DeskApp(App):
         # from the list. If the embed already had focus (e.g. switching agents
         # via Ctrl+Shift+J/K from inside it), keep focus there across the swap.
         was_focused = self.focused is term
-        term.attach(["tmux", "attach-session", "-t", agent.tmux_session])
+        term.attach(
+            ["tmux", "attach-session", "-t", agent.tmux_session],
+            size_sync=self._embed_size_sync(agent.tmux_session),
+        )
         if was_focused:
             term.focus()
+
+    def _embed_size_sync(self, session: str):
+        """Return a (cols, rows) callback that pins ``session``'s tmux window to
+        the embed's size. The embed renders a pyte screen sized to the widget;
+        if the tmux window is a different size (another client, or a transient
+        resize when a notification mounts), tmux's incremental redraws land in
+        the wrong cells and the embed shows duplicated/garbled rows. Pinning
+        ``window-size manual`` + ``resize-window`` keeps them matched; larger
+        external clients letterbox — the accepted trade-off for a clean embed.
+        """
+        def _sync(cols: int, rows: int) -> None:
+            if self._skip_attach:
+                return
+            if self._embed_pinned == (session, cols, rows):
+                return
+            self._embed_pinned = (session, cols, rows)
+            for args in (
+                ["set-option", "-t", session, "window-size", "manual"],
+                ["resize-window", "-t", session, "-x", str(cols), "-y", str(rows)],
+            ):
+                try:
+                    subprocess.run(["tmux", *args], check=False, capture_output=True)
+                except Exception:
+                    pass
+        return _sync
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""

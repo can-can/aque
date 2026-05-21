@@ -625,7 +625,7 @@ class TestTerminalFocus:
         async with app.run_test() as pilot:
             await pilot.pause()
             term = app.query_one("#embedded-terminal", TerminalView)
-            monkeypatch.setattr(term, "attach", lambda argv: None)  # no focus steal
+            monkeypatch.setattr(term, "attach", lambda argv, size_sync=None: None)  # no focus steal
             app._skip_attach = False
             ol = app.query_one("#agent-option-list", OptionList)
             ol.focus()
@@ -646,7 +646,7 @@ class TestTerminalFocus:
         async with app.run_test() as pilot:
             await pilot.pause()
             term = app.query_one("#embedded-terminal", TerminalView)
-            monkeypatch.setattr(term, "attach", lambda argv: None)
+            monkeypatch.setattr(term, "attach", lambda argv, size_sync=None: None)
             app._skip_attach = False
             ol = app.query_one("#agent-option-list", OptionList)
             ol.focus()
@@ -684,7 +684,7 @@ class TestTerminalFocus:
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             term = app.query_one("#embedded-terminal", TerminalView)
-            monkeypatch.setattr(term, "attach", lambda sess: term.focus())
+            monkeypatch.setattr(term, "attach", lambda sess, size_sync=None: term.focus())
             app._skip_attach = False
             app.query_one("#agent-option-list", OptionList).highlighted = 0
             app._attach_highlighted_terminal()

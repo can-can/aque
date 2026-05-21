@@ -105,6 +105,33 @@ def test_attach_defers_when_zero_size(monkeypatch):
     assert tv._pending_argv == argv           # remembered for next layout
 
 
+def test_attach_fires_size_sync_with_widget_size(monkeypatch):
+    # The host (desk) uses this callback to keep the tmux window pinned to the
+    # embed's size; it must fire with the widget's (cols, rows) on attach.
+    from textual.geometry import Size
+    from aque.terminal.widget import TerminalView
+
+    tv = TerminalView()
+    monkeypatch.setattr(type(tv), "size", property(lambda self: Size(40, 12)))
+    monkeypatch.setattr(type(tv), "refresh", lambda self, *a, **k: None)
+
+    class FakeSession:
+        def __init__(self, columns, lines): pass
+        def spawn(self, argv): pass
+        def close(self): pass
+
+    monkeypatch.setattr("aque.terminal.widget.PtySession", FakeSession)
+    seen = []
+    tv.attach(["tmux", "attach-session", "-t", "aque-1"],
+              size_sync=lambda c, r: seen.append((c, r)))
+    assert seen == [(40, 12)]
+
+    # A pending re-attach (size_sync=None) must keep the previously-set callback.
+    seen.clear()
+    tv.attach(["tmux", "attach-session", "-t", "aque-2"])
+    assert seen == [(40, 12)]
+
+
 def test_cell_style_is_memoized():
     # Same inputs -> same (immutable) Style instance, so full repaints don't
     # rebuild thousands of Style objects per frame.

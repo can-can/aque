@@ -9,6 +9,7 @@ Cursor rules (deliberate overrides of pyte defaults, per spec):
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Callable
 
 from rich.segment import Segment
 from rich.style import Style
@@ -120,18 +121,31 @@ class TerminalView(Widget, can_focus=True):
         self._last_cursor: tuple[int, int] = (0, 0)
         self._attached_argv: list[str] | None = None
         self._pending_argv: list[str] | None = None
+        # Called with (cols, rows) after attach and on every resize so the host
+        # can keep the underlying source (e.g. the tmux window) sized to match
+        # the embed — a size mismatch makes incremental redraws land in the
+        # wrong cells and garble/duplicate the screen. Optional; None in tests.
+        self._size_sync: Callable[[int, int], None] | None = None
         # Rendered Strip per buffer row; entries are dropped when pyte marks the
         # row dirty (or on resize), so unchanged rows skip the rebuild entirely.
         self._line_cache: dict[int, Strip] = {}
 
     # lifecycle
-    def attach(self, argv: list[str]) -> None:
+    def attach(self, argv: list[str],
+               size_sync: Callable[[int, int], None] | None = None) -> None:
         """(Re)attach the embed, running ``argv`` on a fresh PTY sized to the
         widget.
 
         If the widget has no real size yet (not laid out), remember the request
         and spawn on the next resize so the PTY is never born 0x0.
+
+        ``size_sync`` (if given) is remembered and invoked with the embed's
+        ``(cols, rows)`` after spawn and on every later resize, so the host can
+        keep the source sized to the embed. A None argument (e.g. the internal
+        pending re-attach) keeps the previously-set callback.
         """
+        if size_sync is not None:
+            self._size_sync = size_sync
         if self.session is not None and self._attached_argv == argv:
             return  # already running this command — don't re-spawn
         cols = self.size.width
@@ -149,6 +163,17 @@ class TerminalView(Widget, can_focus=True):
         # Focus is controlled by the desk (hover-attach previews without
         # stealing focus; Enter/Tab move focus into the embed), not here.
         self.refresh()
+        self._notify_size()
+
+    def _notify_size(self) -> None:
+        if self._size_sync is None or self.session is None:
+            return
+        cols, rows = self.size.width, self.size.height
+        if cols >= 1 and rows >= 1:
+            try:
+                self._size_sync(cols, rows)
+            except Exception:
+                pass
 
     def detach(self) -> None:
         if self.session is not None:
@@ -167,6 +192,9 @@ class TerminalView(Widget, can_focus=True):
                                 columns=max(event.size.width, 1))
             self._line_cache.clear()  # geometry changed — every cached row is stale
             self.refresh()
+            # Keep the source (tmux window) pinned to the embed's new size, or
+            # tmux keeps rendering the old size into the resized pyte screen.
+            self._notify_size()
         elif self._pending_argv is not None and event.size.height >= 1 and event.size.width >= 1:
             pending = self._pending_argv
             self._pending_argv = None
