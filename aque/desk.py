@@ -1162,6 +1162,9 @@ class DeskApp(App):
             self.query_one("#dashboard").mount(pill)
         except Exception:
             pass
+        # Blur the terminal so the pill's keys (Enter/Space/s/Esc) reach the
+        # App.on_key triage handler instead of being typed into the agent.
+        self.set_focus(None)
 
     def _dismiss_triage_widget(self) -> None:
         for w in self.query("#triage-pill"):
@@ -1179,11 +1182,15 @@ class DeskApp(App):
             self._dismiss_triage_widget()
             self._triage_agent = None
             self._attach_to_agent(agent)
+            if self._triage_agent is None:
+                self._focus_dashboard()
             return True
         if key == "space":
             self._dismiss_triage_widget()
             self._triage_agent = None
             self._select_agent_in_list(agent.id)
+            if self._triage_agent is None:
+                self._focus_dashboard()
             return True
         if key in ("s", "escape"):
             self._snoozed.add(agent.id)
@@ -1191,6 +1198,8 @@ class DeskApp(App):
             self._dismiss_triage_widget()
             self._triage_agent = None
             dbg("desk.triage.snoozed", self.aque_dir, agent_id=agent.id)
+            if self._triage_agent is None:
+                self._focus_dashboard()
             return True
         return False
 
@@ -1586,6 +1595,9 @@ class DeskApp(App):
         agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
         if agent is None:
             term.detach()
+            return
+        if self._triage_agent is not None:
+            # A triage pill owns input right now; don't steal focus back.
             return
         term.attach(agent.tmux_session)
 

@@ -627,6 +627,28 @@ class TestTerminalFocus:
             assert app.focused is term
 
 
+class TestTriageCoexistence:
+    @pytest.mark.asyncio
+    async def test_terminal_blurred_while_pill_pending(self, tmp_aque_dir):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.WAITING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            term = app.query_one("#embedded-terminal", TerminalView)
+            term.focus()
+            await pilot.pause()
+            assert app.focused is term
+            app._skip_attach = False       # allow triage pill to mount
+            app._try_show_triage()         # a WAITING agent -> pill shows
+            await pilot.pause()
+            assert app._triage_agent is not None
+            assert app.focused is not term  # terminal blurred so pill keys work
+
+
 class TestAttachDoesNotChangeState:
     def test_attach_does_not_change_agent_state(self, tmp_path, monkeypatch):
         import contextlib
