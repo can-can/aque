@@ -66,7 +66,10 @@ def render_strip(session: PtySession, y: int, width: int,
 
 
 class TerminalView(Widget, can_focus=True):
-    DEFAULT_CSS = "TerminalView { height: 1fr; width: 1fr; }"
+    DEFAULT_CSS = """
+    TerminalView { height: 1fr; width: 1fr; }
+    TerminalView:focus { border: tall $accent; }
+    """
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
@@ -74,19 +77,29 @@ class TerminalView(Widget, can_focus=True):
         self._poll_timer = None
         self._last_cursor: tuple[int, int] = (0, 0)
         self._attached_session: str | None = None
+        self._pending_session: str | None = None
 
     # lifecycle
     def attach(self, tmux_session: str) -> None:
-        """(Re)attach the embed to a tmux session, sized to the widget."""
+        """(Re)attach the embed to a tmux session, sized to the widget.
+
+        If the widget has no real size yet (not laid out), remember the request
+        and spawn on the next resize so the PTY is never born 0x0.
+        """
         if self.session is not None and self._attached_session == tmux_session:
             return  # already attached to this session — don't re-spawn tmux
+        cols = self.size.width
+        rows = self.size.height
+        if cols < 1 or rows < 1:
+            self._pending_session = tmux_session
+            return
         self.detach()
-        cols = max(self.size.width, 1)
-        rows = max(self.size.height, 1)
         self.session = PtySession(columns=cols, lines=rows)
         self.session.spawn(["tmux", "attach-session", "-t", tmux_session])
         self._attached_session = tmux_session
+        self._pending_session = None
         self._poll_timer = self.set_interval(0.03, self._poll)
+        self.focus()
         self.refresh()
 
     def detach(self) -> None:
@@ -97,6 +110,7 @@ class TerminalView(Widget, can_focus=True):
             self.session.close()
             self.session = None
         self._attached_session = None
+        self._pending_session = None
 
     def on_unmount(self) -> None:
         self.detach()
@@ -106,6 +120,10 @@ class TerminalView(Widget, can_focus=True):
             self.session.resize(lines=max(event.size.height, 1),
                                 columns=max(event.size.width, 1))
             self.refresh()
+        elif self._pending_session is not None and event.size.height >= 1 and event.size.width >= 1:
+            pending = self._pending_session
+            self._pending_session = None
+            self.attach(pending)
 
     # io loop
     def _poll(self) -> None:

@@ -41,3 +41,22 @@ def test_scroll_forwards_to_session():
     down = FakeEvent(); tv.on_mouse_scroll_down(down)
     assert len(tv.session.writes) == 2
     assert up.stopped and down.stopped
+
+
+def test_attach_defers_when_zero_size(monkeypatch):
+    from textual.geometry import Size
+    from aque.terminal.widget import TerminalView
+
+    tv = TerminalView()
+    spawned = []
+    # Force a zero-size widget (not laid out yet).
+    monkeypatch.setattr(type(tv), "size", property(lambda self: Size(0, 0)))
+
+    class FakeSession:
+        def __init__(self, columns, lines): pass
+        def spawn(self, argv): spawned.append(argv)
+
+    monkeypatch.setattr("aque.terminal.widget.PtySession", FakeSession)
+    tv.attach("aque-1")
+    assert spawned == []                      # did NOT spawn into a 0x0 pty
+    assert tv._pending_session == "aque-1"    # remembered for next layout
