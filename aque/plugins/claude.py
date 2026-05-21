@@ -9,9 +9,13 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path.home() / ".claude" / "settings.json"
 
+# Must always exit 0: a non-zero Stop hook makes Claude Code report a
+# "Stop hook error" even when there's simply no aque agent to signal. The
+# `[ -n … ] && …` form exits 1 when AQUE_AGENT_ID is unset, so use if/fi.
 AQUE_HOOK_COMMAND = (
-    "[ -n \"$AQUE_AGENT_ID\" ] && "
-    "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json"
+    "if [ -n \"$AQUE_AGENT_ID\" ]; then "
+    "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json; "
+    "fi"
 )
 
 AQUE_HOOK_ENTRY = {
@@ -45,10 +49,7 @@ def is_installed(config_path: Path = DEFAULT_CONFIG_PATH) -> bool:
 
 
 def install_hook(config_path: Path = DEFAULT_CONFIG_PATH) -> None:
-    """Add the aque Stop hook to Claude Code settings."""
-    if is_installed(config_path=config_path):
-        return
-
+    """Add (or upgrade) the aque Stop hook in Claude Code settings."""
     if config_path.exists():
         try:
             data = json.loads(config_path.read_text())
@@ -60,6 +61,17 @@ def install_hook(config_path: Path = DEFAULT_CONFIG_PATH) -> None:
 
     hooks = data.setdefault("hooks", {})
     stop_hooks = hooks.setdefault("Stop", [])
-    stop_hooks.append(AQUE_HOOK_ENTRY)
+
+    # Self-heal: if an aque hook is already present, refresh its command.
+    # Older installs shipped a command that exited non-zero when AQUE_AGENT_ID
+    # was unset, which Claude Code surfaced as a "Stop hook error".
+    found = False
+    for entry in stop_hooks:
+        for hook in entry.get("hooks", []):
+            if "aque/signals" in hook.get("command", ""):
+                hook["command"] = AQUE_HOOK_COMMAND
+                found = True
+    if not found:
+        stop_hooks.append(AQUE_HOOK_ENTRY)
 
     config_path.write_text(json.dumps(data, indent=2) + "\n")

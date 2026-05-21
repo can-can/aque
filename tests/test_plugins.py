@@ -121,3 +121,45 @@ class TestClaudePlugin:
             if any("aque/signals" in hh.get("command", "") for hh in h.get("hooks", []))
         ]
         assert len(aque_hooks) == 1
+
+
+class TestClaudeHookCommandExitCode:
+    """The Stop hook must always exit 0 — otherwise Claude Code reports a
+    'Stop hook error' even when the hook correctly does nothing (no AQUE_AGENT_ID)."""
+
+    def _run(self, env):
+        import subprocess
+        from aque.plugins.claude import AQUE_HOOK_COMMAND
+        return subprocess.run(["bash", "-c", AQUE_HOOK_COMMAND], env=env)
+
+    def test_exits_zero_when_agent_id_unset(self):
+        import os
+        env = {k: v for k, v in os.environ.items() if k != "AQUE_AGENT_ID"}
+        assert self._run(env).returncode == 0
+
+    def test_writes_signal_and_exits_zero_when_agent_id_set(self, tmp_path, monkeypatch):
+        import os
+        monkeypatch.setenv("HOME", str(tmp_path))      # ~ -> tmp_path
+        (tmp_path / ".aque" / "signals").mkdir(parents=True)
+        env = dict(os.environ, AQUE_AGENT_ID="42", HOME=str(tmp_path))
+        assert self._run(env).returncode == 0
+        signal = tmp_path / ".aque" / "signals" / "42.json"
+        assert signal.exists()
+        assert '"stop"' in signal.read_text()
+
+
+class TestInstallHookUpgrade:
+    def test_install_hook_upgrades_stale_command(self, tmp_path):
+        from aque.plugins.claude import install_hook, AQUE_HOOK_COMMAND
+        cfg = tmp_path / "settings.json"
+        stale = ('[ -n "$AQUE_AGENT_ID" ] && '
+                 'echo \'{"event":"stop"}\' > ~/.aque/signals/$AQUE_AGENT_ID.json')
+        cfg.write_text(json.dumps(
+            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": stale}]}]}}
+        ))
+        install_hook(config_path=cfg)
+        data = json.loads(cfg.read_text())
+        cmds = [h["command"] for e in data["hooks"]["Stop"] for h in e["hooks"]]
+        assert stale not in cmds                 # old command replaced
+        assert AQUE_HOOK_COMMAND in cmds         # with the current one
+        assert sum("aque/signals" in c for c in cmds) == 1  # not duplicated
