@@ -130,12 +130,12 @@ class Ctx:
     def pill_present(self) -> bool:
         if self.app is None:
             return False
-        return bool(self.app.query("#triage-pill"))
+        return bool(self.app.query("#triage-banner"))
 
     def pill_text(self) -> str:
         from textual.widgets import Static
         try:
-            pill = self.app.query_one("#triage-pill")
+            pill = self.app.query_one("#triage-banner")
         except Exception:
             return ""
         parts: list[str] = []
@@ -345,14 +345,14 @@ def when_user_presses_key(ctx, key):
 
 @then("a triage pill should appear")
 def then_triage_pill_appears(ctx):
-    assert ctx.pill_present(), "Expected TriagePill to be mounted, but it is not"
+    assert ctx.pill_present(), "Expected TriageBanner to be mounted, but it is not"
 
 
 @then("no triage pill should appear")
 def then_no_triage_pill(ctx):
     ctx.ensure_mounted()
     assert not ctx.pill_present(), (
-        "Expected no TriagePill to be present, but one is mounted"
+        "Expected no TriageBanner to be present, but one is mounted"
     )
 
 

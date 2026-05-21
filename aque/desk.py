@@ -45,7 +45,7 @@ from aque.widgets.confirm_modal import ConfirmModal
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
 from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
-from aque.widgets.triage_pill import TriagePill
+from aque.widgets.triage_banner import TriageBanner
 from aque.widgets.undo_bar import UndoBar
 from aque.terminal.widget import TerminalView
 
@@ -1120,13 +1120,13 @@ class DeskApp(App):
         return candidates[0]
 
     def _try_show_triage(self, state: AppState | None = None) -> None:
-        """Surface the top waiting agent in a non-blocking triage pill.
+        """Surface the top waiting agent in a non-blocking triage banner.
 
-        Replaces the old forced-modal countdown. The pill mounts inside the
-        dashboard layout and does not steal focus — the user keeps the
-        agent list and preview interactive while triaging.
+        Replaces the old forced-modal countdown. The banner mounts in normal
+        flow directly above the dashboard and does not steal focus — the user
+        keeps the agent list and preview interactive while triaging.
 
-        Snooze semantics: when the user dismisses the pill (Esc or ``s``),
+        Snooze semantics: when the user dismisses the banner (Esc or ``s``),
         the agent's id is added to ``_snoozed`` along with its current
         ``last_change_at``. The next call clears that snooze if the agent
         has since changed state, so a fresh waiting transition re-surfaces.
@@ -1176,21 +1176,13 @@ class DeskApp(App):
         )
         self._dismiss_triage_widget()
         self._triage_agent = top
-        preview_text = ""
+        banner = TriageBanner(top, queue_len=len(candidates))
         try:
-            preview_text = (
-                capture_pane_content(self._get_tmux_server(), top.tmux_session) or ""
-            )
-        except Exception:
-            preview_text = ""
-        pill = TriagePill(
-            top,
-            queue_len=len(candidates),
-            preview=preview_text,
-            narrow=self._is_narrow,
-        )
-        try:
-            self.query_one("#dashboard").mount(pill)
+            # Mount in normal flow directly above the dashboard. The status bar
+            # and footer keep their docked edges; the banner takes auto height
+            # from the remaining middle region and pushes the dashboard down
+            # rather than overlaying it.
+            self.mount(banner, before=self.query_one("#dashboard"))
         except Exception:
             pass
         # Blur the terminal so the pill's keys (Enter/Space/s/Esc) reach the
@@ -1198,15 +1190,15 @@ class DeskApp(App):
         self.set_focus(None)
 
     def _dismiss_triage_widget(self) -> None:
-        for w in self.query("#triage-pill"):
+        for w in self.query("#triage-banner"):
             w.remove()
 
     def _handle_triage_key(self, key: str) -> bool:
-        """Route triage-relevant keys when the pill is up. Returns True if
+        """Route triage-relevant keys when the banner is up. Returns True if
         the key was consumed."""
         if self._triage_agent is None:
             return False
-        if not self.query("#triage-pill"):
+        if not self.query("#triage-banner"):
             return False
         agent = self._triage_agent
         if key == "enter":
