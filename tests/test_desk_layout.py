@@ -130,3 +130,25 @@ async def test_status_indicator_only_when_forced(tmp_aque_dir):
         app._refresh_status_bar()
         await pilot.pause()
         assert "Layout: Stacked" in str(app.query_one("#status-bar").render())
+
+
+def test_palette_includes_cycle_layout():
+    from aque.widgets.command_palette import CommandPalette
+
+    palette = CommandPalette([])
+    labels = [it.label for it in palette._all_items()]
+    assert any("Cycle layout" in label for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_palette_cycle_layout_dispatch(tmp_aque_dir):
+    from aque.widgets.command_palette import CommandItem
+
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        before = app._layout_mode
+        app._on_command_picked(
+            CommandItem("Cycle layout (auto/wide/stacked)", "action", "cycle_layout")
+        )
+        await pilot.pause()
+        assert app._layout_mode != before

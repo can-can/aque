@@ -1956,6 +1956,8 @@ class DeskApp(App):
             self.action_toggle_auto_respond()
         elif action == "fullscreen":
             self.action_attach_fullscreen()
+        elif action == "cycle_layout":
+            self.action_cycle_layout()
         elif action == "undo":
             self.action_undo()
         elif action == "responders":

@@ -103,6 +103,7 @@ class CommandPalette(ModalScreen[CommandItem | None]):
             CommandItem("Hold highlighted agent", "action", "hold"),
             CommandItem("Toggle auto-respond (highlighted)", "action", "auto"),
             CommandItem("Full-screen attach (highlighted)", "action", "fullscreen"),
+            CommandItem("Cycle layout (auto/wide/stacked)", "action", "cycle_layout"),
             CommandItem("Undo last action", "action", "undo"),
             CommandItem("Toggle responders", "action", "responders"),
             CommandItem("Show shortcuts (?)", "action", "help"),
