@@ -64,7 +64,10 @@ async def test_narrow_previews_terminal_instead_of_skipping(tmp_aque_dir, monkey
     from aque.state import StateManager, AgentInfo, AgentState
 
     calls = []
-    monkeypatch.setattr(TerminalView, "attach", lambda self, argv: calls.append(argv))
+    # attach() also takes a size_sync pin callback (embed-window pinning); accept
+    # and ignore any extra kwargs so the mock matches the real signature.
+    monkeypatch.setattr(TerminalView, "attach",
+                        lambda self, argv, **kwargs: calls.append(argv))
 
     mgr = StateManager(tmp_aque_dir)
     mgr.add_agent(AgentInfo(
