@@ -1481,6 +1481,19 @@ class DeskApp(App):
         # (via _show_dashboard).
         self._unpin_embed_window()
 
+        # Tear down the embed's own tmux client before suspending. The embed is
+        # a background ``tmux attach-session`` whose fd reader keeps firing on
+        # the asyncio loop during ``suspend()``; left attached it becomes a
+        # second client on the session and size-fights the full-screen client,
+        # leaving the pyte screen blank/garbled on return. Detaching means only
+        # the full-screen client is attached, and the return path
+        # (_show_dashboard → _attach_highlighted_terminal) re-spawns a fresh PTY
+        # for a clean full redraw instead of no-op'ing on the still-live session.
+        try:
+            self.query_one("#embedded-terminal", TerminalView).detach()
+        except Exception:
+            pass
+
         with self.suspend():
             subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
             # Erase tmux's "[detached (from session ...)]" line so it doesn't
