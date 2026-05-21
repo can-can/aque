@@ -600,19 +600,21 @@ class TestAgentSwitching:
 
 class TestTerminalFocus:
     @pytest.mark.asyncio
-    async def test_agent_list_not_focusable(self, tmp_aque_dir):
+    async def test_agent_list_focusable_and_focused_on_mount(self, tmp_aque_dir):
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="s-1", label="a", dir="/tmp",
             command=["a"], state=AgentState.RUNNING, pid=100,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-        async with app.run_test():
+        async with app.run_test() as pilot:
+            await pilot.pause()
             ol = app.query_one("#agent-option-list", OptionList)
-            assert ol.can_focus is False
+            assert ol.can_focus is True       # focusable (Tab cycles into embed)
+            assert app.focused is ol          # list is the default surface
 
     @pytest.mark.asyncio
-    async def test_highlight_focuses_terminal(self, tmp_aque_dir, monkeypatch):
+    async def test_highlight_previews_without_stealing_focus(self, tmp_aque_dir, monkeypatch):
         from aque.terminal.widget import TerminalView
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
@@ -621,15 +623,55 @@ class TestTerminalFocus:
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
+            await pilot.pause()
             term = app.query_one("#embedded-terminal", TerminalView)
-            # Don't spawn real tmux; just focus like the real attach does.
-            monkeypatch.setattr(term, "attach", lambda sess: term.focus())
-            app._skip_attach = False          # allow the focus path
+            monkeypatch.setattr(term, "attach", lambda argv: None)  # no focus steal
+            app._skip_attach = False
             ol = app.query_one("#agent-option-list", OptionList)
+            ol.focus()
             ol.highlighted = 0
             app._attach_highlighted_terminal()
             await pilot.pause()
+            assert app.focused is ol          # hover preview kept list focus
+
+    @pytest.mark.asyncio
+    async def test_enter_focuses_terminal(self, tmp_aque_dir, monkeypatch):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            term = app.query_one("#embedded-terminal", TerminalView)
+            monkeypatch.setattr(term, "attach", lambda argv: None)
+            app._skip_attach = False
+            ol = app.query_one("#agent-option-list", OptionList)
+            ol.focus()
+            ol.highlighted = 0
+            await pilot.press("enter")        # Enter pops into the embed
+            await pilot.pause()
             assert app.focused is term
+
+    @pytest.mark.asyncio
+    async def test_check_action_gates_plain_letters_when_embed_focused(self, tmp_aque_dir):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            term = app.query_one("#embedded-terminal", TerminalView)
+            assert app.check_action("new_agent", ()) is True   # list focused
+            term.focus()
+            await pilot.pause()
+            assert app.check_action("new_agent", ()) is False  # gated in embed
+            assert app.check_action("next_agent", ()) is True  # priority never gated
 
     @pytest.mark.asyncio
     async def test_panel_title_shows_active_agent(self, tmp_aque_dir, monkeypatch):
@@ -662,6 +704,7 @@ class TestTriageCoexistence:
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
+            await pilot.pause()            # let mount focus settle on the list
             term = app.query_one("#embedded-terminal", TerminalView)
             term.focus()
             await pilot.pause()

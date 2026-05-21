@@ -417,6 +417,10 @@ class QuickLaunchForm(Vertical):
 
 class DeskApp(App):
     TITLE = "aque desk"
+    # The agent list is the default surface on mount (not the embedded
+    # terminal, which is also focusable for Tab). Without this, Textual's
+    # auto-focus lands on the embed and gates the plain-letter shortcuts.
+    AUTO_FOCUS = "#agent-option-list"
     CSS = """
     #status-bar {
         dock: top;
@@ -641,9 +645,9 @@ class DeskApp(App):
         agent_panel = Vertical(id="agent-panel")
         preview_panel = Vertical(id="preview-panel")
 
-        agent_list = OptionList(id="agent-option-list")
-        agent_list.can_focus = False
-        agent_panel._add_child(agent_list)
+        # The list is focusable: it is the default dashboard surface, and Tab
+        # cycles focus from it into the embedded terminal.
+        agent_panel._add_child(OptionList(id="agent-option-list"))
 
         preview_panel._add_child(TerminalView(id="embedded-terminal"))
         dashboard._add_child(agent_panel)
@@ -685,18 +689,22 @@ class DeskApp(App):
         self._refresh_status_bar()
         self._refresh_footer()
         self._start_refresh()
-        self._focus_dashboard()
         self._scan_for_orphans()
+        # After layout: preview the highlighted agent in the embed (no focus
+        # steal), then focus the list. Focusing after the refresh cycle ensures
+        # the list wins over Textual's initial auto-focus (which would otherwise
+        # land on the embed and gate the plain-letter shortcuts).
         self.call_after_refresh(self._attach_highlighted_terminal)
+        self.call_after_refresh(self._focus_dashboard)
+        # Only the priority chords are bound here — they must work even while
+        # the embedded terminal is focused. The plain-letter desk actions
+        # (n/k/h/a/r/1-4/// etc.) live in BINDINGS and are gated by check_action
+        # when the embed has focus, so they reach the agent instead.
         sc = self.config["shortcuts"]
         self.bind(sc["quit"], "quit_app", description="Quit")
         self.bind(sc["attach_fullscreen"], "attach_fullscreen", description="Full-screen")
         self.bind(sc["next_agent"], "next_agent", description="Next agent")
         self.bind(sc["prev_agent"], "prev_agent", description="Prev agent")
-        self.bind(sc["new_agent"], "new_agent", description="New")
-        self.bind(sc["kill_agent"], "kill_agent", description="Kill")
-        self.bind(sc["hold_agent"], "hold_agent", description="Hold")
-        self.bind(sc["toggle_auto"], "toggle_auto_respond", description="Auto")
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -707,21 +715,39 @@ class DeskApp(App):
             self._refresh_timer.stop()
             self._refresh_timer = None
 
-    def _focus_dashboard(self) -> None:
-        """Give keyboard focus to the embedded terminal (the primary surface).
+    # Plain-letter desk actions that must reach the agent (not fire) while the
+    # embedded terminal is focused. Priority Ctrl+Shift chords and the command
+    # palette are never gated.
+    _EMBED_GATED_ACTIONS = frozenset({
+        "new_agent", "kill_agent", "hold_agent", "toggle_auto_respond",
+        "quick_launch", "toggle_responders", "filter_state", "focus_search",
+        "undo", "show_help",
+    })
 
-        The agent list is non-focusable; navigation happens via reserved chords.
-        Ensures a default highlight so there is an agent to attach to.
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
+        """Disable plain-letter desk shortcuts while the embed has focus so the
+        keystrokes are typed into the agent instead of triggering desk actions."""
+        if action in self._EMBED_GATED_ACTIONS:
+            try:
+                term = self.query_one("#embedded-terminal", TerminalView)
+            except Exception:
+                return True
+            if self.focused is term:
+                return False
+        return True
+
+    def _focus_dashboard(self) -> None:
+        """Give keyboard focus to the agent list (the default dashboard surface).
+
+        Highlighting an agent hover-attaches it in the embed (list keeps focus);
+        Enter or Tab moves focus into the embed to type. Ensures a default
+        highlight so there is an agent to preview.
         """
         try:
             ol = self.query_one("#agent-option-list", OptionList)
             if ol.option_count > 0 and ol.highlighted is None:
                 ol.highlighted = 0
-        except Exception:
-            pass
-        try:
-            term = self.query_one("#embedded-terminal", TerminalView)
-            term.focus()
+            ol.focus()
         except Exception:
             pass
 
@@ -1570,7 +1596,15 @@ class DeskApp(App):
             return
         if self._skip_attach:
             return
-        self._attach_to_agent(agent)
+        # Enter "pops into" the embedded terminal for the highlighted agent:
+        # attach (if not already) and move keyboard focus into the embed so the
+        # user types to the agent. Full-screen attach is the Ctrl+Shift+F action.
+        try:
+            term = self.query_one("#embedded-terminal", TerminalView)
+        except Exception:
+            return
+        term.attach(["tmux", "attach-session", "-t", agent.tmux_session])
+        term.focus()
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if self._mode != "dashboard":
@@ -1614,7 +1648,13 @@ class DeskApp(App):
         if self._triage_agent is not None:
             # A triage pill owns input right now; don't steal focus back.
             return
+        # Hover-attach: preview the highlighted agent without stealing focus
+        # from the list. If the embed already had focus (e.g. switching agents
+        # via Ctrl+Shift+J/K from inside it), keep focus there across the swap.
+        was_focused = self.focused is term
         term.attach(["tmux", "attach-session", "-t", agent.tmux_session])
+        if was_focused:
+            term.focus()
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""

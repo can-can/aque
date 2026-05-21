@@ -122,7 +122,8 @@ class TerminalView(Widget, can_focus=True):
         self.session.spawn(argv)
         self._attached_argv = list(argv)
         self._pending_argv = None
-        self.focus()
+        # Focus is controlled by the desk (hover-attach previews without
+        # stealing focus; Enter/Tab move focus into the embed), not here.
         self.refresh()
 
     def detach(self) -> None:

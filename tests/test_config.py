@@ -3,27 +3,21 @@ from pathlib import Path
 from aque.config import load_config, DEFAULT_CONFIG
 
 
-def test_shortcuts_defaults(tmp_path):
-    cfg = load_config(tmp_path)
-    s = cfg["shortcuts"]
-    assert s["quit"] == "ctrl+shift+q"
-    assert s["attach_fullscreen"] == "f2"
-    assert s["next_agent"] == "ctrl+shift+j"
-    assert s["toggle_auto"] == "ctrl+shift+a"
-
-
-def test_shortcuts_command_layer(tmp_path):
+def test_shortcuts_priority_chords(tmp_path):
+    # Only priority chords are configured (they must work while the embed is
+    # focused). Plain-letter desk actions live in BINDINGS, gated by
+    # check_action — they are NOT in the shortcuts config. No F-keys.
     s = load_config(tmp_path)["shortcuts"]
     assert s["quit"] == "ctrl+shift+q"
-    assert s["attach_fullscreen"] == "f2"
+    assert s["attach_fullscreen"] == "ctrl+shift+f"
     assert s["next_agent"] == "ctrl+shift+j"
     assert s["prev_agent"] == "ctrl+shift+k"
-    assert s["new_agent"] == "ctrl+shift+n"
-    assert s["kill_agent"] == "ctrl+shift+x"
-    assert s["hold_agent"] == "ctrl+shift+h"
-    assert s["toggle_auto"] == "ctrl+shift+a"
-    assert "switch_focus" not in s
-    assert "switch_agent" not in s
+    # plain-letter actions are not chord-configured anymore
+    for gone in ("new_agent", "kill_agent", "hold_agent", "toggle_auto",
+                 "switch_focus", "switch_agent"):
+        assert gone not in s
+    # no F-keys anywhere
+    assert all(not v.startswith("f") or v.startswith("ctrl") for v in s.values())
 
 
 class TestConfig:
