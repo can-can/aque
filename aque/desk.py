@@ -1085,6 +1085,46 @@ class DeskApp(App):
 
     # ── Mode switching ───────────────────────────────────────────
 
+    def _diag_geometry(self, where: str) -> None:
+        """Temporary diagnostic: log the dashboard region geometry so we can see
+        whether a blank screen after suspend/resume is a collapsed layout
+        (zero-height middle) or correct-size-but-not-repainted."""
+        def _sz(selector):
+            try:
+                w = self.query_one(selector)
+                return f"{w.size.width}x{w.size.height} disp={getattr(w, 'display', '?')}"
+            except Exception as e:
+                return f"<{type(e).__name__}>"
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+            ol_info = f"count={ol.option_count} hi={ol.highlighted}"
+        except Exception:
+            ol_info = "<no-list>"
+        # Every widget mounted on the screen, so a broken run reveals any overlay
+        # (triage banner, auto-attach modal, undo bar) sitting over the dashboard.
+        try:
+            children = " ".join(
+                f"{type(w).__name__}({w.size.width}x{w.size.height})"
+                for w in self.screen.children
+            )
+        except Exception as e:
+            children = f"<{type(e).__name__}>"
+        dbg(
+            f"desk.diag.{where}",
+            self.aque_dir,
+            mode=self._mode,
+            app=f"{self.size.width}x{self.size.height}",
+            narrow=self._narrow,
+            dashboard=_sz("#dashboard"),
+            agent_panel=_sz("#agent-panel"),
+            option_list=_sz("#agent-option-list"),
+            preview=_sz("#preview-panel"),
+            embed=_sz("#embedded-terminal"),
+            list_state=ol_info,
+            triage=str(self._triage_agent.id if self._triage_agent else None),
+            screen_children=children,
+        )
+
     def _show_dashboard(self) -> None:
         self._dismiss_triage_widget()
         self._triage_agent = None
@@ -1376,6 +1416,7 @@ class DeskApp(App):
     def _attach_to_agent(self, agent: AgentInfo) -> None:
         dbg("desk.attach.start", self.aque_dir, agent_id=agent.id,
             from_state=agent.state.value)
+        self._diag_geometry("attach.pre-suspend")
         self._dismiss_triage_widget()
         self._triage_agent = None
         self._stop_refresh()
@@ -1401,7 +1442,9 @@ class DeskApp(App):
         )
         if updated_agent.state == AgentState.EXITED:
             self._kill_agent(updated_agent.id)
+        self._diag_geometry("attach.post-suspend")
         self._show_dashboard()
+        self.call_after_refresh(lambda: self._diag_geometry("attach.after-refresh"))
 
     def _kill_agent(self, agent_id: int) -> None:
         state = self.state_mgr.load()
