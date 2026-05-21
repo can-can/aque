@@ -13,7 +13,6 @@ from typing import Optional
 class AgentState(str, enum.Enum):
     RUNNING = "running"
     WAITING = "waiting"
-    FOCUSED = "focused"
     EXITED = "exited"
     ON_HOLD = "on_hold"
     DONE = "done"
@@ -52,6 +51,9 @@ class AgentInfo:
     @classmethod
     def from_dict(cls, d: dict) -> "AgentInfo":
         d = d.copy()
+        if d.get("state") == "focused":
+            # Legacy state.json: FOCUSED was removed; attached agents are RUNNING.
+            d["state"] = "running"
         d["state"] = AgentState(d["state"])
         d.setdefault("agent_type", None)
         d.setdefault("is_responder", False)

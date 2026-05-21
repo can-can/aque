@@ -80,8 +80,9 @@ class IdleDetector:
 def prune_detector(detector: "IdleDetector", running_ids: set[int]) -> set[int]:
     """Drop detector state for any tracked agent not in `running_ids`.
 
-    Called once per monitor poll so that an agent returning from FOCUSED
-    (or any non-RUNNING state) gets a fresh idle-timer baseline.
+    Called once per monitor poll so that an agent returning to RUNNING after
+    being attached (or any non-RUNNING transition) gets a fresh idle-timer
+    baseline.
     """
     stale = detector.tracked_ids() - running_ids
     for sid in stale:
@@ -104,6 +105,22 @@ def capture_pane_content(server: libtmux.Server, session_name: str) -> str | Non
 def session_exists(server: libtmux.Server, session_name: str) -> bool:
     try:
         return server.sessions.get(session_name=session_name) is not None
+    except Exception:
+        return False
+
+
+def _has_attached_client(server: libtmux.Server, session_name: str) -> bool:
+    """True if a tmux client is currently attached to the session.
+
+    The desk's embedded terminal (and the F2 full-screen fallback) attach a
+    real client; while attached we must not run idle detection on the pane —
+    the user is driving it.
+    """
+    try:
+        session = server.sessions.get(session_name=session_name)
+        if session is None:
+            return False
+        return session.get("session_attached") == "1"
     except Exception:
         return False
 
@@ -195,6 +212,110 @@ def process_pending_nudges(
         responder.nudge(partner, resp, server, state_manager=state_manager)
 
 
+def _poll_once(
+    mgr: StateManager,
+    server: libtmux.Server,
+    detector: IdleDetector,
+    config: dict,
+    signals_dir: Path,
+    stall_timeout: float,
+    aque_dir: Path,
+    waiting_hashes: dict[int, str],
+) -> None:
+    """Execute one monitor poll: prune, signal detection, idle/stall checks, nudges.
+
+    The heartbeat write and time.sleep stay in run_monitor; everything else
+    that happens once per poll is in here so tests can call it directly.
+    """
+    state = mgr.load()
+    active_agents = [
+        a for a in state.agents if a.state in MONITORED_STATES
+    ]
+
+    # Prune detector state for agents that are no longer RUNNING (e.g. after
+    # being attached, or deleted entirely). Prevents stable-content timers
+    # from carrying across the attach window and causing spurious idle.
+    running_ids = {a.id for a in active_agents}
+    for stale_id in prune_detector(detector, running_ids):
+        dbg("monitor.detector.prune", aque_dir, agent_id=stale_id)
+
+    # Check signal files first (instant detection)
+    signaled_ids = check_signal_files(signals_dir)
+    for agent in active_agents:
+        if agent.id in signaled_ids:
+            dbg("monitor.signal->waiting", aque_dir, agent_id=agent.id)
+            mgr.update_agent_state(agent.id, AgentState.WAITING)
+            detector.remove_agent(agent.id)
+
+    # Re-load state after signal transitions
+    if signaled_ids:
+        state = mgr.load()
+        active_agents = [
+            a for a in state.agents if a.state in MONITORED_STATES
+        ]
+
+    for agent in active_agents:
+        if agent.state != AgentState.RUNNING:
+            continue
+
+        if not session_exists(server, agent.tmux_session):
+            dbg("monitor.session-gone->exited", aque_dir, agent_id=agent.id)
+            handle_session_gone(agent, mgr, server, aque_dir=aque_dir)
+            detector.remove_agent(agent.id)
+            continue
+
+        content = capture_pane_content(server, agent.tmux_session)
+        if content is not None:
+            detector.update(agent.id, content.split("\n"))
+
+        if _has_attached_client(server, agent.tmux_session):
+            # User is driving the pane — never auto-flip to WAITING, and
+            # reset the idle baseline so a fresh stable window starts on detach.
+            detector.remove_agent(agent.id)
+            continue
+
+        if agent.agent_type is not None:
+            # Hooks are primary for typed agents. Only fall back to
+            # content-hash if the pane has been frozen for much longer
+            # than the normal idle timeout — a hook that never fires
+            # is the only plausible cause of a real stall that long.
+            stable = detector.stable_seconds(agent.id)
+            if stable >= stall_timeout:
+                dbg(
+                    "monitor.stall->waiting",
+                    aque_dir,
+                    agent_id=agent.id,
+                    elapsed=f"{stable:.1f}s",
+                    threshold=f"{stall_timeout}s",
+                )
+                mgr.update_agent_state(agent.id, AgentState.WAITING)
+                detector.remove_agent(agent.id)
+        elif detector.is_idle(agent.id):
+            dbg("monitor.idle->waiting", aque_dir, agent_id=agent.id)
+            mgr.update_agent_state(agent.id, AgentState.WAITING)
+            detector.remove_agent(agent.id)
+
+    # WAITING re-promotion: if a client is attached and pane content changed,
+    # the user has resumed work — flip the agent back to RUNNING.
+    for agent in mgr.load().agents:
+        if agent.state != AgentState.WAITING:
+            continue
+        if not _has_attached_client(server, agent.tmux_session):
+            continue
+        content = capture_pane_content(server, agent.tmux_session)
+        if content is None:
+            continue
+        new_hash = hashlib.md5(content.encode()).hexdigest()
+        prev = waiting_hashes.get(agent.id)
+        waiting_hashes[agent.id] = new_hash
+        if prev is not None and new_hash != prev:
+            dbg("monitor.waiting->running", aque_dir, agent_id=agent.id)
+            mgr.update_agent_state(agent.id, AgentState.RUNNING)
+
+    # End of per-agent loop. Now process auto-responder nudges.
+    process_pending_nudges(mgr, server, config)
+
+
 def run_monitor(aque_dir: Path) -> None:
     config = load_config(aque_dir)
     mgr = StateManager(aque_dir)
@@ -222,6 +343,8 @@ def run_monitor(aque_dir: Path) -> None:
     active_ids = {a.id for a in state.agents}
     cleanup_stale_signals(signals_dir, active_ids)
 
+    waiting_hashes: dict[int, str] = {}
+
     try:
         while True:
             # Heartbeat: bump monitor.pid mtime each poll so the desk can tell a
@@ -231,70 +354,7 @@ def run_monitor(aque_dir: Path) -> None:
             except OSError:
                 pass
 
-            state = mgr.load()
-            active_agents = [
-                a for a in state.agents if a.state in MONITORED_STATES
-            ]
-
-            # Prune detector state for agents that are no longer RUNNING (e.g. FOCUSED
-            # after a user attach, or deleted entirely). Prevents stable-content timers
-            # from carrying across the attach window and causing spurious idle.
-            running_ids = {a.id for a in active_agents}
-            for stale_id in prune_detector(detector, running_ids):
-                dbg("monitor.detector.prune", aque_dir, agent_id=stale_id)
-
-            # Check signal files first (instant detection)
-            signaled_ids = check_signal_files(signals_dir)
-            for agent in active_agents:
-                if agent.id in signaled_ids:
-                    dbg("monitor.signal->waiting", aque_dir, agent_id=agent.id)
-                    mgr.update_agent_state(agent.id, AgentState.WAITING)
-                    detector.remove_agent(agent.id)
-
-            # Re-load state after signal transitions
-            if signaled_ids:
-                state = mgr.load()
-                active_agents = [
-                    a for a in state.agents if a.state in MONITORED_STATES
-                ]
-
-            for agent in active_agents:
-                if agent.state != AgentState.RUNNING:
-                    continue
-
-                if not session_exists(server, agent.tmux_session):
-                    dbg("monitor.session-gone->exited", aque_dir, agent_id=agent.id)
-                    handle_session_gone(agent, mgr, server, aque_dir=aque_dir)
-                    detector.remove_agent(agent.id)
-                    continue
-
-                content = capture_pane_content(server, agent.tmux_session)
-                if content is not None:
-                    detector.update(agent.id, content.split("\n"))
-
-                if agent.agent_type is not None:
-                    # Hooks are primary for typed agents. Only fall back to
-                    # content-hash if the pane has been frozen for much longer
-                    # than the normal idle timeout — a hook that never fires
-                    # is the only plausible cause of a real stall that long.
-                    stable = detector.stable_seconds(agent.id)
-                    if stable >= stall_timeout:
-                        dbg(
-                            "monitor.stall->waiting",
-                            aque_dir,
-                            agent_id=agent.id,
-                            elapsed=f"{stable:.1f}s",
-                            threshold=f"{stall_timeout}s",
-                        )
-                        mgr.update_agent_state(agent.id, AgentState.WAITING)
-                        detector.remove_agent(agent.id)
-                elif detector.is_idle(agent.id):
-                    dbg("monitor.idle->waiting", aque_dir, agent_id=agent.id)
-                    mgr.update_agent_state(agent.id, AgentState.WAITING)
-                    detector.remove_agent(agent.id)
-
-            # End of per-agent loop. Now process auto-responder nudges.
-            process_pending_nudges(mgr, server, config)
+            _poll_once(mgr, server, detector, config, signals_dir, stall_timeout, aque_dir, waiting_hashes)
 
             time.sleep(interval)
     finally:

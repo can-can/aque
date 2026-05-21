@@ -13,7 +13,6 @@ from aque.state import AgentState
 STATE_COLORS: dict[AgentState, str] = {
     AgentState.RUNNING: "#16A34A",   # green-600
     AgentState.WAITING: "#CA8A04",   # amber-600 (named "yellow" washes out on cream)
-    AgentState.FOCUSED: "#2563EB",   # blue-600
     AgentState.EXITED: "#9CA3AF",    # gray-400
     AgentState.ON_HOLD: "#9333EA",   # purple-600
     AgentState.DONE: "#DC2626",      # red-600

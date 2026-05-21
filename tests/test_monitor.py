@@ -276,6 +276,115 @@ class TestResponderCleanupIntegration:
         mock_cleanup.assert_called_once()
 
 
+from aque import monitor
+from aque.monitor import IdleDetector, _poll_once
+from aque.state import AgentInfo, AgentState, StateManager
+
+
+def _mk_agent(state, agent_type=None, agent_id=1):
+    return AgentInfo(
+        id=agent_id, tmux_session=f"aque-{agent_id}", label="t", dir="/tmp",
+        command=["claude"], state=state, pid=1, agent_type=agent_type,
+    )
+
+
+def _setup(tmp_path, agent):
+    mgr = StateManager(tmp_path)
+    mgr.add_agent(agent)
+    signals = tmp_path / "signals"
+    signals.mkdir(exist_ok=True)
+    cfg = {"idle_timeout": 0, "responder_enabled": False, "responder_idle_gap": 30}
+    return mgr, signals, cfg
+
+
+def test_attached_running_agent_skips_idle(monkeypatch, tmp_path):
+    agent = _mk_agent(AgentState.RUNNING, agent_type=None)
+    mgr, signals, cfg = _setup(tmp_path, agent)
+    detector = IdleDetector(idle_timeout=0, aque_dir=tmp_path)
+    waiting_hashes: dict[int, str] = {}
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "stable")
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.RUNNING
+
+
+def test_idle_flips_when_not_attached(monkeypatch, tmp_path):
+    agent = _mk_agent(AgentState.RUNNING, agent_type=None)
+    mgr, signals, cfg = _setup(tmp_path, agent)
+    detector = IdleDetector(idle_timeout=0, aque_dir=tmp_path)
+    waiting_hashes: dict[int, str] = {}
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "stable")
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: False)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING
+
+
+def test_waiting_becomes_running_on_content_change_while_attached(monkeypatch, tmp_path):
+    agent = _mk_agent(AgentState.WAITING, agent_type=None)
+    mgr, signals, cfg = _setup(tmp_path, agent)
+    detector = IdleDetector(idle_timeout=15, aque_dir=tmp_path)
+    waiting_hashes: dict[int, str] = {}
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "before")
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "after")
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.RUNNING
+
+
+def test_waiting_unchanged_content_does_not_flip(monkeypatch, tmp_path):
+    agent = _mk_agent(AgentState.WAITING, agent_type=None)
+    mgr, signals, cfg = _setup(tmp_path, agent)
+    detector = IdleDetector(idle_timeout=15, aque_dir=tmp_path)
+    waiting_hashes: dict[int, str] = {}
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "same")
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING
+
+
+def test_has_attached_client_true():
+    from aque import monitor
+
+    class FakeSession:
+        def get(self, key): return "1"
+    class FakeServer:
+        class sessions:
+            @staticmethod
+            def get(session_name=None): return FakeSession()
+    assert monitor._has_attached_client(FakeServer(), "aque-1") is True
+
+
+def test_has_attached_client_false_when_zero():
+    from aque import monitor
+
+    class FakeSession:
+        def get(self, key): return "0"
+    class FakeServer:
+        class sessions:
+            @staticmethod
+            def get(session_name=None): return FakeSession()
+    assert monitor._has_attached_client(FakeServer(), "aque-1") is False
+
+
+def test_has_attached_client_false_when_missing():
+    from aque import monitor
+
+    class FakeServer:
+        class sessions:
+            @staticmethod
+            def get(session_name=None): return None
+    assert monitor._has_attached_client(FakeServer(), "gone") is False
+
+
 def test_run_monitor_refreshes_pid_heartbeat(tmp_aque_dir, monkeypatch):
     """Each poll iteration should rewrite monitor.pid, bumping its mtime."""
     import aque.monitor as monitor

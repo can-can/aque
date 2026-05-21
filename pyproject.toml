@@ -23,10 +23,11 @@ classifiers = [
     "Topic :: System :: Shells",
 ]
 dependencies = [
-    "textual>=0.47.0",
     "libtmux>=0.37.0",
-    "typer>=0.12.0",
+    "pyte>=0.8.2",
     "pyyaml>=6.0",
+    "textual>=0.47.0",
+    "typer>=0.12.0",
 ]
 
 [project.scripts]

@@ -300,7 +300,7 @@ def when_monitor_changes_state(ctx, label, state_str):
 def when_user_presses_enter(ctx):
     # Mock _attach_to_agent to avoid real tmux interaction.
     def _mock_attach(agent):
-        ctx.state_mgr.update_agent_state(agent.id, AgentState.FOCUSED)
+        ctx.attached_agent_label = agent.label
         ctx.app._dismiss_triage_widget()
         ctx.app._triage_agent = None
 
@@ -380,11 +380,8 @@ def then_agent_still_in_state(ctx, label, state_str):
 
 @then(parsers.parse('the user should be attached to agent "{label}"'))
 def then_attached_to_agent(ctx, label):
-    state = ctx.state_mgr.load()
-    agent = next((a for a in state.agents if a.label == label), None)
-    assert agent is not None, f"Agent '{label}' not found"
-    assert agent.state == AgentState.FOCUSED, (
-        f"Expected '{label}' in FOCUSED state after attach, got '{agent.state.value}'"
+    assert getattr(ctx, "attached_agent_label", None) == label, (
+        f"Expected attach to '{label}', got '{getattr(ctx, 'attached_agent_label', None)}'"
     )
 
 

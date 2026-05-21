@@ -83,15 +83,6 @@ def test_press_h_resumes_held_agent():
     pass
 
 
-@scenario(FEATURE, "Preview shows placeholder when no agent is highlighted")
-def test_preview_shows_placeholder():
-    pass
-
-
-@scenario(FEATURE, "Preview shows tmux pane content for highlighted agent")
-def test_preview_shows_tmux_content():
-    pass
-
 
 @scenario(FEATURE, "Typed agent shows type tag in list")
 def test_typed_agent_shows_type_tag():
@@ -103,11 +94,6 @@ def test_untyped_agent_shows_no_type_tag():
     pass
 
 
-@scenario(FEATURE, "Preview shows action strip for the selected agent")
-def test_preview_shows_action_strip():
-    pass
-
-
 @scenario(FEATURE, "A row marks itself with a cue after its state changes")
 def test_row_change_cue():
     pass
@@ -115,11 +101,6 @@ def test_row_change_cue():
 
 @scenario(FEATURE, "Type chip carries the vendor's accent color")
 def test_type_chip_color():
-    pass
-
-
-@scenario(FEATURE, 'Exited agent shows the "review / done / hold" strip')
-def test_exited_action_strip():
     pass
 
 
@@ -612,67 +593,6 @@ def then_agent_in_state(ctx, label, state_str):
     )
 
 
-# ── Preview pane step definitions ────────────────────────────────────────────
-
-
-@given("the agent list is empty", target_fixture="ctx")
-def given_agent_list_is_empty(ctx):
-    """No agents in state — the list will be empty after mounting."""
-    ctx.ensure_mounted()
-    return ctx
-
-
-@then(parsers.parse('the preview pane should show "{text}"'))
-def then_preview_pane_shows(ctx, text):
-    preview = ctx.app.query_one("#preview-pane")
-    rendered = str(preview.render())
-    assert text in rendered, (
-        f"Expected preview pane to contain '{text}', got: '{rendered}'"
-    )
-
-
-@given(parsers.parse('agent "{label}" is running with tmux session "{session_name}"'), target_fixture="ctx")
-def given_agent_running_with_tmux_session(ctx, label, session_name):
-    """Seed an agent and create a real tmux session for it."""
-    server = libtmux.Server()
-    session = server.new_session(session_name=session_name, detach=True)
-    ctx._tmux_sessions.append(session_name)
-
-    agent_id = ctx.state_mgr.next_id()
-    agent = AgentInfo(
-        id=agent_id,
-        tmux_session=session_name,
-        label=label,
-        dir="/tmp/test",
-        command=["test"],
-        state=AgentState.RUNNING,
-        pid=10000 + agent_id,
-    )
-    ctx.state_mgr.add_agent(agent)
-    ctx._preview_session = session
-    return ctx
-
-
-@given("the tmux pane contains output text")
-def given_tmux_pane_contains_output(ctx):
-    """Send some text to the tmux pane so there is content to preview."""
-    session = ctx._preview_session
-    session.active_pane.send_keys("echo hello_preview_test", enter=True)
-    import time
-    time.sleep(0.3)  # give the shell a moment to produce output
-
-
-@when(parsers.parse('the user highlights "{label}"'))
-def when_user_highlights(ctx, label):
-    ctx.ensure_mounted()
-    _highlight_agent_by_label(ctx, label)
-    # Trigger a preview refresh after highlighting
-    async def _refresh():
-        ctx.app._refresh_preview()
-        await ctx.pilot.pause()
-    ctx.run(_refresh())
-
-
 @then(parsers.parse('the agent list should show a "{type_name}" type tag for "{label}"'))
 def then_agent_list_shows_type_tag(ctx, type_name, label):
     """Type tags render as a filled vendor pill — `` claude `` in the row text."""
@@ -703,16 +623,3 @@ def then_agent_list_shows_no_type_tag(ctx, label):
     pytest.fail(f"Agent '{label}' not found in option list")
 
 
-@then("the preview pane should show the last 30 lines of the tmux pane")
-def then_preview_pane_shows_tmux_content(ctx):
-    """Verify the preview pane contains content captured from the tmux pane."""
-    preview = ctx.app.query_one("#preview-pane")
-    rendered = str(preview.render())
-    # The preview should not show the placeholder text
-    assert "Select an agent to preview" not in rendered, (
-        "Preview pane should show tmux content, not the placeholder"
-    )
-    # It should contain text echoed into the pane (or at least agent header)
-    assert "builder" in rendered, (
-        f"Expected 'builder' label in preview pane, got: '{rendered}'"
-    )

@@ -43,11 +43,7 @@ class TestFullLifecycleV2:
         mgr.update_agent_state(1, AgentState.WAITING)
         assert mgr.load().agents[0].state == AgentState.WAITING
 
-        # 4. User attaches
-        mgr.update_agent_state(1, AgentState.FOCUSED)
-        assert mgr.load().agents[0].state == AgentState.FOCUSED
-
-        # 5. User dismisses
+        # 4. User dismisses
         mgr.update_agent_state(1, AgentState.RUNNING)
         assert mgr.load().agents[0].state == AgentState.RUNNING
 

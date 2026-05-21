@@ -3,7 +3,6 @@ from click.exceptions import Exit
 import pytest
 from textual.widgets import OptionList
 
-from aque.state import AgentState
 from aque import desk_tokens
 import aque.desk as desk
 from aque.desk import DeskApp, STATE_PRIORITY
@@ -165,11 +164,15 @@ class TestNarrowMode:
             ol = app.query_one("#agent-option-list", OptionList)
             opt = ol.get_option_at_index(0)
             label = str(opt.prompt)
-            # Project layout: dot (colour only), type chip, and name. The
-            # state word and dir live in the preview pane, not the row.
+            # Project layout: dot (colour only), vendor pill, name, mode chip.
+            # The state word and dir live in the preview pane, not the row.
             assert "running" not in label.lower()
-            assert "[claude]" in label
+            # The vendor pill renders the type as a chip (markup stripped to
+            # plain text), so "claude" appears once for the pill and once in
+            # the name.
+            assert label.count("claude") == 2
             assert "claude . my-project" in label
+            assert "auto" in label  # mode chip present in the full layout
 
 
     @pytest.mark.asyncio
@@ -225,8 +228,9 @@ class TestNarrowMode:
             narrow_label = str(ol.get_option_at_index(0).prompt)
             assert "running" not in narrow_label.lower()
             assert "claude . proj" in narrow_label
-            # Narrow drops the name padding, so its row is shorter than wide.
-            assert len(narrow_label) < len(wide_label)
+            # Resize rebuilds the row — the mode chip re-aligns to the new
+            # column width — so the rendered label differs between layouts.
+            assert narrow_label != wide_label
 
 
 class TestDeskTmuxCheck:
@@ -357,81 +361,6 @@ class TestAutoAttachSkipsResponders:
         picked = app.pick_auto_attach_target(mgr.load().agents)
         assert picked is not None
         assert picked.id == 3
-
-
-class TestPreviewPaneAutoRespondLines:
-    def _setup_pair(self, tmp_aque_dir):
-        from aque.state import AgentInfo, AgentState, StateManager
-        mgr = StateManager(tmp_aque_dir)
-        mgr.add_agent(AgentInfo(
-            id=1, tmux_session="aque-1", label="partner",
-            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
-        ))
-        mgr.add_agent(AgentInfo(
-            id=2, tmux_session="aque-2", label="resp(1)",
-            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
-            is_responder=True, partner_id=1,
-        ))
-        return mgr
-
-    def test_preview_for_partner_shows_auto_response_on(self, tmp_aque_dir):
-        from aque.desk import build_preview_meta
-        mgr = self._setup_pair(tmp_aque_dir)
-        agents = mgr.load().agents
-        partner = next(a for a in agents if a.id == 1)
-        text = build_preview_meta(partner, agents)
-        assert "Auto-response: on" in text
-        assert "aque-2" in text
-
-    def test_preview_for_partner_shows_off_when_disabled(self, tmp_aque_dir):
-        from aque.desk import build_preview_meta
-        mgr = self._setup_pair(tmp_aque_dir)
-        mgr.toggle_auto_respond(1)
-        agents = mgr.load().agents
-        partner = next(a for a in agents if a.id == 1)
-        assert "Auto-response: off" in build_preview_meta(partner, agents)
-
-    def test_preview_for_partner_without_responder_shows_unavailable(self, tmp_aque_dir):
-        from aque.desk import build_preview_meta
-        from aque.state import AgentInfo, AgentState, StateManager
-        mgr = StateManager(tmp_aque_dir)
-        mgr.add_agent(AgentInfo(
-            id=1, tmux_session="aque-1", label="solo",
-            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
-        ))
-        agents = mgr.load().agents
-        partner = next(a for a in agents if a.id == 1)
-        text = build_preview_meta(partner, agents)
-        assert "Auto-response: unavailable" in text
-
-    def test_preview_for_responder_shows_partner_label(self, tmp_aque_dir):
-        from aque.desk import build_preview_meta
-        mgr = self._setup_pair(tmp_aque_dir)
-        agents = mgr.load().agents
-        responder_agent = next(a for a in agents if a.is_responder)
-        text = build_preview_meta(responder_agent, agents)
-        assert "Auto-responder for: partner" in text
-        assert "id 1" in text or "id=1" in text
-
-    def test_preview_for_partner_shows_exited_when_responder_exited(self, tmp_aque_dir):
-        from aque.desk import build_preview_meta
-        from aque.state import AgentInfo, AgentState, StateManager
-
-        mgr = StateManager(tmp_aque_dir)
-        mgr.add_agent(AgentInfo(
-            id=1, tmux_session="aque-1", label="partner",
-            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
-        ))
-        mgr.add_agent(AgentInfo(
-            id=2, tmux_session="aque-2", label="resp(1)",
-            dir="/tmp", command=["claude"], state=AgentState.EXITED, pid=101,
-            is_responder=True, partner_id=1,
-        ))
-        agents = mgr.load().agents
-        partner = next(a for a in agents if a.id == 1)
-        text = build_preview_meta(partner, agents)
-        assert "Responder exited" in text
-        assert "auto-response disabled" in text
 
 
 def test_desk_orphan_scan_called_on_startup(monkeypatch, tmp_aque_dir):
@@ -643,3 +572,137 @@ class TestEnsureMonitorRunning:
         app._ensure_monitor_running()
         assert started["n"] == 1
         assert (4242, signal.SIGTERM) in killed  # hung monitor was terminated first
+
+
+class TestAgentSwitching:
+    def _app_with_three(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        for i in (1, 2, 3):
+            mgr.add_agent(AgentInfo(
+                id=i, tmux_session=f"s-{i}", label=f"a{i}", dir="/tmp",
+                command=["a"], state=AgentState.RUNNING, pid=100 + i,
+            ))
+        return DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+
+    @pytest.mark.asyncio
+    async def test_next_and_prev_wrap(self, tmp_aque_dir):
+        app = self._app_with_three(tmp_aque_dir)
+        async with app.run_test():
+            ol = app.query_one("#agent-option-list", OptionList)
+            ol.highlighted = 0
+            app.action_next_agent()
+            assert ol.highlighted == 1
+            app.action_prev_agent()
+            assert ol.highlighted == 0
+            app.action_prev_agent()                 # wraps to last
+            assert ol.highlighted == ol.option_count - 1
+
+
+class TestTerminalFocus:
+    @pytest.mark.asyncio
+    async def test_agent_list_not_focusable(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test():
+            ol = app.query_one("#agent-option-list", OptionList)
+            assert ol.can_focus is False
+
+    @pytest.mark.asyncio
+    async def test_highlight_focuses_terminal(self, tmp_aque_dir, monkeypatch):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            term = app.query_one("#embedded-terminal", TerminalView)
+            # Don't spawn real tmux; just focus like the real attach does.
+            monkeypatch.setattr(term, "attach", lambda sess: term.focus())
+            app._skip_attach = False          # allow the focus path
+            ol = app.query_one("#agent-option-list", OptionList)
+            ol.highlighted = 0
+            app._attach_highlighted_terminal()
+            await pilot.pause()
+            assert app.focused is term
+
+    @pytest.mark.asyncio
+    async def test_panel_title_shows_active_agent(self, tmp_aque_dir, monkeypatch):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . api", dir="/tmp",
+            command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            term = app.query_one("#embedded-terminal", TerminalView)
+            monkeypatch.setattr(term, "attach", lambda sess: term.focus())
+            app._skip_attach = False
+            app.query_one("#agent-option-list", OptionList).highlighted = 0
+            app._attach_highlighted_terminal()
+            await pilot.pause()
+            panel = app.query_one("#preview-panel")
+            assert "claude . api" in str(panel.border_title or "")
+
+
+class TestTriageCoexistence:
+    @pytest.mark.asyncio
+    async def test_terminal_blurred_while_pill_pending(self, tmp_aque_dir):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.WAITING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            term = app.query_one("#embedded-terminal", TerminalView)
+            term.focus()
+            await pilot.pause()
+            assert app.focused is term
+            app._skip_attach = False       # allow triage pill to mount
+            app._try_show_triage()         # a WAITING agent -> pill shows
+            await pilot.pause()
+            assert app._triage_agent is not None
+            assert app.focused is not term  # terminal blurred so pill keys work
+
+
+class TestAttachDoesNotChangeState:
+    def test_attach_does_not_change_agent_state(self, tmp_path, monkeypatch):
+        import contextlib
+        import subprocess
+        from aque.desk import DeskApp
+        from aque.state import AgentInfo, AgentState, StateManager
+
+        aque_dir = tmp_path / ".aque"
+        aque_dir.mkdir()
+        mgr = StateManager(aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-1", label="test-agent",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+
+        app = DeskApp(aque_dir=aque_dir)
+        agent = app.state_mgr.load().agents[0]
+
+        calls = []
+        monkeypatch.setattr(app.state_mgr, "update_agent_state",
+                            lambda *a, **k: calls.append(a))
+        # Stub suspend() so the body runs without a real terminal
+        monkeypatch.setattr(app, "suspend", lambda: contextlib.nullcontext())
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+        # Stub screen-side-effect methods that need a live Textual app
+        monkeypatch.setattr(app, "_dismiss_triage_widget", lambda: None)
+        monkeypatch.setattr(app, "_stop_refresh", lambda: None)
+        monkeypatch.setattr(app, "_show_dashboard", lambda: None)
+
+        app._attach_to_agent(agent)
+
+        assert calls == []  # no state mutation during attach/detach
+        assert app.state_mgr.load().agents[0].state == AgentState.RUNNING

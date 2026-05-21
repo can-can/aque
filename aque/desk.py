@@ -1,4 +1,3 @@
-import hashlib
 import shlex
 import subprocess
 import sys
@@ -47,14 +46,14 @@ from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
 from aque.widgets.triage_pill import TriagePill
 from aque.widgets.undo_bar import UndoBar
+from aque.terminal.widget import TerminalView
 
 STATE_PRIORITY = {
     AgentState.WAITING: 0,
     AgentState.EXITED: 1,
     AgentState.RUNNING: 2,
-    AgentState.FOCUSED: 3,
-    AgentState.ON_HOLD: 4,
-    AgentState.DONE: 5,
+    AgentState.ON_HOLD: 3,
+    AgentState.DONE: 4,
 }
 
 # How long the row state-change cue (the leading ``▴``) stays visible after
@@ -67,178 +66,12 @@ def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
     return sorted(agents, key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
 
 
-def build_preview_meta(agent: AgentInfo, agents: list[AgentInfo]) -> str:
-    """Return the auto-responder meta-line shown in the preview pane.
-
-    Kept for backwards compatibility with callers that want the single-line
-    summary. New callers should prefer ``build_responder_panel`` for the
-    structured (multi-line) card that mirrors the design.
-    """
-    if agent.is_responder:
-        partner = next(
-            (a for a in agents if a.id == agent.partner_id),
-            None,
-        )
-        if partner is None:
-            return f"Auto-responder for: (partner id={agent.partner_id} missing)"
-        return f"Auto-responder for: {partner.label} (id {partner.id})"
-
-    resp = next(
-        (a for a in agents if a.is_responder and a.partner_id == agent.id),
-        None,
-    )
-    if resp is None:
-        return "Auto-response: unavailable (no responder)"
-    if resp.state == AgentState.EXITED:
-        return "Responder exited — auto-response disabled"
-    state_word = "on" if agent.auto_respond else "off"
-    return f"Auto-response: {state_word} (responder: {resp.tmux_session})"
-
-
-def extract_responder_log(pane_content: str | None, limit: int = 4) -> list[str]:
-    """Pull the last ``limit`` ``AQUE:``-prefixed lines from a responder pane.
-
-    These are the nudges the system has sent the responder — a rough proxy
-    for "what the responder has been asked to do lately". The design's
-    reply log was prototype-only fake data; this is real activity we can
-    surface without changing the responder's storage model.
-    """
-    if not pane_content:
-        return []
-    out: list[str] = []
-    for line in reversed(pane_content.splitlines()):
-        stripped = line.strip()
-        if stripped.startswith("AQUE:"):
-            # Drop the leading 'AQUE: ' for a cleaner display.
-            out.append(stripped[len("AQUE:"):].strip())
-            if len(out) >= limit:
-                break
-    return list(reversed(out))
-
-
-def load_responder_rules(aque_dir: Path, partner_id: int) -> list[str]:
-    """Read optional per-responder rules from
-    ``<aque_dir>/responders/<partner_id>/rules.txt``.
-
-    One rule per non-empty line; lines starting with ``#`` are treated as
-    comments. Returns an empty list if the file is missing — there is no
-    "default" rule set, so the panel just won't render that section.
-    """
-    rules_path = Path(aque_dir) / "responders" / str(partner_id) / "rules.txt"
-    if not rules_path.exists():
-        return []
-    try:
-        text = rules_path.read_text()
-    except OSError:
-        return []
-    rules: list[str] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line and not line.startswith("#"):
-            rules.append(line)
-    return rules
-
-
-def build_responder_panel(
-    agent: AgentInfo,
-    agents: list[AgentInfo],
-    pane_content: str | None = None,
-    aque_dir: Path | None = None,
-) -> str:
-    """Render the responder panel for the preview pane.
-
-    Three branches:
-
-    * **Responder selected** — show "responding for: <partner>" with the
-      partner's state and dir, plus a hint that selecting them jumps to
-      the partner pane.
-    * **Partner without responder** — show a dashed empty-state block.
-    * **Partner with responder** — show eyebrow (auto / paused / exited)
-      + session id + last_nudge_at timestamp, plus a reply log (recent
-      ``AQUE:`` nudges from the responder's pane) and any rules loaded
-      from ``rules.txt`` if both are available.
-
-    Returns Rich markup. The caller wraps it in ``Text.from_markup`` and
-    appends to the preview pane.
-    """
-    if agent.is_responder:
-        partner = next((a for a in agents if a.id == agent.partner_id), None)
-        if partner is None:
-            return (
-                "\n\n[dim]── RESPONDING FOR ──[/dim]\n"
-                f"[red]partner missing (id={agent.partner_id})[/red]"
-            )
-        partner_color = STATE_COLORS.get(partner.state, "white")
-        return (
-            "\n\n[dim]── RESPONDING FOR ──[/dim]\n"
-            f"[bold]{partner.label}[/bold]  "
-            f"[{partner_color}]{partner.state.value}[/{partner_color}]  "
-            f"[dim]{partner.dir}[/dim]\n"
-            "[dim]select the partner row to jump to its pane[/dim]"
-        )
-
-    resp = next(
-        (a for a in agents if a.is_responder and a.partner_id == agent.id),
-        None,
-    )
-    if resp is None:
-        return (
-            "\n\n[dim]── NO RESPONDER ─ ─ ─[/dim]\n"
-            "[dim]This agent runs without a paired responder. "
-            "Every prompt comes straight to you.[/dim]"
-        )
-
-    if resp.state == AgentState.EXITED:
-        eyebrow = "[red]● RESPONDER · EXITED[/red]"
-    elif agent.auto_respond:
-        eyebrow = "[green]● RESPONDER · AUTO[/green]"
-    else:
-        eyebrow = "[yellow]● RESPONDER · PAUSED[/yellow]"
-
-    lines = [
-        "",
-        "",
-        eyebrow,
-        f"[dim]session: {resp.tmux_session}[/dim]",
-    ]
-    if agent.last_nudge_at:
-        lines.append(f"[dim]last nudge: {agent.last_nudge_at}[/dim]")
-
-    # Reply log — recent AQUE: nudges from the responder's pane. Surface
-    # whatever the responder has been asked to handle lately.
-    log = extract_responder_log(pane_content)
-    if log:
-        lines.append("[dim]recent activity:[/dim]")
-        for entry in log:
-            # Truncate to keep the panel readable.
-            display = entry if len(entry) <= 70 else entry[:67] + "…"
-            lines.append(f"  [dim]·[/dim] {display}")
-
-    # Rules — opt-in per-responder policy file. Skip the section entirely
-    # when no rules.txt exists; the panel shouldn't suggest an unconfigured
-    # surface.
-    if aque_dir is not None:
-        rules = load_responder_rules(aque_dir, agent.id)
-        if rules:
-            lines.append("[dim]rules:[/dim]")
-            for rule in rules:
-                lines.append(f"  [dim]·[/dim] {rule}")
-
-    lines.append("[dim]press a to toggle auto-response[/dim]")
-    return "\n".join(lines)
-
-
 # ── Widgets ──────────────────────────────────────────────────────────
 
 
 class StatusBar(Static):
     def __init__(self) -> None:
         super().__init__("[dim]No agents[/dim]", id="status-bar")
-
-
-class PreviewPane(Static):
-    def __init__(self, content: str = "") -> None:
-        super().__init__(content or "[dim]Select an agent to preview[/dim]", id="preview-pane")
 
 
 class ActionMenu(Vertical):
@@ -612,13 +445,13 @@ class DeskApp(App):
     #preview-panel {
         width: 60%;
         padding: 1 2;
+        border: tall $surface-lighten-1;
+    }
+    #preview-panel:focus-within {
+        border: tall $accent;
     }
     #agent-option-list {
         height: 100%;
-    }
-    #preview-pane {
-        height: 100%;
-        overflow-y: auto;
     }
     #action-menu {
         align: center middle;
@@ -691,7 +524,6 @@ class DeskApp(App):
         ("a", "toggle_auto_respond", "Auto"),
         ("ctrl+k", "command_palette", "⌘K"),
         ("question_mark", "show_help", "?"),
-        ("q", "quit_app", "Quit"),
         Binding("R", "toggle_responders", "Responders", show=False),
         Binding("r", "quick_launch", "Relaunch", show=False),
         Binding("1", "filter_state('running')", "Filter running", show=False),
@@ -809,9 +641,11 @@ class DeskApp(App):
         agent_panel = Vertical(id="agent-panel")
         preview_panel = Vertical(id="preview-panel")
 
-        agent_panel._add_child(OptionList(id="agent-option-list"))
+        agent_list = OptionList(id="agent-option-list")
+        agent_list.can_focus = False
+        agent_panel._add_child(agent_list)
 
-        preview_panel._add_child(PreviewPane())
+        preview_panel._add_child(TerminalView(id="embedded-terminal"))
         dashboard._add_child(agent_panel)
         dashboard._add_child(preview_panel)
         return dashboard
@@ -826,6 +660,11 @@ class DeskApp(App):
             self.query_one("#agent-panel").set_class(narrow, "narrow")
         except Exception:
             pass
+        if narrow:
+            try:
+                self.query_one("#embedded-terminal", TerminalView).detach()
+            except Exception:
+                pass
         for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
                 self.query_one(selector).set_class(narrow, "narrow")
@@ -846,8 +685,18 @@ class DeskApp(App):
         self._refresh_status_bar()
         self._refresh_footer()
         self._start_refresh()
-        self._focus_agent_list()
+        self._focus_dashboard()
         self._scan_for_orphans()
+        self.call_after_refresh(self._attach_highlighted_terminal)
+        sc = self.config["shortcuts"]
+        self.bind(sc["quit"], "quit_app", description="Quit")
+        self.bind(sc["attach_fullscreen"], "attach_fullscreen", description="Full-screen")
+        self.bind(sc["next_agent"], "next_agent", description="Next agent")
+        self.bind(sc["prev_agent"], "prev_agent", description="Prev agent")
+        self.bind(sc["new_agent"], "new_agent", description="New")
+        self.bind(sc["kill_agent"], "kill_agent", description="Kill")
+        self.bind(sc["hold_agent"], "hold_agent", description="Hold")
+        self.bind(sc["toggle_auto"], "toggle_auto_respond", description="Auto")
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -858,12 +707,21 @@ class DeskApp(App):
             self._refresh_timer.stop()
             self._refresh_timer = None
 
-    def _focus_agent_list(self) -> None:
+    def _focus_dashboard(self) -> None:
+        """Give keyboard focus to the embedded terminal (the primary surface).
+
+        The agent list is non-focusable; navigation happens via reserved chords.
+        Ensures a default highlight so there is an agent to attach to.
+        """
         try:
             ol = self.query_one("#agent-option-list", OptionList)
-            ol.focus()
             if ol.option_count > 0 and ol.highlighted is None:
                 ol.highlighted = 0
+        except Exception:
+            pass
+        try:
+            term = self.query_one("#embedded-terminal", TerminalView)
+            term.focus()
         except Exception:
             pass
 
@@ -938,7 +796,6 @@ class DeskApp(App):
         state = self.state_mgr.load()
         self._refresh_status_bar(state)
         self._refresh_agent_list(state=state)
-        self._refresh_preview()
         self._try_show_triage(state)
 
     def _refresh_status_bar(self, state: AppState | None = None) -> None:
@@ -1173,69 +1030,6 @@ class DeskApp(App):
         if option_list.option_count > 0 and option_list.highlighted is None:
             option_list.highlighted = 0
 
-    def _refresh_preview(self) -> None:
-        try:
-            option_list = self.query_one("#agent-option-list", OptionList)
-            preview = self.query_one("#preview-pane", Static)
-        except Exception:
-            return
-
-        if option_list.highlighted is None or option_list.option_count == 0:
-            preview.update("[dim]Select an agent to preview[/dim]")
-            return
-
-        option = option_list.get_option_at_index(option_list.highlighted)
-        agent_id = int(option.id)
-        state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
-        if agent is None:
-            preview.update("[dim]Agent not found[/dim]")
-            return
-
-        server = self._get_tmux_server()
-        content = capture_pane_content(server, agent.tmux_session)
-        # Structured responder panel (replaces the old single-line footnote).
-        # The panel mines its own reply log from the responder's pane and
-        # reads optional rules from disk, so we pass both inputs through.
-        responder_pane = None
-        if not agent.is_responder:
-            resp = next(
-                (a for a in state.agents if a.is_responder and a.partner_id == agent.id),
-                None,
-            )
-            if resp is not None:
-                responder_pane = capture_pane_content(server, resp.tmux_session)
-        auto_meta = Text.from_markup(build_responder_panel(
-            agent, state.agents,
-            pane_content=responder_pane,
-            aque_dir=self.aque_dir,
-        ))
-        actions = Text.from_markup(self._build_action_strip(agent))
-        if content:
-            lines = content.split("\n")
-            last_lines = lines[-30:]
-            color = STATE_COLORS.get(agent.state, "white")
-            header = Text.from_markup(
-                f"[bold]{agent.label}[/bold]  [{color}]{agent.state.value}[/{color}]"
-            )
-            if agent.agent_type:
-                meta = Text.from_markup(
-                    f"\n[dim]Type: {agent.agent_type}  Detection: hook[/dim]"
-                )
-            else:
-                meta = Text.from_markup(
-                    "\n[dim]Detection: polling[/dim]"
-                )
-            body = Text("\n" + "\n".join(last_lines))
-            preview.update(header + meta + actions + body + auto_meta)
-        else:
-            preview.update(
-                Text.from_markup(
-                    f"[bold]{agent.label}[/bold]\n[dim]No preview available[/dim]"
-                )
-                + actions
-                + auto_meta
-            )
 
     def _build_action_strip(self, agent: AgentInfo) -> str:
         """Quick-action affordances for the currently-selected agent.
@@ -1276,9 +1070,9 @@ class DeskApp(App):
             pass
         self._refresh_agent_list(reset_highlight=True)
         self._refresh_status_bar()
-        self._refresh_preview()
+        self._attach_highlighted_terminal()
         self._start_refresh()
-        self._focus_agent_list()
+        self._focus_dashboard()
         self._ensure_monitor_running()
         self._try_show_triage()
 
@@ -1371,6 +1165,9 @@ class DeskApp(App):
             self.query_one("#dashboard").mount(pill)
         except Exception:
             pass
+        # Blur the terminal so the pill's keys (Enter/Space/s/Esc) reach the
+        # App.on_key triage handler instead of being typed into the agent.
+        self.set_focus(None)
 
     def _dismiss_triage_widget(self) -> None:
         for w in self.query("#triage-pill"):
@@ -1388,11 +1185,15 @@ class DeskApp(App):
             self._dismiss_triage_widget()
             self._triage_agent = None
             self._attach_to_agent(agent)
+            if self._triage_agent is None:
+                self._focus_dashboard()
             return True
         if key == "space":
             self._dismiss_triage_widget()
             self._triage_agent = None
             self._select_agent_in_list(agent.id)
+            if self._triage_agent is None:
+                self._focus_dashboard()
             return True
         if key in ("s", "escape"):
             self._snoozed.add(agent.id)
@@ -1400,6 +1201,8 @@ class DeskApp(App):
             self._dismiss_triage_widget()
             self._triage_agent = None
             dbg("desk.triage.snoozed", self.aque_dir, agent_id=agent.id)
+            if self._triage_agent is None:
+                self._focus_dashboard()
             return True
         return False
 
@@ -1412,7 +1215,7 @@ class DeskApp(App):
                 if opt.id == str(agent_id):
                     ol.highlighted = i
                     break
-            self._refresh_preview()
+            self._attach_highlighted_terminal()
         except Exception:
             pass
 
@@ -1551,13 +1354,10 @@ class DeskApp(App):
     # ── Agent actions ────────────────────────────────────────────
 
     def _attach_to_agent(self, agent: AgentInfo) -> None:
-        dbg("desk.attach.start", self.aque_dir, agent_id=agent.id, from_state=agent.state.value)
+        dbg("desk.attach.start", self.aque_dir, agent_id=agent.id,
+            from_state=agent.state.value)
         self._dismiss_triage_widget()
         self._triage_agent = None
-        pre_attach_state = agent.state
-        was_exited = agent.state == AgentState.EXITED
-        pre_attach_hash = self._pane_hash(agent.tmux_session) if agent.agent_type else None
-        self.state_mgr.update_agent_state(agent.id, AgentState.FOCUSED)
         self._stop_refresh()
 
         with self.suspend():
@@ -1579,48 +1379,9 @@ class DeskApp(App):
             agent_id=agent.id,
             state_after_detach=updated_agent.state.value,
         )
-        if updated_agent.state in (AgentState.EXITED,):
+        if updated_agent.state == AgentState.EXITED:
             self._kill_agent(updated_agent.id)
-        elif updated_agent.state == AgentState.FOCUSED:
-            # Typed agents rely on hooks; without a content-hash fallback a
-            # no-op attach (user looked but didn't interact) would strand the
-            # agent in RUNNING forever. If the pane content is unchanged,
-            # revert to whatever state it was in before the attach.
-            if agent.agent_type and pre_attach_hash is not None:
-                post_hash = self._pane_hash(agent.tmux_session)
-                if post_hash == pre_attach_hash:
-                    dbg(
-                        "desk.attach.no_interaction->revert",
-                        self.aque_dir,
-                        agent_id=agent.id,
-                        revert_to=pre_attach_state.value,
-                    )
-                    self.state_mgr.update_agent_state(updated_agent.id, pre_attach_state)
-                    # Snooze the same agent so the triage pill doesn't
-                    # immediately re-surface what the user just looked
-                    # through without acting on.
-                    self._snoozed.add(updated_agent.id)
-                    self._snoozed_last_change[updated_agent.id] = (
-                        self.state_mgr.load().agents and
-                        next(
-                            (a.last_change_at for a in self.state_mgr.load().agents if a.id == updated_agent.id),
-                            "",
-                        )
-                    )
-                    self._show_dashboard()
-                    return
-            dbg("desk.attach.focused->running", self.aque_dir, agent_id=agent.id)
-            self.state_mgr.update_agent_state(updated_agent.id, AgentState.RUNNING)
         self._show_dashboard()
-
-    def _pane_hash(self, tmux_session: str) -> str | None:
-        try:
-            content = capture_pane_content(self._get_tmux_server(), tmux_session)
-        except Exception:
-            return None
-        if content is None:
-            return None
-        return hashlib.md5(content.encode()).hexdigest()
 
     def _kill_agent(self, agent_id: int) -> None:
         state = self.state_mgr.load()
@@ -1816,11 +1577,44 @@ class DeskApp(App):
             return
         if self._preview_debounce_timer is not None:
             self._preview_debounce_timer.stop()
-        self._preview_debounce_timer = self.set_timer(0.15, self._debounced_preview)
+        self._preview_debounce_timer = self.set_timer(0.15, self._attach_highlighted_terminal)
 
-    def _debounced_preview(self) -> None:
+    def _attach_highlighted_terminal(self) -> None:
         self._preview_debounce_timer = None
-        self._refresh_preview()
+        if self._skip_attach:
+            return  # tests / headless: never spawn a real tmux client
+        if self._narrow:
+            return  # terminal panel hidden in narrow layout
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+            term = self.query_one("#embedded-terminal", TerminalView)
+        except Exception:
+            return
+        if ol.highlighted is None or ol.option_count == 0:
+            try:
+                self.query_one("#preview-panel").border_title = ""
+            except Exception:
+                pass
+            term.detach()
+            return
+        option = ol.get_option_at_index(ol.highlighted)
+        agent_id = int(option.id)
+        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        if agent is None:
+            try:
+                self.query_one("#preview-panel").border_title = ""
+            except Exception:
+                pass
+            term.detach()
+            return
+        try:
+            self.query_one("#preview-panel").border_title = f"▌ {agent.label}"
+        except Exception:
+            pass
+        if self._triage_agent is not None:
+            # A triage pill owns input right now; don't steal focus back.
+            return
+        term.attach(agent.tmux_session)
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""
@@ -1856,7 +1650,7 @@ class DeskApp(App):
         if event.input.id == "search-input":
             # Enter on search returns focus to the agent list so the user
             # can immediately ↑↓ through the filtered results.
-            self._focus_agent_list()
+            self._focus_dashboard()
             return
         if self._mode != "new_agent_form":
             return
@@ -2015,6 +1809,40 @@ class DeskApp(App):
         stop_monitor(self.aque_dir)
         self.exit()
 
+    def action_attach_fullscreen(self) -> None:
+        if self._mode != "dashboard":
+            return
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+        except Exception:
+            return
+        if ol.highlighted is None:
+            return
+        agent_id = int(ol.get_option_at_index(ol.highlighted).id)
+        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        if agent is not None and not self._skip_attach:
+            self._attach_to_agent(agent)
+
+    def action_next_agent(self) -> None:
+        self._move_highlight(+1)
+
+    def action_prev_agent(self) -> None:
+        self._move_highlight(-1)
+
+    def _move_highlight(self, delta: int) -> None:
+        if self._mode != "dashboard":
+            return
+        try:
+            ol = self.query_one("#agent-option-list", OptionList)
+        except Exception:
+            return
+        if ol.option_count == 0:
+            return
+        cur = 0 if ol.highlighted is None else ol.highlighted
+        ol.highlighted = (cur + delta) % ol.option_count
+        # Changing the highlight posts OptionHighlighted -> debounced re-attach
+        # + refocus of the terminal, so the user stays "in" the new agent.
+
     def on_key(self, event) -> None:
         # Triage pill takes priority — it's the most recent surface and the
         # user is being asked an explicit question.
@@ -2029,7 +1857,7 @@ class DeskApp(App):
             had_search_focus = bool(self.query("#search-input"))
             if had_search_focus or self._filter is not None or self._search:
                 self._clear_filters()
-                self._focus_agent_list()
+                self._focus_dashboard()
                 event.stop()
                 return
 

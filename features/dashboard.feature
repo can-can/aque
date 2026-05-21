@@ -104,25 +104,6 @@ Feature: Dashboard
     When the dashboard loads
     Then the agent list should not show a type tag for "builder"
 
-  # ── Preview pane ───────────────────────────────────────────────
-
-  Scenario: Preview shows tmux pane content for highlighted agent
-    Given agent "builder" is running with tmux session "aque-builder-1"
-    And the tmux pane contains output text
-    When the user highlights "builder"
-    Then the preview pane should show the last 30 lines of the tmux pane
-
-  Scenario: Preview shows placeholder when no agent is highlighted
-    Given the agent list is empty
-    Then the preview pane should show "Select an agent to preview"
-
-  Scenario: Preview shows action strip for the selected agent
-    Given agent "builder" is running with tmux session "aque-builder-1"
-    When the user highlights "builder"
-    Then the preview pane should show "actions:"
-    And the preview pane should show "kill"
-    And the preview pane should show "hold"
-
   # ── State-change row cue ──────────────────────────────────────
 
   Scenario: A row marks itself with a cue after its state changes
@@ -142,17 +123,6 @@ Feature: Dashboard
       | builder | running | claude     |
     When the dashboard loads
     Then the agent row for "builder" should be coloured with vendor "claude"
-
-  # ── Action strip variants ─────────────────────────────────────
-
-  Scenario: Exited agent shows the "review / done / hold" strip
-    Given the following agents exist:
-      | label  | state  |
-      | finder | exited |
-    When the user highlights "finder"
-    Then the preview pane should show "actions:"
-    And the preview pane should show "review"
-    And the preview pane should show "done"
 
   # ── Empty status bar ──────────────────────────────────────────
 

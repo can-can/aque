@@ -165,7 +165,6 @@ def when_palette_dispatches(ctx, label):
     """Select the palette item whose label matches and confirm."""
     # Mock the attach so the test doesn't need a real tmux session.
     def _mock_attach(agent):
-        ctx.state_mgr.update_agent_state(agent.id, AgentState.FOCUSED)
         ctx.app._dismiss_triage_widget()
     ctx.app._attach_to_agent = _mock_attach
 

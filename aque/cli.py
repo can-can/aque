@@ -126,7 +126,6 @@ def list_agents() -> None:
     state_colors = {
         AgentState.RUNNING: "green",
         AgentState.WAITING: "yellow",
-        AgentState.FOCUSED: "blue",
         AgentState.EXITED: "dim",
         AgentState.ON_HOLD: "magenta",
         AgentState.DONE: "red",
