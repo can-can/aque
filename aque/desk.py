@@ -563,6 +563,9 @@ class DeskApp(App):
         self._embed_pinned: tuple[str, int, int] | None = None
         self._last_agent_fingerprint: list | None = None
         self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
+        # Arrangement override, independent of _narrow (width). Session-only:
+        # not persisted, resets to "auto" each launch. "auto" | "wide" | "stacked".
+        self._layout_mode: str = "auto"
         self.show_responders: bool = False
         # Filter / search: in-memory only. Filter is one of the AgentStates
         # (or None); search is a substring matched against name, dir, type,
@@ -599,6 +602,19 @@ class DeskApp(App):
     @property
     def _is_narrow(self) -> bool:
         return self._narrow
+
+    def _effective_layout(self, width: int) -> str:
+        """Return the arrangement to apply: "wide" or "stacked".
+
+        Forced modes ignore width; "auto" stacks below the 80-col breakpoint.
+        This is the single seam that decides arrangement; _narrow stays width-
+        based and only governs text compaction.
+        """
+        if self._layout_mode == "wide":
+            return "wide"
+        if self._layout_mode == "stacked":
+            return "stacked"
+        return "stacked" if width < 80 else "wide"
 
     def compose(self) -> ComposeResult:
         yield Header()
