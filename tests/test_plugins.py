@@ -59,19 +59,53 @@ class TestClaudePlugin:
         settings_path.write_text(json.dumps({"hooks": {}}))
         assert is_installed(config_path=settings_path) is False
 
-    def test_installed_when_aque_hook_present(self, tmp_path):
+    def test_not_installed_when_only_stop_hook_present(self, tmp_path):
+        # Legacy install had only Stop; now all three hooks are required.
         settings_path = tmp_path / "settings.json"
         settings_path.write_text(json.dumps({
-            "hooks": {
-                "Stop": [{
-                    "hooks": [{
-                        "type": "command",
-                        "command": "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json"
-                    }]
-                }]
-            }
+            "hooks": {"Stop": [{"hooks": [{"type": "command",
+                "command": "echo x > ~/.aque/signals/$AQUE_AGENT_ID.json"}]}]}
         }))
+        assert is_installed(config_path=settings_path) is False
+
+    def test_install_creates_all_three_hooks(self, tmp_path):
+        settings_path = tmp_path / "settings.json"
+        install_hook(config_path=settings_path)
+        data = json.loads(settings_path.read_text())
+        hooks = data["hooks"]
+        assert {"Stop", "Notification", "UserPromptSubmit"} <= set(hooks)
         assert is_installed(config_path=settings_path) is True
+        def cmd(event):
+            return data["hooks"][event][0]["hooks"][0]["command"]
+        assert '"event":"start"' in cmd("UserPromptSubmit")
+        assert '"event":"stop"' in cmd("Stop")
+        assert '"event":"stop"' in cmd("Notification")
+
+    def test_install_upgrades_stop_only_without_duplicating(self, tmp_path):
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(json.dumps({
+            "hooks": {"Stop": [{"hooks": [{"type": "command",
+                "command": "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json"}]}]}
+        }))
+        install_hook(config_path=settings_path)
+        data = json.loads(settings_path.read_text())
+        assert len(data["hooks"]["Stop"]) == 1  # not duplicated
+        assert is_installed(config_path=settings_path) is True
+
+    def test_install_is_idempotent(self, tmp_path):
+        settings_path = tmp_path / "settings.json"
+        install_hook(config_path=settings_path)
+        first = settings_path.read_text()
+        install_hook(config_path=settings_path)
+        assert settings_path.read_text() == first
+
+    def test_hook_commands_exit_zero_when_agent_id_unset(self, tmp_path):
+        settings_path = tmp_path / "settings.json"
+        install_hook(config_path=settings_path)
+        data = json.loads(settings_path.read_text())
+        for event in ("Stop", "Notification", "UserPromptSubmit"):
+            cmd = data["hooks"][event][0]["hooks"][0]["command"]
+            assert cmd.startswith('if [ -n "$AQUE_AGENT_ID" ]')
 
     def test_install_hook_creates_settings_file(self, tmp_path):
         settings_path = tmp_path / "settings.json"
