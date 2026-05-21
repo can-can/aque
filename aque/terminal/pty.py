@@ -16,18 +16,40 @@ import termios
 import pyte
 
 
+class _EmbeddedScreen(pyte.Screen):
+    """pyte screen hardened against sequences real terminals (tmux) emit that
+    pyte 0.8.2 mishandles.
+
+    tmux sends a *private* Device Status Report (``CSI ? Ps n``); pyte dispatches
+    it as ``report_device_status(Ps, private=True)`` but the base method has no
+    ``private`` parameter and raises ``TypeError``, which would otherwise crash
+    the embed. We accept and ignore private DSR queries and delegate the rest.
+    """
+
+    def report_device_status(self, mode, **kwargs):
+        if kwargs.get("private"):
+            return
+        return super().report_device_status(mode)
+
+
 class PtySession:
     def __init__(self, columns: int = 80, lines: int = 24):
         self.columns = columns
         self.lines = lines
-        self.screen = pyte.Screen(columns, lines)
+        self.screen = _EmbeddedScreen(columns, lines)
         self.stream = pyte.ByteStream(self.screen)
         self._master_fd: int | None = None
         self._pid: int | None = None
 
     # emulator
     def feed(self, data: bytes) -> None:
-        self.stream.feed(data)
+        # Never let a single malformed/unsupported escape sequence crash the
+        # embed — pyte is a partial emulator and real apps emit sequences it
+        # doesn't model. Drop the offending chunk and keep the terminal alive.
+        try:
+            self.stream.feed(data)
+        except Exception:
+            pass
 
     def display(self) -> list[str]:
         return self.screen.display
