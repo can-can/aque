@@ -361,10 +361,32 @@ def run_monitor(aque_dir: Path) -> None:
         pid_file.unlink(missing_ok=True)
 
 
+def _detach_inherited_fds() -> None:
+    """Close every fd the daemonized child inherited from its parent.
+
+    A forked daemon otherwise holds the parent's open fds. In production that's
+    the desk's terminal; under pytest it's the runner's output pipe — and pytest
+    keeps the real stdout on a high fd during capture, so detaching just 0/1/2
+    isn't enough. While any inherited write-end stays open the reader never sees
+    EOF, so the parent hangs on exit (and orphan daemons leak). Close them all,
+    then point 0/1/2 at /dev/null; the monitor opens its own fds as it runs.
+    """
+    try:
+        max_fd = os.sysconf("SC_OPEN_MAX")
+    except (ValueError, OSError):
+        max_fd = 1024
+    max_fd = min(max_fd, 4096)
+    os.closerange(3, max_fd)
+    devnull = os.open(os.devnull, os.O_RDWR)  # lands on fd 0
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+
+
 def start_monitor_daemon(aque_dir: Path) -> int:
     pid = os.fork()
     if pid == 0:
         os.setsid()
+        _detach_inherited_fds()
         run_monitor(aque_dir)
         os._exit(0)
     else:
