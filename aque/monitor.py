@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import signal
 import time
@@ -145,9 +146,13 @@ def handle_session_gone(
         responder.cleanup(agent, state_manager, server, aque_dir=aque_dir)
 
 
-def check_signal_files(signals_dir: Path) -> set[int]:
-    """Read and consume signal files. Returns set of agent IDs that signaled."""
-    signaled: set[int] = set()
+def check_signal_files(signals_dir: Path) -> dict[int, str]:
+    """Read and consume signal files. Returns ``{agent_id: event}``.
+
+    ``event`` comes from the JSON ``event`` field; malformed or legacy files
+    default to ``"stop"`` (the original single-event behaviour).
+    """
+    signaled: dict[int, str] = {}
     if not signals_dir.is_dir():
         return signaled
     for f in signals_dir.iterdir():
@@ -157,10 +162,14 @@ def check_signal_files(signals_dir: Path) -> set[int]:
             agent_id = int(f.stem)
         except ValueError:
             # Malformed filename (e.g. ".json" from an unset AQUE_AGENT_ID).
-            # Drop it so it doesn't sit around forever.
             f.unlink(missing_ok=True)
             continue
-        signaled.add(agent_id)
+        event = "stop"
+        try:
+            event = json.loads(f.read_text()).get("event", "stop")
+        except (json.JSONDecodeError, OSError, AttributeError):
+            event = "stop"
+        signaled[agent_id] = event
         f.unlink(missing_ok=True)
     return signaled
 

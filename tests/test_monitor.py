@@ -99,13 +99,19 @@ class TestMonitorStates:
 
 
 class TestSignalFiles:
-    def test_check_signal_files_returns_agent_ids(self, tmp_path):
+    def test_check_signal_files_returns_events(self, tmp_path):
         signals_dir = tmp_path / "signals"
         signals_dir.mkdir()
         (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
-        (signals_dir / "7.json").write_text(json.dumps({"event": "stop"}))
-        ids = check_signal_files(signals_dir)
-        assert ids == {3, 7}
+        (signals_dir / "7.json").write_text(json.dumps({"event": "start"}))
+        assert check_signal_files(signals_dir) == {3: "stop", 7: "start"}
+
+    def test_check_signal_files_defaults_malformed_to_stop(self, tmp_path):
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "3.json").write_text("not json")
+        (signals_dir / "4.json").write_text(json.dumps({"no_event": 1}))
+        assert check_signal_files(signals_dir) == {3: "stop", 4: "stop"}
 
     def test_check_signal_files_consumes_files(self, tmp_path):
         signals_dir = tmp_path / "signals"
@@ -117,29 +123,25 @@ class TestSignalFiles:
     def test_check_signal_files_empty_dir(self, tmp_path):
         signals_dir = tmp_path / "signals"
         signals_dir.mkdir()
-        ids = check_signal_files(signals_dir)
-        assert ids == set()
+        assert check_signal_files(signals_dir) == {}
 
     def test_check_signal_files_dir_missing(self, tmp_path):
-        signals_dir = tmp_path / "signals"
-        ids = check_signal_files(signals_dir)
-        assert ids == set()
+        assert check_signal_files(tmp_path / "signals") == {}
 
     def test_check_signal_files_ignores_non_json(self, tmp_path):
         signals_dir = tmp_path / "signals"
         signals_dir.mkdir()
         (signals_dir / "readme.txt").write_text("not a signal")
         (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
-        ids = check_signal_files(signals_dir)
-        assert ids == {3}
+        result = check_signal_files(signals_dir)
+        assert result == {3: "stop"}
         assert (signals_dir / "readme.txt").exists()
 
     def test_check_signal_files_ignores_non_numeric_names(self, tmp_path):
         signals_dir = tmp_path / "signals"
         signals_dir.mkdir()
         (signals_dir / "abc.json").write_text(json.dumps({"event": "stop"}))
-        ids = check_signal_files(signals_dir)
-        assert ids == set()
+        assert check_signal_files(signals_dir) == {}
 
     def test_cleanup_stale_signals(self, tmp_path):
         signals_dir = tmp_path / "signals"
