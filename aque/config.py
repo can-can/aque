@@ -23,12 +23,17 @@ DEFAULT_CONFIG = {
     "responder_idle_gap": 30,
     "responder_dir": None,
     "shortcuts": {
+        # Reserved Ctrl+Shift command layer — terminals don't distinguish
+        # Ctrl+Shift+<letter> from Ctrl+<letter>, so these never collide with
+        # the agent's own keys. Rebind freely.
         "quit": "ctrl+shift+q",
         "attach_fullscreen": "f2",
-        # Priority actions live on ctrl+shift chords because plain F-keys and
-        # letters collide with terminal apps running inside the embed. Rebind freely.
-        "switch_focus": "ctrl+shift+a",
-        "switch_agent": "ctrl+shift+j",
+        "next_agent": "ctrl+shift+j",
+        "prev_agent": "ctrl+shift+k",
+        "new_agent": "ctrl+shift+n",
+        "kill_agent": "ctrl+shift+x",
+        "hold_agent": "ctrl+shift+h",
+        "toggle_auto": "ctrl+shift+a",
     },
 }
 
