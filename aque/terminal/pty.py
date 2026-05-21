@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import os
+import pty
 import signal
 import struct
+import subprocess
 import termios
 import threading
 from typing import Callable
@@ -19,15 +21,18 @@ from typing import Callable
 import pyte
 
 
-def _reap_in_background(pid: int) -> None:
-    """Wait on a terminated child in a throwaway daemon thread, so the UI event
-    loop never blocks on a child that is slow to exit — and no zombie lingers."""
-    def _wait() -> None:
-        try:
-            os.waitpid(pid, 0)
-        except (ChildProcessError, OSError):
-            pass
-    threading.Thread(target=_wait, daemon=True).start()
+def _make_controlling_tty() -> None:
+    """preexec_fn (runs in the child, post-fork/pre-exec): become a session
+    leader and adopt the slave PTY (fd 0) as the controlling terminal, so the
+    child program behaves as a real TTY and receives SIGWINCH on resize.
+
+    Only raw syscalls here — no Python-level locks — so it is safe after a
+    subprocess fork even in a multithreaded parent."""
+    os.setsid()
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+
+# (No os.fork-based reaping helper: subprocess.Popen.wait() reaps the child.)
 
 
 class _EmbeddedScreen(pyte.Screen):
@@ -54,6 +59,7 @@ class PtySession:
         self.stream = pyte.ByteStream(self.screen)
         self._master_fd: int | None = None
         self._pid: int | None = None
+        self._proc: subprocess.Popen | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         # Called (in the event-loop thread) after output is read+fed, so the
         # widget can repaint the rows pyte marked dirty.
@@ -94,22 +100,40 @@ class PtySession:
 
     # real PTY
     def spawn(self, argv: list[str]) -> None:
-        """Fork a child running argv attached to a new PTY."""
-        pid, master_fd = os.forkpty()
-        if pid == 0:  # child
-            os.execvp(argv[0], argv)
-            os._exit(127)
-        self._pid = pid
-        self._master_fd = master_fd
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-        self._set_winsize(self.lines, self.columns)
+        """Run argv on a new PTY.
+
+        Uses ``subprocess`` (whose C-level fork+exec bypasses CPython's at-fork
+        handlers) rather than ``os.forkpty()``. ``os.fork``/``forkpty`` acquire
+        the import/IO locks via at-fork handlers; in a multithreaded runtime
+        (Textual's input thread, libtmux subprocesses) that can deadlock the
+        event-loop thread if another thread holds one — freezing the whole UI.
+        """
+        master, slave = pty.openpty()
+        # Size the slave before launch so the child sees the right dimensions.
+        winsize = struct.pack("HHHH", self.lines, self.columns, 0, 0)
+        try:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, winsize)
+        except OSError:
+            pass
+        try:
+            self._proc = subprocess.Popen(
+                argv,
+                stdin=slave, stdout=slave, stderr=slave,
+                preexec_fn=_make_controlling_tty,
+                close_fds=True,
+            )
+        finally:
+            os.close(slave)  # parent keeps only the master end
+        self._pid = self._proc.pid
+        self._master_fd = master
+        flags = fcntl.fcntl(master, fcntl.F_GETFL)
+        fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         # Drive reads from the asyncio loop: the fd is watched and `_on_readable`
         # fires only when output is available — no polling. Outside a running
         # loop (e.g. unit tests) we skip registration; callers can use `read()`.
         try:
             self._loop = asyncio.get_running_loop()
-            self._loop.add_reader(master_fd, self._on_readable)
+            self._loop.add_reader(master, self._on_readable)
         except RuntimeError:
             self._loop = None
 
@@ -174,14 +198,15 @@ class PtySession:
             except OSError:
                 pass
             self._master_fd = None
-        pid = self._pid
+        proc = self._proc
+        self._proc = None
         self._pid = None
         self._loop = None
-        if pid is not None:
+        if proc is not None and proc.poll() is None:
             try:
-                os.kill(pid, signal.SIGHUP)
-            except ProcessLookupError:
+                proc.send_signal(signal.SIGHUP)  # detach + exit the tmux client
+            except (ProcessLookupError, OSError):
                 return
             # Reap off the event loop so a click/agent-switch never freezes the UI
-            # while waiting for the child (tmux client) to exit.
-            _reap_in_background(pid)
+            # while waiting for the child to exit (and no zombie lingers).
+            threading.Thread(target=proc.wait, daemon=True).start()
