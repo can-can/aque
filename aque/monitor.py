@@ -120,7 +120,14 @@ def _has_attached_client(server: libtmux.Server, session_name: str) -> bool:
         session = server.sessions.get(session_name=session_name)
         if session is None:
             return False
-        return session.get("session_attached") == "1"
+        # libtmux 0.17+ removed Session.get() (it raises DeprecatedError); read
+        # the attribute directly. session_attached is the *count* of attached
+        # clients, not a flag — it is "2"+ when the embedded terminal coexists
+        # with another attach. Any count > 0 means a client is driving the pane.
+        try:
+            return int(session.session_attached) > 0
+        except (TypeError, ValueError):
+            return False
     except Exception:
         return False
 

@@ -351,38 +351,48 @@ def test_waiting_unchanged_content_does_not_flip(monkeypatch, tmp_path):
     assert mgr.load().agents[0].state == AgentState.WAITING
 
 
-def test_has_attached_client_true():
-    from aque import monitor
+# libtmux 0.17+ removed Session.get(); attach state is read via the
+# session_attached attribute. These fakes must mirror that (no .get()) or they
+# silently mask the real API and let attach-detection regress.
+class _FakeSession:
+    def __init__(self, attached):
+        self.session_attached = attached
 
-    class FakeSession:
-        def get(self, key): return "1"
+
+def _fake_server(session):
     class FakeServer:
         class sessions:
             @staticmethod
-            def get(session_name=None): return FakeSession()
-    assert monitor._has_attached_client(FakeServer(), "aque-1") is True
+            def get(session_name=None):
+                return session
+    return FakeServer()
+
+
+def test_has_attached_client_true():
+    from aque import monitor
+
+    assert monitor._has_attached_client(_fake_server(_FakeSession("1")), "aque-1") is True
+
+
+def test_has_attached_client_true_when_multiple():
+    # session_attached is a CLIENT COUNT, not a flag. Two clients (e.g. the
+    # embedded terminal plus a lingering full-screen attach) means a client is
+    # attached, so re-promotion / idle-suppression must still apply.
+    from aque import monitor
+
+    assert monitor._has_attached_client(_fake_server(_FakeSession("2")), "aque-1") is True
 
 
 def test_has_attached_client_false_when_zero():
     from aque import monitor
 
-    class FakeSession:
-        def get(self, key): return "0"
-    class FakeServer:
-        class sessions:
-            @staticmethod
-            def get(session_name=None): return FakeSession()
-    assert monitor._has_attached_client(FakeServer(), "aque-1") is False
+    assert monitor._has_attached_client(_fake_server(_FakeSession("0")), "aque-1") is False
 
 
 def test_has_attached_client_false_when_missing():
     from aque import monitor
 
-    class FakeServer:
-        class sessions:
-            @staticmethod
-            def get(session_name=None): return None
-    assert monitor._has_attached_client(FakeServer(), "gone") is False
+    assert monitor._has_attached_client(_fake_server(None), "gone") is False
 
 
 def test_run_monitor_refreshes_pid_heartbeat(tmp_aque_dir, monkeypatch):
