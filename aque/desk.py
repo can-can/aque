@@ -62,6 +62,8 @@ STATE_PRIORITY = {
 # refreshes, so the marker is reliably caught by a glancing user.
 CHANGE_CUE_SECS = 3.0
 
+NARROW_BREAKPOINT = 80  # columns; below this, auto layout stacks and labels compact
+
 
 def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
     return sorted(agents, key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
@@ -443,9 +445,25 @@ class DeskApp(App):
         width: 40%;
         border-right: solid $surface-lighten-1;
     }
-    #agent-panel.narrow {
+    /* Stacked (narrow/forced): #dashboard flips to vertical; list takes the
+       height it needs up to a 30% cap, terminal fills the rest. */
+    #dashboard.stacked {
+        layout: vertical;
+    }
+    #dashboard.stacked #agent-panel {
         width: 100%;
+        height: auto;
+        max-height: 30%;
         border-right: none;
+        border-bottom: solid $surface-lighten-1;
+    }
+    #dashboard.stacked #agent-option-list {
+        height: auto;
+        max-height: 100%;
+    }
+    #dashboard.stacked #preview-panel {
+        width: 100%;
+        height: 1fr;
     }
     #preview-panel {
         width: 60%;
@@ -614,7 +632,7 @@ class DeskApp(App):
             return "wide"
         if self._layout_mode == "stacked":
             return "stacked"
-        return "stacked" if width < 80 else "wide"
+        return "stacked" if width < NARROW_BREAKPOINT else "wide"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -675,24 +693,29 @@ class DeskApp(App):
         return dashboard
 
     def _apply_layout(self, width: int | None = None) -> None:
-        """Toggle between narrow (single-column) and wide (two-column) layout."""
+        """Apply the effective arrangement (wide two-column or stacked
+        single-column (agent list over the terminal; the notification banner,
+        when present, sits above)).
+
+        ``_narrow`` (width < NARROW_BREAKPOINT) governs text compaction and is
+        computed here; the arrangement comes from ``_effective_layout`` so a
+        forced layout can differ from what the width implies. The embedded
+        terminal is shown in both arrangements now — stacked puts it at the
+        bottom rather than hiding and detaching it.
+        """
         w = width if width is not None else self.size.width
-        narrow = w < 80
-        self._narrow = narrow
+        self._narrow = w < NARROW_BREAKPOINT
+        stacked = self._effective_layout(w) == "stacked"
         try:
-            self.query_one("#preview-panel").display = not narrow
-            self.query_one("#agent-panel").set_class(narrow, "narrow")
+            self.query_one("#dashboard").set_class(stacked, "stacked")
+            self.query_one("#preview-panel").display = True
         except Exception:
             pass
-        if narrow:
-            try:
-                self.query_one("#embedded-terminal", TerminalView).detach()
-            except Exception:
-                pass
-            self._unpin_embed_window()  # no embed in narrow — let the agent size normally
+        # No unpin-on-narrow: the embed is shown in stacked too, so it pins the
+        # tmux window to its (bottom-region) size via the normal attach path.
         for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
-                self.query_one(selector).set_class(narrow, "narrow")
+                self.query_one(selector).set_class(self._narrow, "narrow")
             except Exception:
                 pass
 
@@ -1691,8 +1714,6 @@ class DeskApp(App):
         self._preview_debounce_timer = None
         if self._skip_attach:
             return  # tests / headless: never spawn a real tmux client
-        if self._narrow:
-            return  # terminal panel hidden in narrow layout
         try:
             ol = self.query_one("#agent-option-list", OptionList)
             term = self.query_one("#embedded-terminal", TerminalView)

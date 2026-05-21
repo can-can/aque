@@ -22,3 +22,62 @@ def test_effective_layout_forced_ignores_width(tmp_aque_dir):
 def test_layout_mode_defaults_to_auto(tmp_aque_dir):
     app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
     assert app._layout_mode == "auto"
+
+
+@pytest.mark.asyncio
+async def test_auto_stacks_when_narrow(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._apply_layout(width=70)
+        await pilot.pause()
+        assert app.query_one("#dashboard").has_class("stacked")
+        # Terminal is shown at the bottom in stacked, not hidden.
+        assert app.query_one("#preview-panel").display is True
+
+
+@pytest.mark.asyncio
+async def test_auto_two_column_when_wide(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._apply_layout(width=120)
+        await pilot.pause()
+        assert not app.query_one("#dashboard").has_class("stacked")
+        assert app.query_one("#preview-panel").display is True
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_sets_narrow_flag_from_width(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._apply_layout(width=70)
+        assert app._narrow is True
+        app._apply_layout(width=120)
+        assert app._narrow is False
+
+
+@pytest.mark.asyncio
+async def test_narrow_previews_terminal_instead_of_skipping(tmp_aque_dir, monkeypatch):
+    # In stacked (narrow) the terminal is visible at the bottom, so the
+    # highlighted-agent preview MUST attach — regression guard against the
+    # old "if self._narrow: return" that left the bottom panel empty.
+    from aque.terminal.widget import TerminalView
+    from aque.state import StateManager, AgentInfo, AgentState
+
+    calls = []
+    monkeypatch.setattr(TerminalView, "attach", lambda self, argv: calls.append(argv))
+
+    mgr = StateManager(tmp_aque_dir)
+    mgr.add_agent(AgentInfo(
+        id=1, tmux_session="s-1", label="alpha", dir="/tmp",
+        command=["claude"], state=AgentState.RUNNING, pid=100,
+    ))
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
+    async with app.run_test(size=(45, 24)) as pilot:
+        await pilot.pause()
+        app._apply_layout(width=45)          # narrow -> stacked
+        ol = app.query_one("#agent-option-list")
+        ol.highlighted = 0
+        calls.clear()                        # ignore any mount-time attach
+        app._attach_highlighted_terminal()
+        await pilot.pause()
+        assert calls, "terminal should attach (preview) in stacked/narrow layout"
