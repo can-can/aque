@@ -8,6 +8,8 @@ Cursor rules (deliberate overrides of pyte defaults, per spec):
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from rich.segment import Segment
 from rich.style import Style
 from textual.geometry import Region, Size
@@ -31,8 +33,13 @@ def _color(name: str) -> str | None:
     return f"#{name}" if len(name) == 6 else name
 
 
+@lru_cache(maxsize=4096)
 def cell_style(fg: str, bg: str, *, bold: bool = False, reverse: bool = False,
                is_cursor: bool = False) -> Style:
+    # Memoized: a screen only uses a handful of distinct cell styles, but a full
+    # repaint asks for thousands of cells. Building a Rich Style per cell every
+    # frame is the dominant cost; caching makes repaints cheap. Style is
+    # immutable, so sharing instances across cells is safe.
     f = _color(fg)
     b = _color(bg)
     if is_cursor and f is None and b is None:
@@ -77,6 +84,9 @@ class TerminalView(Widget, can_focus=True):
         self._last_cursor: tuple[int, int] = (0, 0)
         self._attached_session: str | None = None
         self._pending_session: str | None = None
+        # Rendered Strip per buffer row; entries are dropped when pyte marks the
+        # row dirty (or on resize), so unchanged rows skip the rebuild entirely.
+        self._line_cache: dict[int, Strip] = {}
 
     # lifecycle
     def attach(self, tmux_session: str) -> None:
@@ -110,6 +120,7 @@ class TerminalView(Widget, can_focus=True):
             self.session = None
         self._attached_session = None
         self._pending_session = None
+        self._line_cache.clear()
 
     def on_unmount(self) -> None:
         self.detach()
@@ -118,6 +129,7 @@ class TerminalView(Widget, can_focus=True):
         if self.session is not None:
             self.session.resize(lines=max(event.size.height, 1),
                                 columns=max(event.size.width, 1))
+            self._line_cache.clear()  # geometry changed — every cached row is stale
             self.refresh()
         elif self._pending_session is not None and event.size.height >= 1 and event.size.width >= 1:
             pending = self._pending_session
@@ -128,9 +140,17 @@ class TerminalView(Widget, can_focus=True):
     def _poll(self) -> None:
         if self.session is None:
             return
-        data = self.session.read()
-        if data:
-            self.session.feed(data)
+        # Drain everything available this tick and feed it in one go, so a burst
+        # of output repaints once instead of dribbling across many frames. The
+        # iteration cap keeps a noisy producer from starving the event loop.
+        chunks: list[bytes] = []
+        for _ in range(64):
+            data = self.session.read()
+            if not data:
+                break
+            chunks.append(data)
+        if chunks:
+            self.session.feed(b"".join(chunks))
         cx, cy = self.session.cursor()
         dirty = self.session.dirty_lines()
         # Always repaint old + new cursor rows so the cursor never ghosts.
@@ -138,6 +158,7 @@ class TerminalView(Widget, can_focus=True):
             dirty = dirty | {self._last_cursor[1], cy}
             self._last_cursor = (cx, cy)
         for y in dirty:
+            self._line_cache.pop(y, None)  # row changed — rebuild on next render
             if 0 <= y < self.size.height:
                 self.refresh(Region(0, y, self.size.width, 1))
         self.session.clear_dirty()
@@ -146,9 +167,14 @@ class TerminalView(Widget, can_focus=True):
     def render_line(self, y: int) -> Strip:
         if self.session is None:
             return Strip.blank(self.size.width)
+        cached = self._line_cache.get(y)
+        if cached is not None:
+            return cached
         segments = render_strip(self.session, y, self.size.width,
                                 cursor_visible=True)  # always draw cursor
-        return Strip(segments, self.size.width)
+        strip = Strip(segments, self.size.width)
+        self._line_cache[y] = strip
+        return strip
 
     def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
         return self.size.height
