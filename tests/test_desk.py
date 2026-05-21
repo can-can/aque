@@ -569,6 +569,30 @@ class TestEnsureMonitorRunning:
         assert (4242, signal.SIGTERM) in killed  # hung monitor was terminated first
 
 
+class TestAgentSwitching:
+    def _app_with_three(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        for i in (1, 2, 3):
+            mgr.add_agent(AgentInfo(
+                id=i, tmux_session=f"s-{i}", label=f"a{i}", dir="/tmp",
+                command=["a"], state=AgentState.RUNNING, pid=100 + i,
+            ))
+        return DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+
+    @pytest.mark.asyncio
+    async def test_next_and_prev_wrap(self, tmp_aque_dir):
+        app = self._app_with_three(tmp_aque_dir)
+        async with app.run_test():
+            ol = app.query_one("#agent-option-list", OptionList)
+            ol.highlighted = 0
+            app.action_next_agent()
+            assert ol.highlighted == 1
+            app.action_prev_agent()
+            assert ol.highlighted == 0
+            app.action_prev_agent()                 # wraps to last
+            assert ol.highlighted == ol.option_count - 1
+
+
 class TestAttachDoesNotChangeState:
     def test_attach_does_not_change_agent_state(self, tmp_path, monkeypatch):
         import contextlib

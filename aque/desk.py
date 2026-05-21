@@ -685,8 +685,12 @@ class DeskApp(App):
         sc = self.config["shortcuts"]
         self.bind(sc["quit"], "quit_app", description="Quit")
         self.bind(sc["attach_fullscreen"], "attach_fullscreen", description="Full-screen")
-        self.bind(sc["switch_focus"], "switch_focus", description="Focus")
-        self.bind(sc["switch_agent"], "switch_agent", description="Switch")
+        self.bind(sc["next_agent"], "next_agent", description="Next agent")
+        self.bind(sc["prev_agent"], "prev_agent", description="Prev agent")
+        self.bind(sc["new_agent"], "new_agent", description="New")
+        self.bind(sc["kill_agent"], "kill_agent", description="Kill")
+        self.bind(sc["hold_agent"], "hold_agent", description="Hold")
+        self.bind(sc["toggle_auto"], "toggle_auto_respond", description="Auto")
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -1781,22 +1785,13 @@ class DeskApp(App):
         if agent is not None and not self._skip_attach:
             self._attach_to_agent(agent)
 
-    def action_switch_focus(self) -> None:
-        """Toggle keyboard focus between the agent list and the embedded terminal."""
-        if self._mode != "dashboard":
-            return
-        try:
-            term = self.query_one("#embedded-terminal", TerminalView)
-            ol = self.query_one("#agent-option-list", OptionList)
-        except Exception:
-            return
-        if self.focused is term:
-            ol.focus()
-        else:
-            term.focus()
+    def action_next_agent(self) -> None:
+        self._move_highlight(+1)
 
-    def action_switch_agent(self) -> None:
-        """Move highlight to the next agent (wraps)."""
+    def action_prev_agent(self) -> None:
+        self._move_highlight(-1)
+
+    def _move_highlight(self, delta: int) -> None:
         if self._mode != "dashboard":
             return
         try:
@@ -1805,8 +1800,10 @@ class DeskApp(App):
             return
         if ol.option_count == 0:
             return
-        nxt = 0 if ol.highlighted is None else (ol.highlighted + 1) % ol.option_count
-        ol.highlighted = nxt
+        cur = 0 if ol.highlighted is None else ol.highlighted
+        ol.highlighted = (cur + delta) % ol.option_count
+        # Changing the highlight posts OptionHighlighted -> debounced re-attach
+        # + refocus of the terminal, so the user stays "in" the new agent.
 
     def on_key(self, event) -> None:
         # Triage pill takes priority — it's the most recent surface and the
