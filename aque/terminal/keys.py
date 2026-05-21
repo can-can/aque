@@ -8,6 +8,7 @@ b"" so callers can fall back to the event's `character`.
 _NAMED = {
     "enter": b"\r",
     "tab": b"\t",
+    "shift+tab": b"\x1b[Z",
     "backspace": b"\x7f",
     "escape": b"\x1b",
     "space": b" ",
@@ -23,6 +24,18 @@ _NAMED = {
     "pagedown": b"\x1b[6~",
     "delete": b"\x1b[3~",
     "insert": b"\x1b[2~",
+    "f1": b"\x1bOP",
+    "f2": b"\x1bOQ",
+    "f3": b"\x1bOR",
+    "f4": b"\x1bOS",
+    "f5": b"\x1b[15~",
+    "f6": b"\x1b[17~",
+    "f7": b"\x1b[18~",
+    "f8": b"\x1b[19~",
+    "f9": b"\x1b[20~",
+    "f10": b"\x1b[21~",
+    "f11": b"\x1b[23~",
+    "f12": b"\x1b[24~",
 }
 
 
@@ -37,6 +50,10 @@ def encode_key(key: str, character: str | None = None) -> bytes:
     `character` is the event's printable character when available; used as the
     fallback for plain printable input.
     """
+    # Reserved desk chords: must not be encoded so they bubble to desk actions
+    if key.startswith("ctrl+shift+") or key == "ctrl+k":
+        return b""
+
     if key in _NAMED:
         return _NAMED[key]
 

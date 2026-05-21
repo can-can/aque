@@ -31,9 +31,23 @@ def test_alt_is_esc_prefixed():
 
 
 def test_unknown_returns_empty():
-    assert encode_key("f5") == b""
+    assert encode_key("unknown_key") == b""
 
 
 def test_ctrl_end_and_ctrl_home_have_sequences():
     assert encode_key("ctrl+end") != b""
     assert encode_key("ctrl+home") != b""
+
+
+def test_shift_tab_and_function_keys():
+    assert encode_key("shift+tab") == b"\x1b[Z"
+    assert encode_key("f1") == b"\x1bOP"
+    assert encode_key("f4") == b"\x1bOS"
+    assert encode_key("f5") == b"\x1b[15~"
+    assert encode_key("f12") == b"\x1b[24~"
+
+
+def test_reserved_chords_are_not_encodable():
+    assert encode_key("ctrl+shift+j") == b""
+    assert encode_key("ctrl+shift+n") == b""
+    assert encode_key("ctrl+k") == b""
