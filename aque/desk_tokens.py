@@ -1,63 +1,78 @@
 """Design tokens for the aque desk TUI.
 
-Maps the web prototype's oklch palette onto Textual/Rich named colors so the
-desk reads with the same visual hierarchy in a terminal: a colored state dot,
-a vendor-coloured type chip, and a soft "auto/manual" chip on the right.
+Maps the web prototype's light-background palette onto Rich truecolor hex so the
+desk reads with the same visual hierarchy in a terminal: a colored state dot, a
+filled vendor "pill", a bold name, and a soft "auto/manual" chip on the right.
+All colours are tuned for legibility on the cream Screen background set in
+``DeskApp.CSS``.
 """
 from aque.state import AgentState
 
 
+# State-dot colours, tuned to read on the cream background.
 STATE_COLORS: dict[AgentState, str] = {
-    AgentState.RUNNING: "green",
-    AgentState.WAITING: "yellow",
-    AgentState.FOCUSED: "blue",
-    AgentState.EXITED: "dim",
-    AgentState.ON_HOLD: "magenta",
-    AgentState.DONE: "red",
+    AgentState.RUNNING: "#16A34A",   # green-600
+    AgentState.WAITING: "#CA8A04",   # amber-600 (named "yellow" washes out on cream)
+    AgentState.FOCUSED: "#2563EB",   # blue-600
+    AgentState.EXITED: "#9CA3AF",    # gray-400
+    AgentState.ON_HOLD: "#9333EA",   # purple-600
+    AgentState.DONE: "#DC2626",      # red-600
 }
 
 
-# Vendor accent colours. The design defines these as oklch values in a
-# light-bg context; we map each to a truecolor hex value that reads on
-# both light and dark terminals.
+# Vendor accent colours — used as the pill's *text* colour. Tuned dark enough
+# to read on the matching light fill below (and kept as the single source of
+# truth the vendor-colour BDD step asserts against).
 #
-#   claude   — amber (warmth)
-#   codex    — slate blue (cool, neutral)
-#   aider    — teal (a more saturated cyan-green)
-#   gemini   — indigo (Google's indigo-violet)
-#   opencode — emerald (open-source green)
-#
-# Rich accepts ``#rrggbb`` strings interchangeably with named colours.
+#   claude   — amber
+#   codex    — slate
+#   aider    — teal
+#   gemini   — violet
+#   opencode — green
 TYPE_COLORS: dict[str, str] = {
-    "claude":   "#D69E2E",
-    "codex":    "#5A7A9E",
-    "aider":    "#319795",
-    "gemini":   "#7C3AED",
-    "opencode": "#48BB78",
+    "claude":   "#B45309",
+    "codex":    "#475569",
+    "aider":    "#0F766E",
+    "gemini":   "#6D28D9",
+    "opencode": "#15803D",
 }
+
+
+# Light tint backgrounds for each vendor pill, paired with TYPE_COLORS text.
+TYPE_FILLS: dict[str, str] = {
+    "claude":   "#FBE6D4",
+    "codex":    "#E2E8F0",
+    "aider":    "#CFF0EC",
+    "gemini":   "#EADDFB",
+    "opencode": "#CDEFD8",
+}
+
+
+# Mode chip colours (text on fill). Terminals can't draw a rounded border, so
+# a soft filled block stands in for the design's outlined badge.
+AUTO_CHIP = ("#15803D", "#CDEFD8")    # green text on light green
+MANUAL_CHIP = ("#6B7280", "#E5E7EB")  # gray text on light gray
 
 
 def type_chip_markup(agent_type: str | None) -> str:
-    """Rich markup for a vendor type chip — e.g. ``[yellow][claude][/yellow]``.
+    """Rich markup for a filled vendor pill — e.g. ``[#B45309 on #FBE6D4] claude [/]``.
 
-    Empty string when the agent has no type (polling-only). The brackets are
-    escaped so Rich treats them as literal characters, not markup tags.
+    Empty string when the agent has no type (polling-only). The vendor's accent
+    is the text colour; a light tint of it is the fill, approximating the
+    design's rounded badge with a padded coloured block.
     """
     if not agent_type:
         return ""
-    color = TYPE_COLORS.get(agent_type, "white")
-    return f"[{color}]\\[{agent_type}][/{color}]"
+    fg = TYPE_COLORS.get(agent_type, "#475569")
+    bg = TYPE_FILLS.get(agent_type, "#E2E8F0")
+    return f"[{fg} on {bg}] {agent_type} [/]"
 
 
-def auto_chip_markup(auto_respond: bool, has_responder: bool) -> str:
-    """Rich markup for the auto/manual chip at the right edge of a row.
+def auto_chip_markup(auto_respond: bool) -> str:
+    """Rich markup for the auto/manual chip at the right edge of every row.
 
-    Renders as ``auto`` (green) when on, ``manual`` (dim) when off, and an
-    empty string when there is no responder so the chip is not implying a
-    toggle the user can't act on.
+    Renders as a soft ``auto`` (green) or ``manual`` (gray) filled block.
     """
-    if not has_responder:
-        return ""
-    if auto_respond:
-        return "[green]auto[/green]"
-    return "[dim]manual[/dim]"
+    fg, bg = AUTO_CHIP if auto_respond else MANUAL_CHIP
+    label = "auto" if auto_respond else "manual"
+    return f"[{fg} on {bg}] {label} [/]"

@@ -1066,48 +1066,56 @@ class DeskApp(App):
         for w in self.query("#search-input"):
             w.remove()
 
-    def _build_row_label(self, agent: AgentInfo, has_responder: bool) -> Text:
+    def _build_row_label(self, agent: AgentInfo, width: int = 0) -> Text:
         """Render an agent row in the locked Project layout.
 
-        Wide:    ●  [type]   name                              auto
-        Narrow:  ●  [type]   name                              auto
+            ●  claude   name                              auto
 
-        The layout encodes the design's four cells — state dot, vendor type
-        chip, bold name, soft auto chip — and nothing else. State is carried
-        by the dot's colour alone (the design dropped the state word from the
-        row; it lives in the preview header). Typeless agents show a dim
-        bracket-free ``polling`` marker in place of the vendor chip.
+        The layout encodes the design's four cells — state dot, filled vendor
+        pill, bold name, soft auto/manual chip — and nothing else. State is
+        carried by the dot's colour alone (the design dropped the state word
+        from the row; it lives in the preview header). Typeless agents show a
+        dim ``polling`` marker in place of the vendor pill.
+
+        The mode chip is right-aligned to ``width`` (the list's content width);
+        when a name would push the chip past the edge it is truncated with an
+        ellipsis rather than wrapping onto a second line.
 
         Returns a ``rich.text.Text`` so ``str(prompt)`` yields the plain row
-        without markup tags — callers can still substring-search for labels
-        without false positives from tags like ``[/bold]``.
+        without markup tags — callers can still substring-search for labels.
         """
         state_color = STATE_COLORS.get(agent.state, "white")
         state_dot = f"[{state_color}]●[/{state_color}]"
         indent = "↳ " if agent.is_responder else ""
-        type_chip = type_chip_markup(agent.agent_type)
-        # Polling placeholder is intentionally bracket-free so it never reads
-        # as a vendor ``[type]`` tag (rows assert on the bracket).
-        type_disp = type_chip if type_chip else "[dim]polling[/dim]"
-        auto_chip = auto_chip_markup(agent.auto_respond, has_responder)
-        auto_part = f"  {auto_chip}" if auto_chip else ""
-        # Brief state-change cue: a leading ``▴`` for ~3 s after we detect
-        # this agent's state changing. The TUI stand-in for the design's
-        # animated (FLIP) row reorder — catches the eye without blocking.
+        type_disp = type_chip_markup(agent.agent_type) or "[dim]polling[/dim]"
+        type_plain = f" {agent.agent_type} " if agent.agent_type else "polling"
+        # Brief state-change cue: a leading ``▴`` for ~3 s after we detect this
+        # agent's state changing — the TUI stand-in for the design's animated
+        # row reorder.
         recent = (
             time.monotonic() - self._change_at.get(agent.id, 0.0) < CHANGE_CUE_SECS
         )
         cue = f"[{state_color}]▴[/{state_color}]" if recent else " "
 
-        if self._is_narrow:
-            return Text.from_markup(
-                f"{cue} {state_dot}  {type_disp}  {indent}[bold]{agent.label}[/bold]{auto_part}"
-            )
+        # Mode chip shows on every partner row; responder sub-rows don't own a
+        # toggle, so they omit it.
+        if agent.is_responder:
+            chip_markup, chip_w = "", 0
+        else:
+            chip_markup = auto_chip_markup(agent.auto_respond)
+            chip_w = len(" auto " if agent.auto_respond else " manual ")
 
-        # Wide: pad the name so the auto chip lands in a tidy right column.
-        name_padded = f"{indent}{agent.label:<24}"
+        # Fixed glyphs before the name: "cue space dot 2sp pill 2sp indent".
+        prefix_w = 1 + 1 + 1 + 2 + len(type_plain) + 2 + len(indent)
+        # Pad so the mode chip lands at the right edge. The name is never
+        # truncated (so callers can still match on it); a name long enough to
+        # crowd the chip simply collapses the gap to a single space.
+        avail = (width or 36) - 1
+        pad = max(1, avail - prefix_w - len(agent.label) - chip_w)
+
         return Text.from_markup(
-            f"{cue} {state_dot}  {type_disp}  [bold]{name_padded}[/bold]{auto_part}"
+            f"{cue} {state_dot}  {type_disp}  {indent}[bold]{agent.label}[/bold]"
+            f"{' ' * pad}{chip_markup}"
         )
 
     def _refresh_agent_list(self, reset_highlight: bool = False, state: AppState | None = None) -> None:
@@ -1149,19 +1157,10 @@ class DeskApp(App):
             except Exception:
                 pass
 
-        responders_by_partner = {
-            a.partner_id: a for a in state.agents if a.is_responder
-        }
-
+        row_width = option_list.content_size.width
         option_list.clear_options()
         for agent in agents:
-            label = self._build_row_label(
-                agent,
-                has_responder=(
-                    not agent.is_responder
-                    and agent.id in responders_by_partner
-                ),
-            )
+            label = self._build_row_label(agent, width=row_width)
             option_list.add_option(Option(label, id=str(agent.id)))
 
         if current_highlighted_id is not None:

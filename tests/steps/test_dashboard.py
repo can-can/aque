@@ -675,14 +675,14 @@ def when_user_highlights(ctx, label):
 
 @then(parsers.parse('the agent list should show a "{type_name}" type tag for "{label}"'))
 def then_agent_list_shows_type_tag(ctx, type_name, label):
-    """Type tags render as ``[type]`` in the user-visible row text."""
+    """Type tags render as a filled vendor pill — `` claude `` in the row text."""
     option_list = ctx.app.query_one("#agent-option-list")
     for i in range(option_list.option_count):
         option = option_list.get_option_at_index(i)
         label_text = str(option.prompt)
         if label in label_text:
-            assert f"[{type_name}]" in label_text, (
-                f"Expected type tag '[{type_name}]' in row for '{label}', got: '{label_text}'"
+            assert f" {type_name} " in label_text, (
+                f"Expected type pill ' {type_name} ' in row for '{label}', got: '{label_text}'"
             )
             return
     pytest.fail(f"Agent '{label}' not found in option list")

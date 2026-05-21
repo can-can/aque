@@ -3,5 +3,6 @@ __pycache__/
 *.egg-info/
 .superpowers/
 docs/superpowers/
+.claude/worktrees/
 dist/
 .DS_Store
