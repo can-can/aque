@@ -792,3 +792,38 @@ class TestEmbedShortcuts:
         for payload, method in routes.items():
             app._on_command_picked(CommandItem("x", "action", payload))
         assert sorted(calls) == sorted(routes.values())
+
+
+class TestKillConfirmation:
+    @pytest.mark.asyncio
+    async def test_kill_requires_confirmation(self, tmp_aque_dir, monkeypatch):
+        from aque.widgets.confirm_modal import ConfirmModal
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            killed = []
+            monkeypatch.setattr(app, "_kill_agent", lambda aid: killed.append(aid))
+            app.query_one("#agent-option-list", OptionList).highlighted = 0
+
+            # Kill action only opens the prompt — nothing dies yet.
+            app.action_kill_agent()
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            assert killed == []
+
+            # Cancelling kills nothing.
+            await pilot.press("escape")
+            await pilot.pause()
+            assert killed == []
+
+            # Confirming kills.
+            app.action_kill_agent()
+            await pilot.pause()
+            await pilot.press("y")
+            await pilot.pause()
+            assert killed == [1]

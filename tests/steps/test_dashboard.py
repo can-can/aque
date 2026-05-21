@@ -68,8 +68,13 @@ def test_press_n_opens_new_agent_form():
     pass
 
 
-@scenario(FEATURE, 'Press "k" to kill highlighted agent')
+@scenario(FEATURE, 'Press "k" then confirm to kill highlighted agent')
 def test_press_k_kills_highlighted_agent():
+    pass
+
+
+@scenario(FEATURE, 'Press "k" then cancel leaves the agent alive')
+def test_press_k_then_cancel_keeps_agent():
     pass
 
 

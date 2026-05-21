@@ -41,6 +41,7 @@ from aque.run import launch_agent, relaunch_agent
 from aque.sessions import CAPTURERS
 from aque.state import AgentInfo, AppState, AgentState, StateManager
 from aque.widgets.command_palette import CommandItem, CommandPalette
+from aque.widgets.confirm_modal import ConfirmModal
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
 from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
@@ -1727,12 +1728,31 @@ class DeskApp(App):
             self._show_quick_launch_form()
 
     def action_kill_agent(self) -> None:
-        if self._mode == "dashboard":
-            agent_id = self._get_highlighted_agent_id()
-            if agent_id is not None:
-                self._kill_agent(agent_id)
-                self._refresh_agent_list()
-                self._refresh_status_bar()
+        if self._mode != "dashboard":
+            return
+        agent_id = self._get_highlighted_agent_id()
+        if agent_id is None:
+            return
+        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        label = agent.label if agent is not None else f"agent {agent_id}"
+
+        def _on_confirm(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            self._kill_agent(agent_id)
+            self._refresh_agent_list()
+            self._refresh_status_bar()
+
+        # Killing is irreversible (the tmux session can't be revived), so guard
+        # it behind an explicit confirmation — a stray 'k' just shows the prompt.
+        self.push_screen(
+            ConfirmModal(
+                f"Kill {label}?",
+                subtext="The tmux session can't be revived.",
+                confirm_label="Kill",
+            ),
+            _on_confirm,
+        )
 
     def action_hold_agent(self) -> None:
         if self._mode == "dashboard":

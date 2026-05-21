@@ -137,10 +137,17 @@ Feature: Dashboard
     When the user presses "n"
     Then the new agent form should be visible
 
-  Scenario: Press "k" to kill highlighted agent
+  Scenario: Press "k" then confirm to kill highlighted agent
     Given agent "builder" is highlighted on the dashboard
     When the user presses "k"
+    And the user presses "y"
     Then agent "builder" should be moved to history
+
+  Scenario: Press "k" then cancel leaves the agent alive
+    Given agent "builder" is highlighted on the dashboard
+    When the user presses "k"
+    And the user presses "escape"
+    Then the agent list should contain "builder"
 
   Scenario: Press "h" to toggle hold on highlighted agent
     Given agent "builder" is running and highlighted

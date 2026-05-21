@@ -11,6 +11,7 @@ Feature: Undo a destructive action
   Scenario: Undo bar appears after killing an agent
     Given agent "fixer" is running and highlighted
     When the user presses "k"
+    And the user presses "y"
     Then the undo bar should be visible
     And the undo bar should mention "fixer"
 
@@ -19,6 +20,7 @@ Feature: Undo a destructive action
   Scenario: Pressing "u" restores a killed agent
     Given agent "fixer" is running and highlighted
     When the user presses "k"
+    And the user presses "y"
     And the user presses "u"
     Then the undo bar should be dismissed
     And the active agents should include "fixer"
@@ -27,6 +29,7 @@ Feature: Undo a destructive action
     Given 0 agents are in history
     And agent "fixer" is running and highlighted
     When the user presses "k"
+    And the user presses "y"
     Then the history should contain 1 entry
     When the user presses "u"
     Then the history should contain 0 entries
