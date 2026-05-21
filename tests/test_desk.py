@@ -593,6 +593,40 @@ class TestAgentSwitching:
             assert ol.highlighted == ol.option_count - 1
 
 
+class TestTerminalFocus:
+    @pytest.mark.asyncio
+    async def test_agent_list_not_focusable(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test():
+            ol = app.query_one("#agent-option-list", OptionList)
+            assert ol.can_focus is False
+
+    @pytest.mark.asyncio
+    async def test_highlight_focuses_terminal(self, tmp_aque_dir, monkeypatch):
+        from aque.terminal.widget import TerminalView
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="a", dir="/tmp",
+            command=["a"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            term = app.query_one("#embedded-terminal", TerminalView)
+            # Don't spawn real tmux; just focus like the real attach does.
+            monkeypatch.setattr(term, "attach", lambda sess: term.focus())
+            app._skip_attach = False          # allow the focus path
+            ol = app.query_one("#agent-option-list", OptionList)
+            ol.highlighted = 0
+            app._attach_highlighted_terminal()
+            await pilot.pause()
+            assert app.focused is term
+
+
 class TestAttachDoesNotChangeState:
     def test_attach_does_not_change_agent_state(self, tmp_path, monkeypatch):
         import contextlib

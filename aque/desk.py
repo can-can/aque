@@ -637,7 +637,9 @@ class DeskApp(App):
         agent_panel = Vertical(id="agent-panel")
         preview_panel = Vertical(id="preview-panel")
 
-        agent_panel._add_child(OptionList(id="agent-option-list"))
+        agent_list = OptionList(id="agent-option-list")
+        agent_list.can_focus = False
+        agent_panel._add_child(agent_list)
 
         preview_panel._add_child(TerminalView(id="embedded-terminal"))
         dashboard._add_child(agent_panel)
@@ -679,7 +681,7 @@ class DeskApp(App):
         self._refresh_status_bar()
         self._refresh_footer()
         self._start_refresh()
-        self._focus_agent_list()
+        self._focus_dashboard()
         self._scan_for_orphans()
         self.call_after_refresh(self._attach_highlighted_terminal)
         sc = self.config["shortcuts"]
@@ -701,12 +703,21 @@ class DeskApp(App):
             self._refresh_timer.stop()
             self._refresh_timer = None
 
-    def _focus_agent_list(self) -> None:
+    def _focus_dashboard(self) -> None:
+        """Give keyboard focus to the embedded terminal (the primary surface).
+
+        The agent list is non-focusable; navigation happens via reserved chords.
+        Ensures a default highlight so there is an agent to attach to.
+        """
         try:
             ol = self.query_one("#agent-option-list", OptionList)
-            ol.focus()
             if ol.option_count > 0 and ol.highlighted is None:
                 ol.highlighted = 0
+        except Exception:
+            pass
+        try:
+            term = self.query_one("#embedded-terminal", TerminalView)
+            term.focus()
         except Exception:
             pass
 
@@ -1058,7 +1069,7 @@ class DeskApp(App):
         self._refresh_status_bar()
         self._attach_highlighted_terminal()
         self._start_refresh()
-        self._focus_agent_list()
+        self._focus_dashboard()
         self._ensure_monitor_running()
         self._try_show_triage()
 
@@ -1612,7 +1623,7 @@ class DeskApp(App):
         if event.input.id == "search-input":
             # Enter on search returns focus to the agent list so the user
             # can immediately ↑↓ through the filtered results.
-            self._focus_agent_list()
+            self._focus_dashboard()
             return
         if self._mode != "new_agent_form":
             return
@@ -1819,7 +1830,7 @@ class DeskApp(App):
             had_search_focus = bool(self.query("#search-input"))
             if had_search_focus or self._filter is not None or self._search:
                 self._clear_filters()
-                self._focus_agent_list()
+                self._focus_dashboard()
                 event.stop()
                 return
 
