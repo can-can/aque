@@ -397,6 +397,73 @@ def test_has_attached_client_false_when_missing():
     assert monitor._has_attached_client(_fake_server(None), "gone") is False
 
 
+def _add(mgr, agent_id, state, agent_type):
+    from aque.state import AgentInfo
+    mgr.add_agent(AgentInfo(
+        id=agent_id, tmux_session=f"s-{agent_id}", label=f"a{agent_id}",
+        dir="/tmp", command=["x"], state=state, pid=100 + agent_id,
+        agent_type=agent_type,
+    ))
+
+
+def _poll(mgr, monkeypatch, *, attached=False, content="x", waiting_hashes=None):
+    """Drive one _poll_once with tmux interaction stubbed out."""
+    from aque import monitor
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: content)
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: attached)
+    monkeypatch.setattr(monitor, "process_pending_nudges", lambda *a, **k: None)
+    detector = monitor.IdleDetector(idle_timeout=0.01)
+    monitor._poll_once(
+        mgr, server=None, detector=detector, config={},
+        signals_dir=mgr.aque_dir / "signals", stall_timeout=600.0,
+        aque_dir=mgr.aque_dir,
+        waiting_hashes=waiting_hashes if waiting_hashes is not None else {},
+    )
+
+
+class TestEventDrivenSignals:
+    def test_stop_event_flips_running_claude_to_waiting(self, tmp_path, monkeypatch):
+        from aque.state import StateManager, AgentState
+        mgr = StateManager(tmp_path)
+        _add(mgr, 1, AgentState.RUNNING, "claude")
+        sig = tmp_path / "signals"; sig.mkdir()
+        (sig / "1.json").write_text('{"event":"stop"}')
+        _poll(mgr, monkeypatch)
+        assert mgr.load().agents[0].state == AgentState.WAITING
+
+    def test_start_event_flips_waiting_claude_to_running(self, tmp_path, monkeypatch):
+        from aque.state import StateManager, AgentState
+        mgr = StateManager(tmp_path)
+        _add(mgr, 1, AgentState.WAITING, "claude")
+        sig = tmp_path / "signals"; sig.mkdir()
+        (sig / "1.json").write_text('{"event":"start"}')
+        _poll(mgr, monkeypatch)
+        assert mgr.load().agents[0].state == AgentState.RUNNING
+
+    def test_waiting_claude_not_repromoted_by_content_change(self, tmp_path, monkeypatch):
+        # The flicker case: a previewed (attached) waiting claude whose pane
+        # content changes must STAY waiting (only a 'start' signal resumes it).
+        from aque.state import StateManager, AgentState
+        mgr = StateManager(tmp_path)
+        _add(mgr, 1, AgentState.WAITING, "claude")
+        (tmp_path / "signals").mkdir()
+        wh = {}
+        _poll(mgr, monkeypatch, attached=True, content="frame-A", waiting_hashes=wh)
+        _poll(mgr, monkeypatch, attached=True, content="frame-B", waiting_hashes=wh)
+        assert mgr.load().agents[0].state == AgentState.WAITING
+
+    def test_waiting_typeless_still_repromoted_by_content_change(self, tmp_path, monkeypatch):
+        from aque.state import StateManager, AgentState
+        mgr = StateManager(tmp_path)
+        _add(mgr, 1, AgentState.WAITING, None)
+        (tmp_path / "signals").mkdir()
+        wh = {}
+        _poll(mgr, monkeypatch, attached=True, content="frame-A", waiting_hashes=wh)
+        _poll(mgr, monkeypatch, attached=True, content="frame-B", waiting_hashes=wh)
+        assert mgr.load().agents[0].state == AgentState.RUNNING
+
+
 def test_run_monitor_refreshes_pid_heartbeat(tmp_aque_dir, monkeypatch):
     """Each poll iteration should rewrite monitor.pid, bumping its mtime."""
     import aque.monitor as monitor

@@ -15,6 +15,12 @@ from aque.state import AgentInfo, AgentState, StateManager
 
 MONITORED_STATES = {AgentState.RUNNING}
 
+# Agent types whose WAITING<->RUNNING transitions come entirely from hook
+# signals (stop/start). They are excluded from content-based idle and
+# re-promotion, whose heuristics misfire on an animated TUI. Grow this set as
+# each plugin gains a 'start' (resume) hook.
+EVENT_DRIVEN_TYPES = {"claude"}
+
 
 class IdleDetector:
     def __init__(self, idle_timeout: float, aque_dir: Path | None = None):
@@ -254,16 +260,23 @@ def _poll_once(
     for stale_id in prune_detector(detector, running_ids):
         dbg("monitor.detector.prune", aque_dir, agent_id=stale_id)
 
-    # Check signal files first (instant detection)
-    signaled_ids = check_signal_files(signals_dir)
-    for agent in active_agents:
-        if agent.id in signaled_ids:
-            dbg("monitor.signal->waiting", aque_dir, agent_id=agent.id)
-            mgr.update_agent_state(agent.id, AgentState.WAITING)
-            detector.remove_agent(agent.id)
-
-    # Re-load state after signal transitions
-    if signaled_ids:
+    # Apply hook signals first (instant). stop -> WAITING, start -> RUNNING.
+    signaled = check_signal_files(signals_dir)
+    if signaled:
+        by_id = {a.id: a for a in mgr.load().agents}
+        for aid, event in signaled.items():
+            agent = by_id.get(aid)
+            if agent is None:
+                continue
+            if event == "start":
+                if agent.state == AgentState.WAITING:
+                    dbg("monitor.signal->running", aque_dir, agent_id=aid)
+                    mgr.update_agent_state(aid, AgentState.RUNNING)
+            else:  # "stop" (and any unknown event)
+                if agent.state == AgentState.RUNNING:
+                    dbg("monitor.signal->waiting", aque_dir, agent_id=aid)
+                    mgr.update_agent_state(aid, AgentState.WAITING)
+                    detector.remove_agent(aid)
         state = mgr.load()
         active_agents = [
             a for a in state.agents if a.state in MONITORED_STATES
@@ -315,6 +328,8 @@ def _poll_once(
     for agent in mgr.load().agents:
         if agent.state != AgentState.WAITING:
             continue
+        if agent.agent_type in EVENT_DRIVEN_TYPES:
+            continue  # event-driven: resumes via a 'start' signal, not content
         if not _has_attached_client(server, agent.tmux_session):
             continue
         content = capture_pane_content(server, agent.tmux_session)
