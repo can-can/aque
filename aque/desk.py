@@ -673,6 +673,7 @@ class DeskApp(App):
                 self.query_one("#embedded-terminal", TerminalView).detach()
             except Exception:
                 pass
+            self._unpin_embed_window()  # no embed in narrow — let the agent size normally
         for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
                 self.query_one(selector).set_class(narrow, "narrow")
@@ -1424,17 +1425,11 @@ class DeskApp(App):
         self._triage_agent = None
         self._stop_refresh()
 
-        # The embed pins this window to its small size; restore auto-sizing so
-        # the full-screen client gets the full terminal. The embed re-pins when
-        # it re-attaches on return (via _show_dashboard).
-        try:
-            subprocess.run(
-                ["tmux", "set-option", "-t", agent.tmux_session, "window-size", "latest"],
-                check=False, capture_output=True,
-            )
-        except Exception:
-            pass
-        self._embed_pinned = None
+        # The embed pins the window to its small size (and hides the status
+        # line); undo that so the full-screen client gets the full terminal and
+        # its status bar back. The embed re-pins when it re-attaches on return
+        # (via _show_dashboard).
+        self._unpin_embed_window()
 
         with self.suspend():
             subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
@@ -1685,6 +1680,7 @@ class DeskApp(App):
             except Exception:
                 pass
             term.detach()
+            self._unpin_embed_window()
             return
         option = ol.get_option_at_index(ol.highlighted)
         agent_id = int(option.id)
@@ -1695,6 +1691,7 @@ class DeskApp(App):
             except Exception:
                 pass
             term.detach()
+            self._unpin_embed_window()
             return
         try:
             self.query_one("#preview-panel").border_title = f"▌ {agent.label}"
@@ -1714,30 +1711,52 @@ class DeskApp(App):
         if was_focused:
             term.focus()
 
+    @staticmethod
+    def _tmux(*args: str) -> None:
+        try:
+            subprocess.run(["tmux", *args], check=False, capture_output=True)
+        except Exception:
+            pass
+
     def _embed_size_sync(self, session: str):
         """Return a (cols, rows) callback that pins ``session``'s tmux window to
         the embed's size. The embed renders a pyte screen sized to the widget;
         if the tmux window is a different size (another client, or a transient
-        resize when a notification mounts), tmux's incremental redraws land in
-        the wrong cells and the embed shows duplicated/garbled rows. Pinning
-        ``window-size manual`` + ``resize-window`` keeps them matched; larger
-        external clients letterbox — the accepted trade-off for a clean embed.
+        resize when a notification mounts), tmux feeds wrong-sized frames into
+        the pyte screen and the embed shows duplicated/garbled rows.
+
+        We disable the session's status line (so the window height equals the
+        client height — leaving it on steals a row and offsets every line by
+        one) and pin ``window-size manual`` + ``resize-window`` to the embed's
+        size. Larger external clients letterbox; that's the accepted trade-off
+        for a clean embed. The agent label already shows in the preview border,
+        so the tmux status bar is redundant here. The pin is reverted in
+        ``_unpin_embed_window`` when we switch away, go full-screen, or quit.
         """
         def _sync(cols: int, rows: int) -> None:
             if self._skip_attach:
                 return
+            prev = self._embed_pinned
+            if prev is not None and prev[0] != session:
+                self._unpin_embed_window()  # restore the agent we left
             if self._embed_pinned == (session, cols, rows):
                 return
             self._embed_pinned = (session, cols, rows)
-            for args in (
-                ["set-option", "-t", session, "window-size", "manual"],
-                ["resize-window", "-t", session, "-x", str(cols), "-y", str(rows)],
-            ):
-                try:
-                    subprocess.run(["tmux", *args], check=False, capture_output=True)
-                except Exception:
-                    pass
+            self._tmux("set-option", "-t", session, "status", "off")
+            self._tmux("set-option", "-t", session, "window-size", "manual")
+            self._tmux("resize-window", "-t", session, "-x", str(cols), "-y", str(rows))
         return _sync
+
+    def _unpin_embed_window(self) -> None:
+        """Undo the embed's window pin: revert status and window-size to the
+        session's inherited (global) values so the agent sizes normally again
+        for a full-screen or external attach."""
+        if self._embed_pinned is None:
+            return
+        session = self._embed_pinned[0]
+        self._embed_pinned = None
+        self._tmux("set-option", "-u", "-t", session, "window-size")
+        self._tmux("set-option", "-u", "-t", session, "status")
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""
@@ -1960,6 +1979,7 @@ class DeskApp(App):
         self._refresh_agent_list()
 
     def action_quit_app(self) -> None:
+        self._unpin_embed_window()  # don't leave the agent's window stuck at embed size
         stop_monitor(self.aque_dir)
         self.exit()
 
