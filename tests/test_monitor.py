@@ -413,7 +413,7 @@ def _poll(mgr, monkeypatch, *, attached=False, content="x", waiting_hashes=None)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: content)
     monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: attached)
     monkeypatch.setattr(monitor, "process_pending_nudges", lambda *a, **k: None)
-    detector = monitor.IdleDetector(idle_timeout=0.01)
+    detector = monitor.IdleDetector(idle_timeout=0.01, aque_dir=mgr.aque_dir)
     monitor._poll_once(
         mgr, server=None, detector=detector, config={},
         signals_dir=mgr.aque_dir / "signals", stall_timeout=600.0,
