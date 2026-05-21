@@ -13,10 +13,21 @@ import os
 import signal
 import struct
 import termios
-import time
+import threading
 from typing import Callable
 
 import pyte
+
+
+def _reap_in_background(pid: int) -> None:
+    """Wait on a terminated child in a throwaway daemon thread, so the UI event
+    loop never blocks on a child that is slow to exit — and no zombie lingers."""
+    def _wait() -> None:
+        try:
+            os.waitpid(pid, 0)
+        except (ChildProcessError, OSError):
+            pass
+    threading.Thread(target=_wait, daemon=True).start()
 
 
 class _EmbeddedScreen(pyte.Screen):
@@ -163,20 +174,14 @@ class PtySession:
             except OSError:
                 pass
             self._master_fd = None
-        if self._pid is not None:
-            try:
-                os.kill(self._pid, signal.SIGHUP)
-            except ProcessLookupError:
-                pass
-            # Reap without blocking the UI: poll WNOHANG briefly so rapid
-            # agent-switches don't stall, and don't leave zombies behind.
-            for _ in range(50):  # ~0.5s budget
-                try:
-                    reaped, _ = os.waitpid(self._pid, os.WNOHANG)
-                except (ChildProcessError, OSError):
-                    break
-                if reaped != 0:
-                    break
-                time.sleep(0.01)
-            self._pid = None
+        pid = self._pid
+        self._pid = None
         self._loop = None
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGHUP)
+            except ProcessLookupError:
+                return
+            # Reap off the event loop so a click/agent-switch never freezes the UI
+            # while waiting for the child (tmux client) to exit.
+            _reap_in_background(pid)

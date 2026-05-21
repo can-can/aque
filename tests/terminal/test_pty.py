@@ -44,12 +44,17 @@ def test_close_reaps_child():
     pid = s._pid
     assert pid is not None
     s.close()
-    time.sleep(0.1)
-    try:
-        result = os.waitpid(pid, os.WNOHANG)
-        assert result == (0, 0), f"child not reaped, got {result}"
-    except ChildProcessError:
-        pass  # already reaped — acceptable
+    # close() signals SIGHUP and reaps in a background daemon thread (so the UI
+    # never blocks). The child must be gone — poll until kill(0) reports it
+    # missing (fully reaped) rather than busy-waiting on the event loop.
+    for _ in range(200):  # up to ~2s
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("child was not reaped within timeout")
 
 
 def test_feed_private_dsr_does_not_crash():
