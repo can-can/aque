@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
         "next_agent": "ctrl+shift+j",
         "prev_agent": "ctrl+shift+k",
         "back_to_list": "ctrl+shift+l",
+        "cycle_layout": "ctrl+shift+o",
     },
 }
 

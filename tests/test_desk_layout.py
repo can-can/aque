@@ -81,3 +81,52 @@ async def test_narrow_previews_terminal_instead_of_skipping(tmp_aque_dir, monkey
         app._attach_highlighted_terminal()
         await pilot.pause()
         assert calls, "terminal should attach (preview) in stacked/narrow layout"
+
+
+@pytest.mark.asyncio
+async def test_cycle_layout_advances_mode(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        assert app._layout_mode == "auto"
+        app.action_cycle_layout()
+        assert app._layout_mode == "wide"
+        app.action_cycle_layout()
+        assert app._layout_mode == "stacked"
+        app.action_cycle_layout()
+        assert app._layout_mode == "auto"
+
+
+@pytest.mark.asyncio
+async def test_cycle_forces_stacked_on_wide_screen(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._apply_layout(width=120)            # wide by width
+        app.action_cycle_layout()               # auto -> wide
+        app.action_cycle_layout()               # wide -> stacked
+        app._apply_layout(width=120)            # re-apply at wide width
+        await pilot.pause()
+        assert app.query_one("#dashboard").has_class("stacked")
+
+
+@pytest.mark.asyncio
+async def test_forced_mode_survives_resize(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._layout_mode = "wide"
+        app._apply_layout(width=50)             # narrow width, but forced wide
+        await pilot.pause()
+        assert not app.query_one("#dashboard").has_class("stacked")
+
+
+@pytest.mark.asyncio
+async def test_status_indicator_only_when_forced(tmp_aque_dir):
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._layout_mode = "auto"
+        app._refresh_status_bar()
+        await pilot.pause()
+        assert "Layout" not in str(app.query_one("#status-bar").render())
+        app._layout_mode = "stacked"
+        app._refresh_status_bar()
+        await pilot.pause()
+        assert "Layout: Stacked" in str(app.query_one("#status-bar").render())

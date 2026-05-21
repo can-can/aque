@@ -750,6 +750,7 @@ class DeskApp(App):
         self.bind(sc["next_agent"], "next_agent", description="Next agent")
         self.bind(sc["prev_agent"], "prev_agent", description="Prev agent")
         self.bind(sc["back_to_list"], "back_to_list", description="List")
+        self.bind(sc["cycle_layout"], "cycle_layout", description="Layout")
 
     def _start_refresh(self) -> None:
         if self._refresh_timer is None:
@@ -923,6 +924,8 @@ class DeskApp(App):
             # widths so it hugs the right edge without a layout container —
             # callers read the bar via ``str(render())`` for substring checks.
             brand = "[green]●[/green] [b]aque[/b] [dim]desk[/dim]"
+            if self._layout_mode != "auto":
+                brand = f"[dim]\\[Layout: {self._layout_mode.capitalize()}][/dim]  {brand}"
             try:
                 avail = max(self.size.width - 4, 0)
                 left_w = Text.from_markup(left).cell_len
@@ -1966,6 +1969,13 @@ class DeskApp(App):
                 self._set_filter(AgentState(action.split(":", 1)[1]))
             except ValueError:
                 pass
+
+    def action_cycle_layout(self) -> None:
+        """Cycle the forced layout: auto → wide → stacked → auto."""
+        order = ("auto", "wide", "stacked")
+        self._layout_mode = order[(order.index(self._layout_mode) + 1) % len(order)]
+        self._apply_layout()
+        self._refresh_status_bar()
 
     def action_filter_state(self, state_value: str) -> None:
         """Toggle the active filter to ``state_value``."""
