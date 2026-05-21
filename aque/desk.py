@@ -825,6 +825,14 @@ class DeskApp(App):
     def _on_refresh(self) -> None:
         if self._mode != "dashboard":
             return
+        # Self-heal a dead monitor: it's a shared singleton, so another desk's
+        # quit (or a crash) can stop it out from under us. Without this the desk
+        # only revived it on attach/detach, so a desk left sitting would freeze
+        # every agent in RUNNING (no idle/signal processing). The check is cheap
+        # when the monitor is alive and fresh. (_skip_attach: tests/headless
+        # must never fork a real daemon.)
+        if not self._skip_attach:
+            self._ensure_monitor_running()
         state = self.state_mgr.load()
         self._refresh_status_bar(state)
         self._refresh_agent_list(state=state)
