@@ -76,12 +76,35 @@ class TriageBanner(Vertical):
     _PRIMARY = ("attach", "↵")
     _SECONDARY = (("peek", "space"), ("snooze 5m", "s"))
 
-    def __init__(self, agent: AgentInfo, queue_len: int) -> None:
+    def __init__(self, agent: AgentInfo | None = None, queue_len: int = 0) -> None:
         super().__init__(id="triage-banner")
         self.agent = agent
         self.queue_len = queue_len
+        # Persistent widget: mounted once and shown/hidden in place. Mounting and
+        # removing the banner per state change races Textual's deferred
+        # ``remove()`` against the immediately-following ``mount()``, leaking
+        # duplicate banners that wedge the dashboard's ``1fr`` height to a
+        # collapsed (blank) row. Toggling ``display`` keeps one stable node.
+        self.display = agent is not None
+
+    def show_for(self, agent: AgentInfo, queue_len: int) -> None:
+        """Re-target the banner at ``agent`` and make it visible, recomposing
+        its rows in place (no mount/remove)."""
+        self.agent = agent
+        self.queue_len = queue_len
+        self.display = True
+        # Rebuild the rows in place for the new agent. ``refresh(recompose=True)``
+        # schedules the recompose on the message pump (the bare ``recompose()``
+        # coroutine would need awaiting).
+        self.refresh(recompose=True)
+
+    def hide(self) -> None:
+        """Hide the banner without removing it from the DOM."""
+        self.display = False
 
     def compose(self) -> ComposeResult:
+        if self.agent is None:
+            return
         sub = f" [dim]· {self.agent.dir}[/dim]" if self.agent.dir else ""
         title = Static(
             f"[bold yellow]●[/bold yellow] "

@@ -128,9 +128,14 @@ class Ctx:
             self._loop = None
 
     def pill_present(self) -> bool:
+        # The TriageBanner is a persistent widget (mounted once, shown/hidden in
+        # place), so "present" means visible — not merely in the DOM.
         if self.app is None:
             return False
-        return bool(self.app.query("#triage-banner"))
+        try:
+            return bool(self.app.query_one("#triage-banner").display)
+        except Exception:
+            return False
 
     def pill_text(self) -> str:
         from textual.widgets import Static

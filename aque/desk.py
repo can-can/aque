@@ -651,6 +651,11 @@ class DeskApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield self._make_status_bar()
+        # Persistent triage banner, hidden until a waiting agent surfaces. It
+        # lives in the DOM for the app's lifetime and is shown/hidden in place
+        # (see TriageBanner) rather than mounted/removed per change, which used
+        # to leak duplicate banners and collapse the dashboard layout.
+        yield TriageBanner()
         yield self._make_dashboard()
         yield Static(id="key-hint-footer")
 
@@ -1282,15 +1287,13 @@ class DeskApp(App):
             label=top.label,
             queue_len=len(candidates),
         )
-        self._dismiss_triage_widget()
         self._triage_agent = top
-        banner = TriageBanner(top, queue_len=len(candidates))
+        # Show the persistent banner in place — no mount/remove, so it can't
+        # leak duplicates or collapse the dashboard.
         try:
-            # Mount in normal flow directly above the dashboard. The status bar
-            # and footer keep their docked edges; the banner takes auto height
-            # from the remaining middle region and pushes the dashboard down
-            # rather than overlaying it.
-            self.mount(banner, before=self.query_one("#dashboard"))
+            self.query_one("#triage-banner", TriageBanner).show_for(
+                top, len(candidates)
+            )
         except Exception:
             pass
         # Blur the terminal so the pill's keys (Enter/Space/s/Esc) reach the
@@ -1298,15 +1301,20 @@ class DeskApp(App):
         self.set_focus(None)
 
     def _dismiss_triage_widget(self) -> None:
-        for w in self.query("#triage-banner"):
-            w.remove()
+        try:
+            self.query_one("#triage-banner", TriageBanner).hide()
+        except Exception:
+            pass
 
     def _handle_triage_key(self, key: str) -> bool:
         """Route triage-relevant keys when the banner is up. Returns True if
         the key was consumed."""
         if self._triage_agent is None:
             return False
-        if not self.query("#triage-banner"):
+        try:
+            if not self.query_one("#triage-banner", TriageBanner).display:
+                return False
+        except Exception:
             return False
         agent = self._triage_agent
         if key == "enter":
