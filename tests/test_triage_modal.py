@@ -101,6 +101,34 @@ async def test_attach_then_next_agent_surfaces_without_duplicate_id(tmp_aque_dir
 
 
 @pytest.mark.asyncio
+async def test_attach_does_not_immediately_resurface_same_agent(tmp_aque_dir):
+    # Live bug: attach to a waiting agent that stays waiting (it's idle waiting
+    # for input, so attaching doesn't move it to running); on detach the modal
+    # re-popped for the same agent over and over until Esc was used. Attaching
+    # must acknowledge the agent so it doesn't instantly re-nag — it re-surfaces
+    # only when its state changes again.
+    mgr = StateManager(tmp_aque_dir)
+    _add_waiting(mgr, "ios")
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
+    async with app.run_test(size=(120, 30)) as pilot:
+        app._show_dashboard()
+        await pilot.pause()
+        assert isinstance(app.screen, TriageModal)
+        attached: list[str] = []
+
+        def _fake_attach(agent):
+            # Detach returns to the dashboard with the agent still waiting.
+            attached.append(agent.label)
+            app._show_dashboard()
+
+        app._attach_to_agent = _fake_attach
+        await pilot.press("enter")
+        await pilot.pause()
+        assert attached == ["ios"]
+        assert not isinstance(app.screen, TriageModal)
+
+
+@pytest.mark.asyncio
 async def test_triage_suppressed_while_embed_focused(tmp_aque_dir):
     mgr = StateManager(tmp_aque_dir)
     _add_waiting(mgr, "fixer")

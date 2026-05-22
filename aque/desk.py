@@ -1332,26 +1332,28 @@ class DeskApp(App):
     def _on_triage_result(self, result: str | None) -> None:
         """Apply the modal's chosen action.
 
+        Any resolution acknowledges the agent (snoozes it at its current
+        last_change_at) so it won't immediately re-nag — including attach,
+        because attaching to an idle agent that's waiting for input doesn't move
+        it out of WAITING, so returning to the dashboard would otherwise re-pop
+        the same modal in a loop. The snooze decays when the agent's state
+        changes again, so a genuinely-new waiting transition re-surfaces it.
+
         The next queued agent is surfaced by the regular 2s poll (or the
         embed-blur hook), not re-pushed here — that keeps a calm cadence and
-        avoids a modal cascade when several agents are waiting. Peek
-        acknowledges the agent (snoozes it) so it doesn't immediately re-pop
-        while the user is looking at it in the preview.
+        avoids a modal cascade when several agents are waiting.
         """
         agent = self._triage_agent
         self._triage_agent = None
         self._triage_modal = None
         if agent is None or result is None:
             return
+        self._snooze_agent(agent)
+        dbg(f"desk.triage.{result}", self.aque_dir, agent_id=agent.id)
         if result == ATTACH:
             self._attach_to_agent(agent)
         elif result == PEEK:
-            self._snooze_agent(agent)
             self._select_agent_in_list(agent.id)
-            dbg("desk.triage.peeked", self.aque_dir, agent_id=agent.id)
-        elif result == SNOOZE:
-            self._snooze_agent(agent)
-            dbg("desk.triage.snoozed", self.aque_dir, agent_id=agent.id)
         if self._mode == "dashboard" and len(self.screen_stack) == 1:
             self._focus_dashboard()
 
