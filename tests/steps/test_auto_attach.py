@@ -14,6 +14,7 @@ from pytest_bdd import scenario, given, when, then, parsers
 from aque.desk import DeskApp
 from aque.history import HistoryManager
 from aque.state import AgentInfo, AgentState, StateManager
+from aque.widgets.triage_modal import TriageModal
 
 
 FEATURE = "../../features/auto_attach.feature"
@@ -97,7 +98,21 @@ class Ctx:
         return self._loop
 
     def run(self, coro):
-        return self._get_loop().run_until_complete(coro)
+        # Each step runs on a shared loop via run_until_complete, which doesn't
+        # inherit Textual's ``active_app`` contextvar from the app's own task.
+        # A pushed ModalScreen's timer callbacks dereference ``self.app`` via
+        # that contextvar, so set it for the duration of the step.
+        from textual._context import active_app
+
+        async def _wrapped():
+            token = active_app.set(self.app) if self.app is not None else None
+            try:
+                return await coro
+            finally:
+                if token is not None:
+                    active_app.reset(token)
+
+        return self._get_loop().run_until_complete(_wrapped())
 
     def ensure_mounted(self):
         if self.app is None:
@@ -105,6 +120,9 @@ class Ctx:
 
     async def _mount(self):
         self.app = DeskApp(aque_dir=self.tmp_aque_dir, _skip_attach=self._skip_attach)
+        # The synthetic agents have no real tmux sessions, so the startup orphan
+        # scan would push an OrphanModal over the dashboard and block triage.
+        self.app._scan_for_orphans = lambda: None
         self._run_test_cm = self.app.run_test()
         self.pilot = await self._run_test_cm.__aenter__()
         await self.pilot.pause()
@@ -128,32 +146,22 @@ class Ctx:
             self._loop = None
 
     def pill_present(self) -> bool:
-        # The TriageBanner is a persistent widget (mounted once, shown/hidden in
-        # place), so "present" means visible — not merely in the DOM.
+        # Triage now surfaces as a pushed TriageModal screen, so "present" means
+        # that screen is current.
         if self.app is None:
             return False
-        try:
-            return bool(self.app.query_one("#triage-banner").display)
-        except Exception:
-            return False
+        return isinstance(self.app.screen, TriageModal)
 
     def pill_text(self) -> str:
-        from textual.widgets import Static
-        try:
-            pill = self.app.query_one("#triage-banner")
-        except Exception:
+        # Read the modal's data directly rather than rendering its widgets —
+        # the content the scenarios assert on (label, dir, queue indicator).
+        screen = self.app.screen if self.app is not None else None
+        if not isinstance(screen, TriageModal):
             return ""
-        parts: list[str] = []
-        for w in pill.query(Static):
-            rendered = w.render()
-            try:
-                # Rich renderable → plain text via Console capture.
-                from rich.console import Console
-                console = Console(width=80, file=open("/dev/null", "w"), record=True)
-                console.print(rendered, end="")
-                parts.append(console.export_text())
-            except Exception:
-                parts.append(str(rendered))
+        agent = screen.agent
+        parts = [f"{agent.label} needs you {agent.dir or ''}"]
+        if screen.queue_len > 1:
+            parts.append(f"+ {screen.queue_len - 1} more waiting")
         return " | ".join(parts)
 
 
@@ -303,11 +311,10 @@ def when_monitor_changes_state(ctx, label, state_str):
 
 @when("the user presses Enter")
 def when_user_presses_enter(ctx):
-    # Mock _attach_to_agent to avoid real tmux interaction.
+    # Mock _attach_to_agent to avoid real tmux interaction. The modal handles
+    # its own dismissal; the result handler calls this with the chosen agent.
     def _mock_attach(agent):
         ctx.attached_agent_label = agent.label
-        ctx.app._dismiss_triage_widget()
-        ctx.app._triage_agent = None
 
     ctx.app._attach_to_agent = _mock_attach
 

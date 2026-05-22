@@ -722,25 +722,30 @@ class TestTerminalFocus:
 
 class TestTriageCoexistence:
     @pytest.mark.asyncio
-    async def test_terminal_blurred_while_pill_pending(self, tmp_aque_dir):
+    async def test_triage_suppressed_while_terminal_focused(self, tmp_aque_dir):
         from aque.terminal.widget import TerminalView
+        from aque.widgets.triage_modal import TriageModal
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="s-1", label="a", dir="/tmp",
             command=["a"], state=AgentState.WAITING, pid=100,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        app._scan_for_orphans = lambda: None
         async with app.run_test() as pilot:
             await pilot.pause()            # let mount focus settle on the list
             term = app.query_one("#embedded-terminal", TerminalView)
             term.focus()
             await pilot.pause()
             assert app.focused is term
-            app._skip_attach = False       # allow triage pill to mount
-            app._try_show_triage()         # a WAITING agent -> pill shows
+            app._skip_attach = False       # allow triage to surface
+            app._try_show_triage()         # ...but the embed has focus
             await pilot.pause()
-            assert app._triage_agent is not None
-            assert app.focused is not term  # terminal blurred so pill keys work
+            # Suppressed: no modal pops and the terminal keeps focus, so a
+            # notification can't steal keystrokes mid-command.
+            assert not isinstance(app.screen, TriageModal)
+            assert app._triage_agent is None
+            assert app.focused is term
 
 
 class TestAttachDoesNotChangeState:
@@ -768,7 +773,7 @@ class TestAttachDoesNotChangeState:
         monkeypatch.setattr(app, "suspend", lambda: contextlib.nullcontext())
         monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
         # Stub screen-side-effect methods that need a live Textual app
-        monkeypatch.setattr(app, "_dismiss_triage_widget", lambda: None)
+        monkeypatch.setattr(app, "_dismiss_triage_modal", lambda: None)
         monkeypatch.setattr(app, "_stop_refresh", lambda: None)
         monkeypatch.setattr(app, "_show_dashboard", lambda: None)
 

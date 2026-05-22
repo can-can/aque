@@ -45,7 +45,7 @@ from aque.widgets.confirm_modal import ConfirmModal
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
 from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
-from aque.widgets.triage_banner import TriageBanner
+from aque.widgets.triage_modal import ATTACH, PEEK, SNOOZE, TriageModal
 from aque.widgets.undo_bar import UndoBar
 from aque.terminal.widget import TerminalView
 
@@ -606,9 +606,12 @@ class DeskApp(App):
         # the agent has re-entered waiting from a different code path and
         # should re-trigger the pill.
         self._snoozed_last_change: dict[int, str] = {}
-        # Currently-surfaced waiting agent, if any. The pill is mounted
+        # Currently-surfaced waiting agent, if any. The triage modal is up
         # while this is non-None and the dashboard is foregrounded.
         self._triage_agent: AgentInfo | None = None
+        # The pushed TriageModal screen while it's up (None otherwise). Guards
+        # against pushing a second triage modal on top of the first.
+        self._triage_modal: TriageModal | None = None
         # Undo: one-slot stack. ``_undo_entry`` is a (message, restore_fn)
         # tuple; ``_undo_timer`` is the auto-dismiss handle. Both clear on
         # pop, expiry, or a fresh destructive action overwriting them.
@@ -646,11 +649,9 @@ class DeskApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield self._make_status_bar()
-        # Persistent triage banner, hidden until a waiting agent surfaces. It
-        # lives in the DOM for the app's lifetime and is shown/hidden in place
-        # (see TriageBanner) rather than mounted/removed per change, which used
-        # to leak duplicate banners and collapse the dashboard layout.
-        yield TriageBanner()
+        # The triage notification is a centered TriageModal (a separate
+        # ModalScreen pushed on demand), not an in-flow widget — so surfacing it
+        # never reflows the dashboard's 1fr region.
         yield self._make_dashboard()
         yield Static(id="key-hint-footer")
 
@@ -795,6 +796,17 @@ class DeskApp(App):
             if self.focused is term:
                 return False
         return True
+
+    def on_descendant_blur(self, event) -> None:
+        """When focus leaves the embedded terminal, a triage notification that
+        was deferred (suppressed while the embed had focus) can surface now,
+        without waiting for the next 2s poll."""
+        try:
+            term = self.query_one("#embedded-terminal", TerminalView)
+        except Exception:
+            return
+        if event.widget is term and self._mode == "dashboard":
+            self.call_after_refresh(self._try_show_triage)
 
     def _focus_dashboard(self) -> None:
         """Give keyboard focus to the agent list (the default dashboard surface).
@@ -1192,7 +1204,7 @@ class DeskApp(App):
         )
 
     def _show_dashboard(self) -> None:
-        self._dismiss_triage_widget()
+        self._dismiss_triage_modal()
         self._triage_agent = None
         self._mode = "dashboard"
         for w in self.query("ActionMenu, NewAgentForm, QuickLaunchForm"):
@@ -1225,17 +1237,30 @@ class DeskApp(App):
         candidates.sort(key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
         return candidates[0]
 
+    def _embed_has_focus(self) -> bool:
+        """True when the embedded preview terminal currently holds focus.
+
+        While the user is typing in the embed we suppress the triage modal so a
+        surfacing notification can't steal keystrokes mid-command — it waits
+        until focus returns to the dashboard (see ``on_descendant_blur``).
+        """
+        try:
+            return self.focused is self.query_one("#embedded-terminal", TerminalView)
+        except Exception:
+            return False
+
     def _try_show_triage(self, state: AppState | None = None) -> None:
-        """Surface the top waiting agent in a non-blocking triage banner.
+        """Surface the top waiting agent in a centered, blocking TriageModal.
 
-        Replaces the old forced-modal countdown. The banner mounts in normal
-        flow directly above the dashboard and does not steal focus — the user
-        keeps the agent list and preview interactive while triaging.
+        The modal is a separate ModalScreen pushed on demand, so surfacing it
+        never reflows the dashboard's 1fr region (the old in-flow banner did).
+        Suppressed while another screen is up, while the embed has focus, or
+        when a triage modal is already showing.
 
-        Snooze semantics: when the user dismisses the banner (Esc or ``s``),
-        the agent's id is added to ``_snoozed`` along with its current
-        ``last_change_at``. The next call clears that snooze if the agent
-        has since changed state, so a fresh waiting transition re-surfaces.
+        Snooze semantics: when the user dismisses with Esc or ``s``, the
+        agent's id is added to ``_snoozed`` with its current ``last_change_at``.
+        The next call clears that snooze if the agent has since changed state,
+        so a fresh waiting transition re-surfaces.
         """
         if self._skip_attach or self._mode != "dashboard":
             return
@@ -1263,16 +1288,19 @@ class DeskApp(App):
         candidates.sort(key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
 
         if not candidates:
-            self._dismiss_triage_widget()
-            self._triage_agent = None
+            self._dismiss_triage_modal()
+            return
+
+        # A triage modal is already up — leave it (queue length isn't updated
+        # live; the next agent surfaces when this one is resolved).
+        if self._triage_modal is not None:
+            return
+        # Don't stack over another modal (kill/help/palette), and don't grab the
+        # keyboard while the user is typing in the embed.
+        if len(self.screen_stack) > 1 or self._embed_has_focus():
             return
 
         top = candidates[0]
-        if self._triage_agent is not None and self._triage_agent.id == top.id:
-            # Already showing for this agent; nothing to do (we don't yet
-            # update queue length live — a future polish if it matters).
-            return
-
         dbg(
             "desk.triage.show",
             self.aque_dir,
@@ -1281,59 +1309,51 @@ class DeskApp(App):
             queue_len=len(candidates),
         )
         self._triage_agent = top
-        # Show the persistent banner in place — no mount/remove, so it can't
-        # leak duplicates or collapse the dashboard.
-        try:
-            self.query_one("#triage-banner", TriageBanner).show_for(
-                top, len(candidates)
-            )
-        except Exception:
-            pass
-        # Blur the terminal so the pill's keys (Enter/Space/s/Esc) reach the
-        # App.on_key triage handler instead of being typed into the agent.
-        self.set_focus(None)
+        modal = TriageModal(top, queue_len=len(candidates))
+        self._triage_modal = modal
+        self.push_screen(modal, self._on_triage_result)
 
-    def _dismiss_triage_widget(self) -> None:
+    def _dismiss_triage_modal(self) -> None:
+        """Pop the triage modal if it's up (e.g. on a mode transition)."""
+        self._triage_agent = None
+        modal, self._triage_modal = self._triage_modal, None
+        if modal is None:
+            return
         try:
-            self.query_one("#triage-banner", TriageBanner).hide()
+            modal.dismiss(None)
         except Exception:
             pass
 
-    def _handle_triage_key(self, key: str) -> bool:
-        """Route triage-relevant keys when the banner is up. Returns True if
-        the key was consumed."""
-        if self._triage_agent is None:
-            return False
-        try:
-            if not self.query_one("#triage-banner", TriageBanner).display:
-                return False
-        except Exception:
-            return False
+    def _snooze_agent(self, agent: AgentInfo) -> None:
+        """Suppress triage for ``agent`` until its state changes again."""
+        self._snoozed.add(agent.id)
+        self._snoozed_last_change[agent.id] = agent.last_change_at
+
+    def _on_triage_result(self, result: str | None) -> None:
+        """Apply the modal's chosen action.
+
+        The next queued agent is surfaced by the regular 2s poll (or the
+        embed-blur hook), not re-pushed here — that keeps a calm cadence and
+        avoids a modal cascade when several agents are waiting. Peek
+        acknowledges the agent (snoozes it) so it doesn't immediately re-pop
+        while the user is looking at it in the preview.
+        """
         agent = self._triage_agent
-        if key == "enter":
-            self._dismiss_triage_widget()
-            self._triage_agent = None
+        self._triage_agent = None
+        self._triage_modal = None
+        if agent is None or result is None:
+            return
+        if result == ATTACH:
             self._attach_to_agent(agent)
-            if self._triage_agent is None:
-                self._focus_dashboard()
-            return True
-        if key == "space":
-            self._dismiss_triage_widget()
-            self._triage_agent = None
+        elif result == PEEK:
+            self._snooze_agent(agent)
             self._select_agent_in_list(agent.id)
-            if self._triage_agent is None:
-                self._focus_dashboard()
-            return True
-        if key in ("s", "escape"):
-            self._snoozed.add(agent.id)
-            self._snoozed_last_change[agent.id] = agent.last_change_at
-            self._dismiss_triage_widget()
-            self._triage_agent = None
+            dbg("desk.triage.peeked", self.aque_dir, agent_id=agent.id)
+        elif result == SNOOZE:
+            self._snooze_agent(agent)
             dbg("desk.triage.snoozed", self.aque_dir, agent_id=agent.id)
-            if self._triage_agent is None:
-                self._focus_dashboard()
-            return True
-        return False
+        if self._mode == "dashboard" and len(self.screen_stack) == 1:
+            self._focus_dashboard()
 
     def _select_agent_in_list(self, agent_id: int) -> None:
         """Highlight the given agent in the option list without attaching."""
@@ -1349,7 +1369,7 @@ class DeskApp(App):
             pass
 
     def _show_action_menu(self, agent: AgentInfo, was_exited: bool) -> None:
-        self._dismiss_triage_widget()
+        self._dismiss_triage_modal()
         self._triage_agent = None
         self._mode = "action_menu"
         self._action_agent = agent
@@ -1376,7 +1396,7 @@ class DeskApp(App):
             pass
 
     def _show_new_agent_form(self) -> None:
-        self._dismiss_triage_widget()
+        self._dismiss_triage_modal()
         self._triage_agent = None
         self._mode = "new_agent_form"
         self._stop_refresh()
@@ -1398,7 +1418,7 @@ class DeskApp(App):
         self._apply_layout()
 
     def _show_quick_launch_form(self) -> None:
-        self._dismiss_triage_widget()
+        self._dismiss_triage_modal()
         self._triage_agent = None
         self._mode = "quick_launch_form"
         self._stop_refresh()
@@ -1486,7 +1506,7 @@ class DeskApp(App):
         dbg("desk.attach.start", self.aque_dir, agent_id=agent.id,
             from_state=agent.state.value)
         self._diag_geometry("attach.pre-suspend")
-        self._dismiss_triage_widget()
+        self._dismiss_triage_modal()
         self._triage_agent = None
         self._stop_refresh()
 
@@ -2098,13 +2118,8 @@ class DeskApp(App):
         # + refocus of the terminal, so the user stays "in" the new agent.
 
     def on_key(self, event) -> None:
-        # Triage pill takes priority — it's the most recent surface and the
-        # user is being asked an explicit question.
-        if self._mode == "dashboard" and self._triage_agent is not None:
-            if self._handle_triage_key(event.key):
-                event.stop()
-                return
-
+        # Triage keys are handled by the TriageModal screen's own bindings while
+        # it's up; no routing needed here.
         if self._mode == "dashboard" and event.key == "escape":
             # Esc on the dashboard clears active filter + search, and closes
             # the inline search input if it's open.

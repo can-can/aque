@@ -168,7 +168,7 @@ def when_palette_dispatches(ctx, label):
     # target so we can assert which agent the palette dispatched to.
     def _mock_attach(agent):
         ctx.attached_label = agent.label
-        ctx.app._dismiss_triage_widget()
+        ctx.app._dismiss_triage_modal()
     ctx.app._attach_to_agent = _mock_attach
 
     async def _dispatch():
