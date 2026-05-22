@@ -69,8 +69,8 @@ def test_any_agent_can_be_killed():
     pass
 
 
-@scenario(FEATURE, "Agents are ordered by state priority then by change time")
-def test_agents_ordered_by_state_priority():
+@scenario(FEATURE, "Agents are ordered by folder, then by name")
+def test_agents_ordered_by_folder_then_name():
     pass
 
 
@@ -405,7 +405,7 @@ def given_agents_exist_with_timestamps(ctx, datatable):
             id=agent_id,
             tmux_session=f"aque-{agent_id}",
             label=row["label"],
-            dir="/tmp/test",
+            dir=row.get("dir") or "/tmp/test",
             command=["test"],
             state=state,
             pid=10000 + agent_id,

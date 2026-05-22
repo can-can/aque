@@ -65,8 +65,22 @@ CHANGE_CUE_SECS = 3.0
 NARROW_BREAKPOINT = 80  # columns; below this, auto layout stacks and labels compact
 
 
+def _dir_sort_key(dir_path: str) -> tuple[str, str]:
+    """Folder key for the dashboard list: the directory's last two path
+    components, e.g. ``/Users/cancan/Projects/aque`` → ``("Projects", "aque")``.
+    Shorter paths are left-padded with ``""`` so every key is a 2-tuple."""
+    last_two = Path(dir_path).parts[-2:]
+    return ("",) * (2 - len(last_two)) + last_two
+
+
 def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
-    return sorted(agents, key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
+    """Order the dashboard list by folder, then by name.
+
+    Agents in the same project (same last-two-path-components folder) sit
+    together; ties within a folder break on the agent's label. State no longer
+    influences ordering — the list is a stable, navigable index rather than a
+    priority queue (urgency surfaces via the triage banner instead)."""
+    return sorted(agents, key=lambda a: (_dir_sort_key(a.dir), a.label))
 
 
 # ── Widgets ──────────────────────────────────────────────────────────

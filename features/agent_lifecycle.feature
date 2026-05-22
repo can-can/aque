@@ -38,18 +38,18 @@ Feature: Agent lifecycle
     Then agent "builder" should be moved to history
     And the tmux session should be killed
 
-  # ── State priority ordering ────────────────────────────────────
+  # ── Folder / name ordering ─────────────────────────────────────
 
-  Scenario: Agents are ordered by state priority then by change time
+  Scenario: Agents are ordered by folder, then by name
     Given the following agents exist:
-      | label | state   | last_change_at         |
-      | a     | running | 2026-03-29T04:00:00+00 |
-      | b     | waiting | 2026-03-29T04:30:00+00 |
-      | c     | waiting | 2026-03-29T04:00:00+00 |
-      | d     | on_hold | 2026-03-29T04:00:00+00 |
+      | label | state   | dir             |
+      | a     | running | /home/work/zeta |
+      | b     | waiting | /home/work/alpha |
+      | c     | waiting | /home/work/alpha |
+      | d     | on_hold | /home/work/mid  |
     Then the sorted order should be:
-      | label | reason                         |
-      | c     | waiting, earliest change       |
-      | b     | waiting, later change          |
-      | a     | running, lower priority        |
-      | d     | on_hold, lowest priority       |
+      | label | reason                              |
+      | b     | alpha folder, name b before c       |
+      | c     | alpha folder, name c after b        |
+      | d     | mid folder, after alpha             |
+      | a     | zeta folder, last; state irrelevant |

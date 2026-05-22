@@ -8,18 +8,18 @@ Feature: Dashboard
 
   # ── Agent listing ──────────────────────────────────────────────
 
-  Scenario: Agents are sorted by priority
+  Scenario: Agents are sorted by folder, then by name
     Given the following agents exist:
-      | label   | state   |
-      | builder | running |
-      | fixer   | waiting |
-      | helper  | on_hold |
+      | label   | state   | dir              |
+      | builder | running | /home/work/zeta  |
+      | fixer   | waiting | /home/work/alpha |
+      | helper  | on_hold | /home/work/alpha |
     When the dashboard loads
     Then the agent list should be ordered:
-      | label | state   |
-      | fixer | waiting |
-      | builder | running |
+      | label   | state   |
+      | fixer   | waiting |
       | helper  | on_hold |
+      | builder | running |
 
   Scenario: Done agents are hidden from the dashboard
     Given the following agents exist:
@@ -56,9 +56,9 @@ Feature: Dashboard
       | label   | state   |
       | fixer   | waiting |
       | builder | running |
-    And the user had "builder" highlighted
+    And the user had "fixer" highlighted
     When the user returns to the dashboard
-    Then the highlighted agent should be "fixer"
+    Then the highlighted agent should be "builder"
 
   Scenario: Highlight is preserved during periodic refresh
     Given the following agents exist:

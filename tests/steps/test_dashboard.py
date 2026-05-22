@@ -23,7 +23,7 @@ FEATURE = "../../features/dashboard.feature"
 # ── Scenario declarations ──────────────────────────────────────────────────────
 
 
-@scenario(FEATURE, "Agents are sorted by priority")
+@scenario(FEATURE, "Agents are sorted by folder, then by name")
 def test_agents_sorted():
     pass
 
@@ -225,7 +225,7 @@ def given_agents_exist(ctx, datatable):
             id=agent_id,
             tmux_session=f"aque-{agent_id}",
             label=row["label"],
-            dir="/tmp/test",
+            dir=row.get("dir") or "/tmp/test",
             command=["test"],
             state=state,
             pid=10000 + agent_id,

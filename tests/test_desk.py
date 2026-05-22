@@ -5,8 +5,20 @@ from textual.widgets import OptionList
 
 from aque import desk_tokens
 import aque.desk as desk
-from aque.desk import DeskApp, STATE_PRIORITY
+from aque.desk import DeskApp, STATE_PRIORITY, sorted_agents
 from aque.state import AgentState, AgentInfo, StateManager
+
+
+def _agent(id: int, dir: str, label: str, state: AgentState = AgentState.RUNNING) -> AgentInfo:
+    return AgentInfo(
+        id=id,
+        tmux_session=f"aque-{id}",
+        label=label,
+        dir=dir,
+        command=["claude"],
+        state=state,
+        pid=1000 + id,
+    )
 
 
 def test_no_focused_in_token_maps():
@@ -28,6 +40,37 @@ class TestStatePriority:
 
     def test_on_hold_sorted_after_running(self):
         assert STATE_PRIORITY[AgentState.ON_HOLD] > STATE_PRIORITY[AgentState.RUNNING]
+
+
+class TestSortedAgents:
+    def test_sorts_by_last_two_dir_elements(self):
+        agents = [
+            _agent(1, "/Users/cancan/Projects/zeta", "a"),
+            _agent(2, "/Users/cancan/Projects/alpha", "b"),
+            _agent(3, "/home/x/Work/beta", "c"),
+        ]
+        ordered = [a.id for a in sorted_agents(agents)]
+        # ("Projects", "alpha") < ("Projects", "zeta") < ("Work", "beta")
+        assert ordered == [2, 1, 3]
+
+    def test_same_folder_sorts_by_label(self):
+        agents = [
+            _agent(1, "/Users/cancan/Projects/aque", "charlie"),
+            _agent(2, "/Users/cancan/Projects/aque", "alice"),
+            _agent(3, "/Users/cancan/Projects/aque", "bob"),
+        ]
+        ordered = [a.id for a in sorted_agents(agents)]
+        assert ordered == [2, 3, 1]
+
+    def test_status_does_not_affect_order(self):
+        # A RUNNING agent in an earlier folder beats a WAITING one later,
+        # even though WAITING used to sort first.
+        agents = [
+            _agent(1, "/p/zeta", "z", state=AgentState.WAITING),
+            _agent(2, "/p/alpha", "a", state=AgentState.RUNNING),
+        ]
+        ordered = [a.id for a in sorted_agents(agents)]
+        assert ordered == [2, 1]
 
 
 class TestDashboardMount:
