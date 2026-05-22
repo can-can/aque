@@ -93,7 +93,11 @@ class TriageModal(ModalScreen[str]):
     _SECONDARY = (("peek", "space"), ("snooze 5m", "s"))
 
     def __init__(self, agent: AgentInfo, queue_len: int = 1) -> None:
-        super().__init__(id="triage-modal")
+        # No fixed id: attaching from one modal surfaces the next agent's modal
+        # synchronously, while the just-dismissed screen is still in the App's
+        # node registry — a fixed id would collide (DuplicateIds). The app
+        # tracks the live modal via ``DeskApp._triage_modal``, not by id.
+        super().__init__()
         self.agent = agent
         self.queue_len = queue_len
 

@@ -66,6 +66,41 @@ async def test_triage_modal_does_not_reflow_dashboard(tmp_aque_dir):
 
 
 @pytest.mark.asyncio
+async def test_attach_then_next_agent_surfaces_without_duplicate_id(tmp_aque_dir):
+    # Attaching from the modal runs the dismiss callback, which (via
+    # _attach_to_agent -> _show_dashboard -> _try_show_triage) surfaces the next
+    # waiting agent *synchronously while the just-dismissed modal is still in the
+    # App's node registry*. If the modal carried a fixed widget id, the second
+    # push would raise DuplicateIds. Each push must use a fresh id.
+    mgr = StateManager(tmp_aque_dir)
+    _add_waiting(mgr, "first")
+    _add_waiting(mgr, "second")
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
+    async with app.run_test(size=(120, 30)) as pilot:
+        app._show_dashboard()
+        await pilot.pause()
+        assert isinstance(app.screen, TriageModal)
+        # Mimic the real attach flow: it returns to the dashboard on detach,
+        # which re-evaluates the queue and surfaces the next agent.
+        attached: list[str] = []
+
+        def _fake_attach(agent):
+            attached.append(agent.label)
+            # A real attach leaves the agent no longer waiting (the user has
+            # engaged with it); the monitor moves it to running.
+            mgr.update_agent_state(agent.id, AgentState.RUNNING)
+            app._show_dashboard()
+
+        app._attach_to_agent = _fake_attach
+        await pilot.press("enter")
+        await pilot.pause()
+        # Attached to one agent and the other surfaced — no DuplicateIds crash.
+        assert len(attached) == 1
+        assert isinstance(app.screen, TriageModal)
+        assert app.screen.agent.label != attached[0]
+
+
+@pytest.mark.asyncio
 async def test_triage_suppressed_while_embed_focused(tmp_aque_dir):
     mgr = StateManager(tmp_aque_dir)
     _add_waiting(mgr, "fixer")
