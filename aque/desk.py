@@ -481,11 +481,6 @@ class DeskApp(App):
     }
     #preview-panel {
         width: 60%;
-        padding: 1 2;
-        border: tall $surface-lighten-1;
-    }
-    #preview-panel:focus-within {
-        border: tall $accent;
     }
     #agent-option-list {
         height: 100%;
@@ -1027,13 +1022,13 @@ class DeskApp(App):
     def _build_row_label(self, agent: AgentInfo, width: int = 0) -> Text:
         """Render an agent row in the locked Project layout.
 
-            ●  claude   name                              auto
+            ●  name                                        auto
 
-        The layout encodes the design's four cells — state dot, filled vendor
-        pill, bold name, soft auto/manual chip — and nothing else. State is
-        carried by the dot's colour alone (the design dropped the state word
-        from the row; it lives in the preview header). Typeless agents show a
-        dim ``polling`` marker in place of the vendor pill.
+        The layout encodes three cells — state dot, bold name, soft auto/manual
+        chip — and nothing else. State is carried by the dot's colour alone (the
+        design dropped the state word from the row; it lives in the preview
+        header). The agent type is intentionally not shown on the row; it lives
+        in the preview header and stays searchable.
 
         The mode chip is right-aligned to ``width`` (the list's content width);
         when a name would push the chip past the edge it is truncated with an
@@ -1045,8 +1040,6 @@ class DeskApp(App):
         state_color = STATE_COLORS.get(agent.state, "white")
         state_dot = f"[{state_color}]●[/{state_color}]"
         indent = "↳ " if agent.is_responder else ""
-        type_disp = type_chip_markup(agent.agent_type) or "[dim]polling[/dim]"
-        type_plain = f" {agent.agent_type} " if agent.agent_type else "polling"
         # Brief state-change cue: a leading ``▴`` for ~3 s after we detect this
         # agent's state changing — the TUI stand-in for the design's animated
         # row reorder.
@@ -1063,8 +1056,8 @@ class DeskApp(App):
             chip_markup = auto_chip_markup(agent.auto_respond)
             chip_w = len(" auto " if agent.auto_respond else " manual ")
 
-        # Fixed glyphs before the name: "cue space dot 2sp pill 2sp indent".
-        prefix_w = 1 + 1 + 1 + 2 + len(type_plain) + 2 + len(indent)
+        # Fixed glyphs before the name: "cue space dot 2sp indent".
+        prefix_w = 1 + 1 + 1 + 2 + len(indent)
         # Pad so the mode chip lands at the right edge. The name is never
         # truncated (so callers can still match on it); a name long enough to
         # crowd the chip simply collapses the gap to a single space.
@@ -1072,7 +1065,7 @@ class DeskApp(App):
         pad = max(1, avail - prefix_w - len(agent.label) - chip_w)
 
         return Text.from_markup(
-            f"{cue} {state_dot}  {type_disp}  {indent}[bold]{agent.label}[/bold]"
+            f"{cue} {state_dot}  {indent}[bold]{agent.label}[/bold]"
             f"{' ' * pad}{chip_markup}"
         )
 
@@ -1758,10 +1751,6 @@ class DeskApp(App):
         except Exception:
             return
         if ol.highlighted is None or ol.option_count == 0:
-            try:
-                self.query_one("#preview-panel").border_title = ""
-            except Exception:
-                pass
             term.detach()
             self._unpin_embed_window()
             return
@@ -1769,17 +1758,9 @@ class DeskApp(App):
         agent_id = int(option.id)
         agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
         if agent is None:
-            try:
-                self.query_one("#preview-panel").border_title = ""
-            except Exception:
-                pass
             term.detach()
             self._unpin_embed_window()
             return
-        try:
-            self.query_one("#preview-panel").border_title = f"▌ {agent.label}"
-        except Exception:
-            pass
         if self._triage_agent is not None:
             # A triage pill owns input right now; don't steal focus back.
             return
@@ -1812,8 +1793,8 @@ class DeskApp(App):
         client height — leaving it on steals a row and offsets every line by
         one) and pin ``window-size manual`` + ``resize-window`` to the embed's
         size. Larger external clients letterbox; that's the accepted trade-off
-        for a clean embed. The agent label already shows in the preview border,
-        so the tmux status bar is redundant here. The pin is reverted in
+        for a clean embed. The status bar stays off to give the borderless embed
+        every row for the agent's own output. The pin is reverted in
         ``_unpin_embed_window`` when we switch away, go full-screen, or quit.
         """
         def _sync(cols: int, rows: int) -> None:

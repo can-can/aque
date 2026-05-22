@@ -212,13 +212,12 @@ class TestNarrowMode:
             ol = app.query_one("#agent-option-list", OptionList)
             opt = ol.get_option_at_index(0)
             label = str(opt.prompt)
-            # Project layout: dot (colour only), vendor pill, name, mode chip.
-            # The state word and dir live in the preview pane, not the row.
+            # Project layout: dot (colour only), name, mode chip. The state
+            # word, dir, and agent type live in the preview pane, not the row.
             assert "running" not in label.lower()
-            # The vendor pill renders the type as a chip (markup stripped to
-            # plain text), so "claude" appears once for the pill and once in
-            # the name.
-            assert label.count("claude") == 2
+            # The agent type is no longer shown on the row, so "claude" appears
+            # only once — as part of the name.
+            assert label.count("claude") == 1
             assert "claude . my-project" in label
             assert "auto" in label  # mode chip present in the full layout
 
@@ -720,26 +719,6 @@ class TestTerminalFocus:
             await pilot.pause()
             assert app.check_action("new_agent", ()) is False  # gated in embed
             assert app.check_action("next_agent", ()) is True  # priority never gated
-
-    @pytest.mark.asyncio
-    async def test_panel_title_shows_active_agent(self, tmp_aque_dir, monkeypatch):
-        from aque.terminal.widget import TerminalView
-        mgr = StateManager(tmp_aque_dir)
-        mgr.add_agent(AgentInfo(
-            id=1, tmux_session="s-1", label="claude . api", dir="/tmp",
-            command=["claude"], state=AgentState.RUNNING, pid=100,
-        ))
-        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-        async with app.run_test() as pilot:
-            term = app.query_one("#embedded-terminal", TerminalView)
-            monkeypatch.setattr(term, "attach", lambda sess, size_sync=None: term.focus())
-            app._skip_attach = False
-            app.query_one("#agent-option-list", OptionList).highlighted = 0
-            app._attach_highlighted_terminal()
-            await pilot.pause()
-            panel = app.query_one("#preview-panel")
-            assert "claude . api" in str(panel.border_title or "")
-
 
 class TestTriageCoexistence:
     @pytest.mark.asyncio
