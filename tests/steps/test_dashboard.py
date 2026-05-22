@@ -89,11 +89,6 @@ def test_press_h_resumes_held_agent():
 
 
 
-@scenario(FEATURE, "Typed agent shows type tag in list")
-def test_typed_agent_shows_type_tag():
-    pass
-
-
 @scenario(FEATURE, "Untyped agent shows no type tag")
 def test_untyped_agent_shows_no_type_tag():
     pass
@@ -101,11 +96,6 @@ def test_untyped_agent_shows_no_type_tag():
 
 @scenario(FEATURE, "A row marks itself with a cue after its state changes")
 def test_row_change_cue():
-    pass
-
-
-@scenario(FEATURE, "Type chip carries the vendor's accent color")
-def test_type_chip_color():
     pass
 
 
@@ -431,31 +421,6 @@ def then_row_has_change_cue(ctx, label):
     pytest.fail(f"Agent '{label}' not found in option list")
 
 
-@then(parsers.parse('the agent row for "{label}" should be coloured with vendor "{vendor}"'))
-def then_row_has_vendor_color(ctx, label, vendor):
-    """Inspect the row's Rich spans to find a span of the vendor's hex colour.
-
-    We compare against ``desk_tokens.TYPE_COLORS`` so the test stays in
-    sync with whatever palette is in use.
-    """
-    from aque.desk_tokens import TYPE_COLORS
-
-    expected_hex = TYPE_COLORS[vendor].lower()
-    option_list = ctx.app.query_one("#agent-option-list")
-    for i in range(option_list.option_count):
-        opt = option_list.get_option_at_index(i)
-        prompt = opt.prompt  # rich.text.Text
-        if label not in str(prompt):
-            continue
-        styles = [str(span.style).lower() for span in prompt.spans]
-        assert any(expected_hex in s for s in styles), (
-            f"Expected a span with colour {expected_hex} on row for '{label}'.\n"
-            f"Found span styles: {styles}"
-        )
-        return
-    pytest.fail(f"Agent '{label}' not found in option list")
-
-
 @then(parsers.parse('the highlighted agent should still be "{label}"'))
 def then_highlighted_agent_still_is(ctx, label):
     option_list = ctx.app.query_one("#agent-option-list")
@@ -596,21 +561,6 @@ def then_agent_in_state(ctx, label, state_str):
     assert agent.state.value == state_str, (
         f"Expected agent '{label}' to be in state '{state_str}', got '{agent.state.value}'"
     )
-
-
-@then(parsers.parse('the agent list should show a "{type_name}" type tag for "{label}"'))
-def then_agent_list_shows_type_tag(ctx, type_name, label):
-    """Type tags render as a filled vendor pill — `` claude `` in the row text."""
-    option_list = ctx.app.query_one("#agent-option-list")
-    for i in range(option_list.option_count):
-        option = option_list.get_option_at_index(i)
-        label_text = str(option.prompt)
-        if label in label_text:
-            assert f" {type_name} " in label_text, (
-                f"Expected type pill ' {type_name} ' in row for '{label}', got: '{label_text}'"
-            )
-            return
-    pytest.fail(f"Agent '{label}' not found in option list")
 
 
 @then(parsers.parse('the agent list should not show a type tag for "{label}"'))

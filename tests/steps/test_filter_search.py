@@ -45,6 +45,11 @@ def test_search_input_filters():
     pass
 
 
+@scenario(FEATURE, "Searching by agent type matches even though the type is not shown on the row")
+def test_search_by_agent_type():
+    pass
+
+
 @scenario(FEATURE, "Active filter is highlighted in the status bar")
 def test_active_filter_indicator():
     pass

@@ -89,13 +89,9 @@ Feature: Dashboard
     Then the status bar should show "3 done"
 
   # ── Agent type display ──────────────────────────────────────────
-
-  Scenario: Typed agent shows type tag in list
-    Given the following agents exist:
-      | label   | state   | agent_type |
-      | builder | running | claude     |
-    When the dashboard loads
-    Then the agent list should show a "claude" type tag for "builder"
+  # The vendor type chip was dropped from the row (it crowded the layout); the
+  # type now lives only in the search index, not as a visible pill. Searching
+  # by type is covered in filter_search.feature.
 
   Scenario: Untyped agent shows no type tag
     Given the following agents exist:
@@ -114,15 +110,6 @@ Feature: Dashboard
     And the monitor changes agent "builder" to "waiting"
     And the periodic refresh runs
     Then the agent row for "builder" should carry a change cue
-
-  # ── Vendor type chip color ────────────────────────────────────
-
-  Scenario: Type chip carries the vendor's accent color
-    Given the following agents exist:
-      | label   | state   | agent_type |
-      | builder | running | claude     |
-    When the dashboard loads
-    Then the agent row for "builder" should be coloured with vendor "claude"
 
   # ── Empty status bar ──────────────────────────────────────────
 

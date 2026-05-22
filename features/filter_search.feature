@@ -48,6 +48,12 @@ Feature: Filter and search the agent list
     Then the agent list should contain "bravo"
     And the agent list should not contain "alpha"
 
+  Scenario: Searching by agent type matches even though the type is not shown on the row
+    When the dashboard loads
+    And the user opens search and types "codex"
+    Then the agent list should contain "delta"
+    And the agent list should not contain "alpha"
+
   # ── Active filter indicator ───────────────────────────────────
 
   Scenario: Active filter is highlighted in the status bar
