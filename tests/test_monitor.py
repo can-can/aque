@@ -353,6 +353,40 @@ def test_waiting_unchanged_content_does_not_flip(monkeypatch, tmp_path):
     assert mgr.load().agents[0].state == AgentState.WAITING
 
 
+def test_demoted_agent_does_not_repromote_on_attach_via_stale_hash(monkeypatch, tmp_path):
+    """Regression for the WAITING↔RUNNING oscillation on agent_type=None agents.
+
+    A WAITING-period content hash used to linger in ``waiting_hashes`` after the
+    agent left WAITING (via spurious re-promotion). When the agent fell back to
+    WAITING via idle and was re-attached, the very first poll compared the new
+    attach content against that stale hash and falsely promoted again — the
+    triage modal then re-popped each cycle in production (see debug.log:
+    monitor.idle->waiting / monitor.waiting->running every ~5s).
+    """
+    agent = _mk_agent(AgentState.RUNNING, agent_type=None)
+    mgr, signals, cfg = _setup(tmp_path, agent)
+    detector = IdleDetector(idle_timeout=0, aque_dir=tmp_path)
+    # Stale hash left over from a prior WAITING-attached cycle (different from
+    # whatever capture_pane_content returns now). Without proper cleanup this
+    # is the value the re-promotion compares against on the next attach.
+    waiting_hashes: dict[int, str] = {agent.id: "stale-from-prior-cycle"}
+
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "static")
+
+    # Phase 1: not attached + stable content → RUNNING idles to WAITING.
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: False)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING
+
+    # Phase 2: user attaches; pane text is unchanged. Must NOT re-promote —
+    # the stale hash from before the RUNNING window must not survive.
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING
+
+
 # libtmux 0.17+ removed Session.get(); attach state is read via the
 # session_attached attribute. These fakes must mirror that (no .get()) or they
 # silently mask the real API and let attach-detection regress.

@@ -97,6 +97,25 @@ def prune_detector(detector: "IdleDetector", running_ids: set[int]) -> set[int]:
     return stale
 
 
+def prune_waiting_hashes(
+    waiting_hashes: dict[int, str], waiting_ids: set[int]
+) -> set[int]:
+    """Drop waiting-hash baselines for any agent not currently WAITING.
+
+    Symmetric to ``prune_detector`` for the RUNNING branch. Without this, a
+    hash captured while the agent was previously WAITING-and-attached lingers
+    after the agent leaves WAITING (via re-promotion or any other path). When
+    the agent returns to WAITING and is re-attached, the first poll compares
+    the fresh content against the stale baseline and falsely re-promotes —
+    causing endless WAITING↔RUNNING oscillation on typeless agents whose pane
+    runs an interactive TUI.
+    """
+    stale = set(waiting_hashes.keys()) - waiting_ids
+    for sid in stale:
+        waiting_hashes.pop(sid, None)
+    return stale
+
+
 def capture_pane_content(server: libtmux.Server, session_name: str) -> str | None:
     try:
         session = server.sessions.get(session_name=session_name)
@@ -259,6 +278,13 @@ def _poll_once(
     running_ids = {a.id for a in active_agents}
     for stale_id in prune_detector(detector, running_ids):
         dbg("monitor.detector.prune", aque_dir, agent_id=stale_id)
+
+    # Same treatment for waiting_hashes: a hash from a prior WAITING-attached
+    # cycle must not survive the agent's trip through RUNNING and back, or
+    # the next attach instantly re-promotes against that stale baseline.
+    waiting_ids = {a.id for a in state.agents if a.state == AgentState.WAITING}
+    for stale_id in prune_waiting_hashes(waiting_hashes, waiting_ids):
+        dbg("monitor.waiting_hash.prune", aque_dir, agent_id=stale_id)
 
     # Apply hook signals first (instant). stop -> WAITING, start -> RUNNING.
     signaled = check_signal_files(signals_dir)
