@@ -800,7 +800,10 @@ class DeskApp(App):
     def on_descendant_blur(self, event) -> None:
         """When focus leaves the embedded terminal, a triage notification that
         was deferred (suppressed while the embed had focus) can surface now,
-        without waiting for the next 2s poll."""
+        without waiting for the next 2s poll. ``_try_show_triage`` itself
+        verifies the list now holds focus before surfacing, so a blur into
+        the search box (or any other non-list focus) still leaves the queue
+        quiet."""
         try:
             term = self.query_one("#embedded-terminal", TerminalView)
         except Exception:
@@ -1237,15 +1240,17 @@ class DeskApp(App):
         candidates.sort(key=lambda a: (STATE_PRIORITY.get(a.state, 99), a.last_change_at))
         return candidates[0]
 
-    def _embed_has_focus(self) -> bool:
-        """True when the embedded preview terminal currently holds focus.
+    def _list_has_focus(self) -> bool:
+        """True when the dashboard agent list currently holds focus.
 
-        While the user is typing in the embed we suppress the triage modal so a
-        surfacing notification can't steal keystrokes mid-command — it waits
-        until focus returns to the dashboard (see ``on_descendant_blur``).
+        Triage notifications only fire while the list is the focused widget —
+        typing in the embedded terminal, the search box, or any other non-list
+        focus must suppress the modal so a notification can't steal keystrokes
+        mid-task. When focus leaves the embed (see ``on_descendant_blur``) the
+        queue re-evaluates immediately rather than waiting for the 2s poll.
         """
         try:
-            return self.focused is self.query_one("#embedded-terminal", TerminalView)
+            return self.focused is self.query_one("#agent-option-list", OptionList)
         except Exception:
             return False
 
@@ -1254,8 +1259,10 @@ class DeskApp(App):
 
         The modal is a separate ModalScreen pushed on demand, so surfacing it
         never reflows the dashboard's 1fr region (the old in-flow banner did).
-        Suppressed while another screen is up, while the embed has focus, or
-        when a triage modal is already showing.
+        Suppressed unless the dashboard agent list holds focus — typing in the
+        embed, the search input, or any other widget blocks the modal so a
+        notification can't grab the keyboard mid-task. Also suppressed while
+        another screen is up or a triage modal is already showing.
 
         Snooze semantics: when the user dismisses with Esc or ``s``, the
         agent's id is added to ``_snoozed`` with its current ``last_change_at``.
@@ -1295,9 +1302,18 @@ class DeskApp(App):
         # live; the next agent surfaces when this one is resolved).
         if self._triage_modal is not None:
             return
-        # Don't stack over another modal (kill/help/palette), and don't grab the
-        # keyboard while the user is typing in the embed.
-        if len(self.screen_stack) > 1 or self._embed_has_focus():
+        # Don't stack over another modal (kill/help/palette), and only fire
+        # while the dashboard list has focus — typing in the embed or search
+        # must not be interrupted by a surfacing notification.
+        if len(self.screen_stack) > 1 or not self._list_has_focus():
+            dbg(
+                "desk.triage.suppressed",
+                self.aque_dir,
+                top_id=candidates[0].id,
+                screens=len(self.screen_stack),
+                focused=type(self.focused).__name__ if self.focused else None,
+                focused_id=getattr(self.focused, "id", None),
+            )
             return
 
         top = candidates[0]

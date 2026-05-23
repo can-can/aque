@@ -148,3 +148,45 @@ async def test_triage_suppressed_while_embed_focused(tmp_aque_dir):
         app._on_refresh()
         await pilot.pause()
         assert isinstance(app.screen, TriageModal)
+
+
+@pytest.mark.asyncio
+async def test_triage_only_surfaces_when_list_has_focus(tmp_aque_dir, monkeypatch):
+    """Live bug: pressing Enter on a row pops into the embed (term.focus()), but
+    the triage modal could still surface on the 2s poll, stealing focus mid-task.
+    The guard checks the list holds focus — not merely that the embed doesn't —
+    so any non-list focus (search box, no focus, etc.) keeps the queue quiet."""
+    from aque.terminal.widget import TerminalView
+    mgr = StateManager(tmp_aque_dir)
+    # A RUNNING row plus a WAITING one — Enter on the RUNNING row focuses the
+    # embed; the WAITING row must NOT then pop the modal out from under us.
+    mgr.add_agent(AgentInfo(
+        id=mgr.next_id(), tmux_session="aque-test-r", label="runner",
+        dir="/tmp/test", command=["test"], state=AgentState.RUNNING, pid=1000,
+    ))
+    _add_waiting(mgr, "waiter")
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause()
+        term = app.query_one("#embedded-terminal", TerminalView)
+        monkeypatch.setattr(term, "attach", lambda argv, size_sync=None: None)
+        app._skip_attach = False  # let Enter focus the embed
+        ol = app.query_one("#agent-option-list")
+        ol.focus()
+        ol.highlighted = 0
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.focused is term, "Enter should focus the embed"
+        # Multiple poll cycles must not surface the modal while the embed is
+        # focused — the user is mid-task typing to the agent.
+        for _ in range(5):
+            app._on_refresh()
+            await pilot.pause()
+            assert not isinstance(app.screen, TriageModal), \
+                "Modal must not pop while embed has focus"
+        # Returning to the list surfaces the queued WAITING agent.
+        ol.focus()
+        await pilot.pause()
+        app._on_refresh()
+        await pilot.pause()
+        assert isinstance(app.screen, TriageModal)
