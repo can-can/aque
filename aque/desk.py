@@ -1498,10 +1498,17 @@ class DeskApp(App):
                 def on_pick(result: PickerResult | None) -> None:
                     if result is None:
                         return  # user cancelled
+                    if result.action == "fresh":
+                        # Pre-assign a fresh UUID, exactly like the empty-dir path.
+                        cmd, sid = capturer.preassign(command)
+                    else:
+                        # Resume — keep the original command; finisher will rewrite with
+                        # the picked session id.
+                        cmd, sid = command, result.session_id
                     self._finish_perform_launch(
-                        command=command, working_dir=working_dir,
+                        command=cmd, working_dir=working_dir,
                         label=label, agent_type="claude",
-                        session_id=result.session_id,
+                        session_id=sid,
                     )
                 self.push_screen(
                     ResumePickerScreen(summaries, working_dir, "claude"),

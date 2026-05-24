@@ -952,3 +952,91 @@ class TestPerformLaunchClaudeRouting:
 
         assert launched.get("session_id") is None
         assert launched["agent_type"] == "aider"
+
+    @pytest.mark.asyncio
+    async def test_picker_fresh_choice_pre_assigns_session_id(self, tmp_aque_dir, monkeypatch):
+        """When picker returns action='fresh', the agent still gets a
+        pre-assigned session_id (--session-id in command, sid not None)."""
+        from datetime import datetime, timezone
+        from aque import sessions, desk as desk_mod
+        from aque.sessions import SessionSummary
+        from aque.widgets.resume_picker import PickerResult
+
+        fake_summary = SessionSummary(
+            uuid="aaaa", first_prompt="hi", last_activity="there",
+            mtime=datetime.now(timezone.utc), size_bytes=100,
+        )
+        monkeypatch.setattr(
+            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+        )
+
+        launched: dict = {}
+        def fake_launch(**kwargs):
+            launched.update(kwargs)
+            return 1
+        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+
+        # Capture the on_pick callback that _perform_launch passes to push_screen
+        captured_callback: list = []
+        def fake_push_screen(screen, callback=None):
+            captured_callback.append(callback)
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            monkeypatch.setattr(app, "push_screen", fake_push_screen)
+            app._perform_launch(
+                command=["cc"], working_dir="/tmp/x",
+                label="t", agent_type="claude",
+            )
+            await pilot.pause()
+            # Now simulate the user picking "Start fresh"
+            assert captured_callback, "_perform_launch did not push a picker"
+            captured_callback[0](PickerResult(action="fresh", session_id=None))
+            await pilot.pause()
+
+        assert launched["session_id"] is not None
+        assert "--session-id" in launched["command"]
+
+    @pytest.mark.asyncio
+    async def test_picker_resume_choice_passes_session_id_through(self, tmp_aque_dir, monkeypatch):
+        """When picker returns action='resume', launch_agent receives the
+        picked session_id and the command is rewritten via resume_command."""
+        from datetime import datetime, timezone
+        from aque import sessions, desk as desk_mod
+        from aque.sessions import SessionSummary
+        from aque.widgets.resume_picker import PickerResult
+
+        fake_summary = SessionSummary(
+            uuid="aaaa", first_prompt="hi", last_activity="there",
+            mtime=datetime.now(timezone.utc), size_bytes=100,
+        )
+        monkeypatch.setattr(
+            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+        )
+
+        launched: dict = {}
+        def fake_launch(**kwargs):
+            launched.update(kwargs)
+            return 1
+        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+
+        captured_callback: list = []
+        def fake_push_screen(screen, callback=None):
+            captured_callback.append(callback)
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            monkeypatch.setattr(app, "push_screen", fake_push_screen)
+            app._perform_launch(
+                command=["cc"], working_dir="/tmp/x",
+                label="t", agent_type="claude",
+            )
+            await pilot.pause()
+            assert captured_callback, "_perform_launch did not push a picker"
+            captured_callback[0](PickerResult(action="resume", session_id="aaaa"))
+            await pilot.pause()
+
+        assert launched["session_id"] == "aaaa"
+        # Command should have been rewritten by resume_command (claude uses --resume for resuming)
+        assert "--resume" in launched["command"]
+        assert "aaaa" in launched["command"]
