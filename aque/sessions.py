@@ -6,6 +6,7 @@ session. Aque uses these to enable the Resume action in the orphan modal
 without installing any hooks.
 """
 
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple, Protocol
@@ -82,6 +83,10 @@ class ClaudeCapturer:
 
     def resume_command(self, original_cmd: list[str], session_id: str) -> list[str]:
         return [*original_cmd, "--resume", session_id]
+
+    def preassign(self, original_cmd: list[str]) -> tuple[list[str], str]:
+        sid = str(uuid.uuid4())
+        return ([*original_cmd, "--session-id", sid], sid)
 
 
 _CODEX_UUID_TOKEN_COUNT = 5  # last 5 hyphen-separated tokens of the stem form the UUID

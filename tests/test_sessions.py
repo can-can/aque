@@ -1,3 +1,4 @@
+import uuid as uuid_mod
 from pathlib import Path
 
 import pytest
@@ -165,3 +166,29 @@ class TestReadLastLine:
         p = tmp_path / "f.jsonl"
         p.write_bytes(b"alpha\r\nbeta\r\n")
         assert _read_last_line(p) == "beta"
+
+
+class TestClaudePreassign:
+    def test_appends_session_id_flag(self):
+        c = ClaudeCapturer()
+        cmd, sid = c.preassign(["claude", "--model", "opus"])
+        assert cmd[:3] == ["claude", "--model", "opus"]
+        assert cmd[3] == "--session-id"
+        assert cmd[4] == sid
+
+    def test_generated_uuid_is_valid_v4(self):
+        c = ClaudeCapturer()
+        _, sid = c.preassign(["claude"])
+        parsed = uuid_mod.UUID(sid)
+        assert parsed.version == 4
+
+    def test_each_call_yields_a_different_uuid(self):
+        c = ClaudeCapturer()
+        ids = {c.preassign(["claude"])[1] for _ in range(10)}
+        assert len(ids) == 10
+
+    def test_does_not_mutate_input_list(self):
+        c = ClaudeCapturer()
+        cmd_in = ["claude"]
+        c.preassign(cmd_in)
+        assert cmd_in == ["claude"]
