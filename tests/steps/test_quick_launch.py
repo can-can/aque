@@ -92,7 +92,7 @@ def ctx(tmp_aque_dir, request):
 
 def _install_fake_launch(ctx):
     def _fake_launch(command, working_dir, label, state_manager,
-                     prefix="aque", background=False, agent_type=None):
+                     prefix="aque", background=False, agent_type=None, session_id=None):
         agent_id = state_manager.next_id()
         state_manager.add_agent(AgentInfo(
             id=agent_id, tmux_session=f"{prefix}-fake-{agent_id}",
@@ -195,7 +195,9 @@ def then_agent_launched(ctx, command, dir):
     mock = ctx.data.get("mock_launch")
     assert mock is not None and mock.called, "launch_agent was not called"
     _, kwargs = mock.call_args
-    assert kwargs["command"] == [command], kwargs
+    # The command may include extra args (e.g. --session-id <uuid>) appended
+    # by the pre-creation logic, so check it starts with the base command.
+    assert kwargs["command"][0] == command, kwargs
     assert kwargs["working_dir"] == dir, kwargs
     state = ctx.app.state_mgr.load()
     assert any(a.dir == dir for a in state.agents), "agent not in state"

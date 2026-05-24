@@ -900,7 +900,7 @@ def when_completes_agent_creation(ctx):
 
     def _fake_launch(
         command, working_dir, label, state_manager,
-        prefix="aque", background=False, agent_type=None,
+        prefix="aque", background=False, agent_type=None, session_id=None,
     ):
         agent_id = state_manager.next_id()
         agent = AgentInfo(
@@ -1404,7 +1404,7 @@ def given_label_is(ctx, label_text):
 
     def _fake_launch(
         command, working_dir, label, state_manager,
-        prefix="aque", background=False, agent_type=None,
+        prefix="aque", background=False, agent_type=None, session_id=None,
     ):
         agent_id = state_manager.next_id()
         agent = AgentInfo(
