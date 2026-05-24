@@ -210,6 +210,19 @@ class ClaudeCapturer:
 _CODEX_UUID_TOKEN_COUNT = 5  # last 5 hyphen-separated tokens of the stem form the UUID
 
 
+def _is_codex_uuid_like(s: str) -> bool:
+    """Cheap shape check for a codex UUID (5 hyphen-separated hex groups).
+
+    Codex uses UUIDv7 with the canonical 8-4-4-4-12 hex layout. We don't
+    fully validate the bytes — just confirm the shape so we don't pick up
+    unrelated dotfiles in shell_snapshots/.
+    """
+    parts = s.split("-")
+    if len(parts) != 5:
+        return False
+    return all(p and all(c in "0123456789abcdef" for c in p) for p in parts)
+
+
 def _extract_codex_uuid(stem: str) -> str | None:
     """Pull the UUID out of a codex session filename stem.
 
@@ -226,25 +239,47 @@ def _extract_codex_uuid(stem: str) -> str | None:
 class CodexCapturer:
     """Capture Codex session UUIDs.
 
-    Codex stores sessions under `~/.codex/sessions/<YYYY>/<MM>/<DD>/` with
-    filenames of the form `rollout-<timestamp>-<uuid>.jsonl`. The dir is one
-    tree across all cwds, so the cwd argument is ignored when listing.
-    The resume command is `codex resume <uuid>`, inserted as the first
-    positional after the program name so any user-supplied flags are preserved.
+    Codex emits a session UUID in two places:
+      * ``~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`` —
+        the conversation rollout. Only appears after the user submits a
+        prompt, sometimes long after launch.
+      * ``~/.codex/shell_snapshots/<uuid>.<ts>.sh`` — a shell-env snapshot
+        written within seconds of session init, BEFORE the user types
+        anything.
+
+    We watch both so capture works even when the user just opens codex and
+    walks away. The shell_snapshots path is the one that catches the UUID
+    promptly; the rollout path is kept as a back-stop for prior sessions
+    that pre-date shell_snapshots being a thing.
+
+    The dir is one tree across all cwds, so the cwd argument is ignored
+    when listing. The resume command is ``codex resume <uuid>``, inserted
+    as the first positional after the program name so any user-supplied
+    flags are preserved.
     """
 
     def session_dir(self, cwd: str) -> Path:
         return Path.home() / ".codex" / "sessions"
 
+    def shell_snapshots_dir(self) -> Path:
+        return Path.home() / ".codex" / "shell_snapshots"
+
     def existing_uuids(self, cwd: str) -> set[str]:
-        d = self.session_dir(cwd)
-        if not d.is_dir():
-            return set()
         uuids: set[str] = set()
-        for p in d.rglob("*.jsonl"):
-            uuid = _extract_codex_uuid(p.stem)
-            if uuid is not None:
-                uuids.add(uuid)
+        rollouts = self.session_dir(cwd)
+        if rollouts.is_dir():
+            for p in rollouts.rglob("*.jsonl"):
+                uuid = _extract_codex_uuid(p.stem)
+                if uuid is not None:
+                    uuids.add(uuid)
+        snapshots = self.shell_snapshots_dir()
+        if snapshots.is_dir():
+            for p in snapshots.glob("*.sh"):
+                # Shell-snapshot stems are <uuid>.<nanosecond-timestamp>.
+                # Split on the first dot — UUIDs contain hyphens, not dots.
+                head = p.name.split(".", 1)[0]
+                if _is_codex_uuid_like(head):
+                    uuids.add(head)
         return uuids
 
     def resume_command(self, original_cmd: list[str], session_id: str) -> list[str]:

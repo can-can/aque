@@ -356,3 +356,47 @@ class TestCodexStubs:
 
     def test_summarize_returns_empty_list(self, tmp_path):
         assert CodexCapturer().summarize("/tmp/x") == []
+
+
+class TestCodexExistingUuids:
+    def test_picks_up_uuid_from_rollout_file(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".codex" / "sessions" / "2026" / "05" / "24"
+        d.mkdir(parents=True)
+        uuid = "019e5b51-3ff5-7c43-bd69-ef8dfdd9bd84"
+        (d / f"rollout-2026-05-24T11-48-31-{uuid}.jsonl").write_text("")
+        assert uuid in CodexCapturer().existing_uuids("/tmp/x")
+
+    def test_picks_up_uuid_from_shell_snapshot(self, monkeypatch, tmp_path):
+        """shell_snapshots/<uuid>.<ts>.sh appears BEFORE the rollout file —
+        codex writes it within seconds of session init, well before the user
+        submits any prompt. Capturer must pick it up to avoid stalling on
+        idle codex sessions."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".codex" / "shell_snapshots"
+        d.mkdir(parents=True)
+        uuid = "019e5b60-3288-76d1-a7c5-820fa6ad161e"
+        (d / f"{uuid}.1779649491861955000.sh").write_text("# snapshot")
+        assert uuid in CodexCapturer().existing_uuids("/tmp/x")
+
+    def test_unions_uuids_from_both_locations(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        sessions_d = tmp_path / ".codex" / "sessions" / "2026" / "05" / "24"
+        sessions_d.mkdir(parents=True)
+        rollout_uuid = "019e5b51-3ff5-7c43-bd69-ef8dfdd9bd84"
+        (sessions_d / f"rollout-2026-05-24T11-48-31-{rollout_uuid}.jsonl").write_text("")
+        snapshots_d = tmp_path / ".codex" / "shell_snapshots"
+        snapshots_d.mkdir(parents=True)
+        snapshot_uuid = "019e5b60-3288-76d1-a7c5-820fa6ad161e"
+        (snapshots_d / f"{snapshot_uuid}.1779649491861955000.sh").write_text("")
+        uuids = CodexCapturer().existing_uuids("/tmp/x")
+        assert rollout_uuid in uuids
+        assert snapshot_uuid in uuids
+
+    def test_ignores_unrelated_files_in_shell_snapshots(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".codex" / "shell_snapshots"
+        d.mkdir(parents=True)
+        (d / "not-a-uuid.sh").write_text("")
+        (d / "README.sh").write_text("")
+        assert CodexCapturer().existing_uuids("/tmp/x") == set()

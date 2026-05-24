@@ -42,7 +42,7 @@ def _capture_session_id(
     working_dir: str,
     state_manager: StateManager,
     before: set[str],
-    timeout: float = 30.0,
+    timeout: float = 300.0,
 ) -> None:
     """Poll the type's session dir for a new UUID and persist it on the agent.
 
@@ -50,6 +50,10 @@ def _capture_session_id(
     moment the launch command was sent. Caller is responsible for
     snapshotting BEFORE send_keys to avoid a race where the file appears
     before the snapshot is taken.
+
+    Default timeout is 5 minutes because codex defers writing its session
+    UUID until after a slow init sequence (auth, MCP servers, skill loads
+    — observed 45s+ in production).
 
     No-op for agent types without a registered capturer. On timeout or
     ambiguous matches (zero or multiple new UUIDs), the agent's session_id
