@@ -194,7 +194,7 @@ class TestLaunchAgentType:
 
         mgr = StateManager(tmp_aque_dir)
         launch_agent(
-            command=["aider"],
+            command=["echo"],
             working_dir="/tmp/test",
             label="test",
             state_manager=mgr,
@@ -247,7 +247,7 @@ class TestLaunchAgentType:
 
         mgr = StateManager(tmp_aque_dir)
         launch_agent(
-            command=["aider"],
+            command=["echo"],
             working_dir="/tmp/test",
             label="test",
             state_manager=mgr,
@@ -326,13 +326,13 @@ def test_finalize_capture_noop_for_unknown_type(tmp_path):
         def set_session_id(self, *a, **kw):
             raise AssertionError("should not be called for unsupported types")
 
-    # Should return silently for None / 'aider' / unknown types.
+    # Should return silently for None or any type not in CAPTURERS.
     run._capture_session_id(
         agent_id=7, agent_type=None,
         working_dir="/tmp/x", state_manager=FakeMgr(), before=set(), timeout=0.1,
     )
     run._capture_session_id(
-        agent_id=7, agent_type="aider",
+        agent_id=7, agent_type="unknown-type",
         working_dir="/tmp/x", state_manager=FakeMgr(), before=set(), timeout=0.1,
     )
 

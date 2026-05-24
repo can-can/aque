@@ -23,27 +23,18 @@ STATE_COLORS: dict[AgentState, str] = {
 # to read on the matching light fill below (and kept as the single source of
 # truth the vendor-colour BDD step asserts against).
 #
-#   claude   — amber
-#   codex    — slate
-#   aider    — teal
-#   gemini   — violet
-#   opencode — green
+#   claude — amber
+#   codex  — slate
 TYPE_COLORS: dict[str, str] = {
-    "claude":   "#B45309",
-    "codex":    "#475569",
-    "aider":    "#0F766E",
-    "gemini":   "#6D28D9",
-    "opencode": "#15803D",
+    "claude": "#B45309",
+    "codex":  "#475569",
 }
 
 
 # Light tint backgrounds for each vendor pill, paired with TYPE_COLORS text.
 TYPE_FILLS: dict[str, str] = {
-    "claude":   "#FBE6D4",
-    "codex":    "#E2E8F0",
-    "aider":    "#CFF0EC",
-    "gemini":   "#EADDFB",
-    "opencode": "#CDEFD8",
+    "claude": "#FBE6D4",
+    "codex":  "#E2E8F0",
 }
 
 

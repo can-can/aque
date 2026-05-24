@@ -930,7 +930,7 @@ class TestPerformLaunchClaudeRouting:
 
     @pytest.mark.asyncio
     async def test_non_claude_skips_picker_entirely(self, tmp_aque_dir, monkeypatch):
-        """agent_type=None or 'codex' or 'aider' bypasses the picker."""
+        """agent_type=None or 'codex' bypasses the picker."""
         from aque import desk as desk_mod
 
         launched: dict = {}
@@ -945,13 +945,13 @@ class TestPerformLaunchClaudeRouting:
         async with app.run_test() as pilot:
             await pilot.pause()
             app._perform_launch(
-                command=["aider"], working_dir="/tmp/x",
-                label="t", agent_type="aider",
+                command=["codex"], working_dir="/tmp/x",
+                label="t", agent_type="codex",
             )
             await pilot.pause()
 
         assert launched.get("session_id") is None
-        assert launched["agent_type"] == "aider"
+        assert launched["agent_type"] == "codex"
 
     @pytest.mark.asyncio
     async def test_picker_fresh_choice_pre_assigns_session_id(self, tmp_aque_dir, monkeypatch):

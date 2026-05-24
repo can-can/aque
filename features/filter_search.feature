@@ -8,7 +8,7 @@ Feature: Filter and search the agent list
     And the following agents exist:
       | label   | state    | agent_type |
       | alpha   | running  | claude     |
-      | bravo   | waiting  | aider      |
+      | bravo   | waiting  | claude     |
       | charlie | on_hold  |            |
       | delta   | exited   | codex      |
 

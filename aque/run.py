@@ -111,10 +111,6 @@ def launch_agent(
 
     pane = session.active_pane
 
-    if agent_type == "aider":
-        signal_cmd = f"mkdir -p ~/.aque/signals && echo '{{\"event\":\"stop\"}}' > ~/.aque/signals/{agent_id}.json"
-        command = command + ["--notifications-command", signal_cmd]
-
     cmd_str = shlex.join(command)
 
     agent = AgentInfo(

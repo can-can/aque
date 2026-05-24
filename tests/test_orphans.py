@@ -68,7 +68,7 @@ def test_find_orphans_marks_resumable_when_capturer_and_session_id_present():
     agents = [
         _agent(id=1, agent_type="claude", session_id="uuid-1"),
         _agent(id=2, agent_type="claude", session_id=None),
-        _agent(id=3, agent_type="aider",  session_id="ignored"),
+        _agent(id=3, agent_type="unknown-type",  session_id="ignored"),
         _agent(id=4, agent_type=None,     session_id=None),
     ]
     state = AppState(agents=agents)
