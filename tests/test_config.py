@@ -84,4 +84,4 @@ class TestConfig:
 
 
 def test_back_to_list_chord(tmp_path):
-    assert load_config(tmp_path)["shortcuts"]["back_to_list"] == "ctrl+shift+l"
+    assert load_config(tmp_path)["shortcuts"]["back_to_list"] == "tab"

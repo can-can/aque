@@ -6,11 +6,16 @@ def test_printable_passthrough():
     assert encode_key("Z") == b"Z"
 
 
-def test_enter_and_tab_and_backspace():
+def test_enter_and_backspace():
     assert encode_key("enter") == b"\r"
-    assert encode_key("tab") == b"\t"
     assert encode_key("backspace") == b"\x7f"
     assert encode_key("escape") == b"\x1b"
+
+
+def test_tab_is_reserved_for_desk_chord():
+    """Tab must NOT be encoded — it bubbles up to the desk's back_to_list
+    action (see aque/config.py shortcuts.back_to_list)."""
+    assert encode_key("tab") == b""
 
 
 def test_arrows():

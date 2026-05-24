@@ -30,7 +30,7 @@ DEFAULT_CONFIG = {
         "attach_fullscreen": "ctrl+shift+f",
         "next_agent": "ctrl+shift+j",
         "prev_agent": "ctrl+shift+k",
-        "back_to_list": "ctrl+shift+l",
+        "back_to_list": "tab",
         "cycle_layout": "ctrl+shift+o",
     },
 }

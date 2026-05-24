@@ -73,8 +73,11 @@ def encode_key(key: str, character: str | None = None) -> bytes:
     `character` is the event's printable character when available; used as the
     fallback for plain printable input.
     """
-    # Reserved desk chords: must not be encoded so they bubble to desk actions
-    if key.startswith("ctrl+shift+") or key == "ctrl+k":
+    # Reserved desk chords: must not be encoded so they bubble to desk actions.
+    # Tab is reserved as the back-to-list chord; this means agents in the
+    # embedded terminal won't receive Tab presses (no Tab completion). Detach
+    # to a full-screen tmux pane if you need it.
+    if key.startswith("ctrl+shift+") or key == "ctrl+k" or key == "tab":
         return b""
 
     if key in _NAMED:
