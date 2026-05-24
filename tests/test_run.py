@@ -312,6 +312,7 @@ def test_finalize_captures_claude_session_id(monkeypatch, tmp_path):
         agent_type="claude",
         working_dir="/tmp/x",
         state_manager=FakeMgr(),
+        before=set(),
         timeout=5.0,
     )
 
@@ -328,11 +329,11 @@ def test_finalize_capture_noop_for_unknown_type(tmp_path):
     # Should return silently for None / 'aider' / unknown types.
     run._capture_session_id(
         agent_id=7, agent_type=None,
-        working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.1,
+        working_dir="/tmp/x", state_manager=FakeMgr(), before=set(), timeout=0.1,
     )
     run._capture_session_id(
         agent_id=7, agent_type="aider",
-        working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.1,
+        working_dir="/tmp/x", state_manager=FakeMgr(), before=set(), timeout=0.1,
     )
 
 
@@ -346,7 +347,7 @@ def test_finalize_capture_timeout_leaves_session_id_unset(monkeypatch, tmp_path)
 
     run._capture_session_id(
         agent_id=7, agent_type="claude",
-        working_dir="/tmp/x", state_manager=FakeMgr(), timeout=0.3,
+        working_dir="/tmp/x", state_manager=FakeMgr(), before=set(), timeout=0.3,
     )
 
 
@@ -488,3 +489,36 @@ def test_finalize_capture_does_not_block_synchronous_launch(monkeypatch, tmp_pat
     # The capture thread was started, but launch_agent returned without waiting.
     assert captured["started"] is True
     assert elapsed < 2.0, f"launch_agent blocked for {elapsed:.1f}s (capture must run in a thread)"
+
+
+def test_capture_session_id_uses_supplied_before_snapshot(monkeypatch, tmp_path):
+    """The before snapshot must come from the caller (taken pre-launch),
+    not be recomputed inside the capture thread (which would race with
+    claude writing the file)."""
+    from aque import run
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    session_dir = tmp_path / ".claude" / "projects" / "-tmp-x"
+    session_dir.mkdir(parents=True)
+    # File already exists when capture is invoked (the race scenario).
+    (session_dir / "raced-uuid.jsonl").write_text("")
+
+    captured: dict = {}
+
+    class FakeMgr:
+        aque_dir = tmp_path / ".aque"
+        def set_session_id(self, aid, sid):
+            captured["agent_id"] = aid
+            captured["session_id"] = sid
+
+    # Supply an empty before set — capture should treat raced-uuid as "new".
+    run._capture_session_id(
+        agent_id=7,
+        agent_type="claude",
+        working_dir="/tmp/x",
+        state_manager=FakeMgr(),
+        before=set(),
+        timeout=1.0,
+    )
+
+    assert captured == {"agent_id": 7, "session_id": "raced-uuid"}

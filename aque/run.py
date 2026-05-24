@@ -41,9 +41,15 @@ def _capture_session_id(
     agent_type: str | None,
     working_dir: str,
     state_manager: StateManager,
+    before: set[str],
     timeout: float = 30.0,
 ) -> None:
     """Poll the type's session dir for a new UUID and persist it on the agent.
+
+    `before` is the set of UUIDs that existed in the session dir at the
+    moment the launch command was sent. Caller is responsible for
+    snapshotting BEFORE send_keys to avoid a race where the file appears
+    before the snapshot is taken.
 
     No-op for agent types without a registered capturer. On timeout or
     ambiguous matches (zero or multiple new UUIDs), the agent's session_id
@@ -52,7 +58,6 @@ def _capture_session_id(
     if agent_type not in sessions.CAPTURERS:
         return
     capturer = sessions.CAPTURERS[agent_type]
-    before = capturer.existing_uuids(working_dir)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         new_uuids = capturer.existing_uuids(working_dir) - before
@@ -60,7 +65,6 @@ def _capture_session_id(
             state_manager.set_session_id(agent_id, new_uuids.pop())
             return
         if len(new_uuids) > 1:
-            # Ambiguous — bail out, leave session_id unset.
             return
         time.sleep(0.5)
 
@@ -136,12 +140,17 @@ def launch_agent(
             _wait_for_shell(pane)
             if agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
+            # Snapshot BEFORE send_keys so we don't race the agent's file write.
+            before: set[str] | None = None
+            if agent_type in sessions.CAPTURERS:
+                before = sessions.CAPTURERS[agent_type].existing_uuids(working_dir)
             pane.send_keys(cmd_str, enter=True)
-            threading.Thread(
-                target=_capture_session_id,
-                args=(agent_id, agent_type, working_dir, state_manager),
-                daemon=True,
-            ).start()
+            if before is not None:
+                threading.Thread(
+                    target=_capture_session_id,
+                    args=(agent_id, agent_type, working_dir, state_manager, before),
+                    daemon=True,
+                ).start()
         except Exception:
             pass
 
@@ -218,11 +227,14 @@ def relaunch_agent(
             _wait_for_shell(pane)
             if agent.agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
+            before: set[str] | None = None
+            if (not preserve_session_id) and agent.agent_type in sessions.CAPTURERS:
+                before = sessions.CAPTURERS[agent.agent_type].existing_uuids(agent.dir)
             pane.send_keys(cmd_str, enter=True)
-            if not preserve_session_id:
+            if before is not None:
                 threading.Thread(
                     target=_capture_session_id,
-                    args=(agent_id, agent.agent_type, agent.dir, state_manager),
+                    args=(agent_id, agent.agent_type, agent.dir, state_manager, before),
                     daemon=True,
                 ).start()
         except Exception:
