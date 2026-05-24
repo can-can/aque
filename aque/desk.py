@@ -148,6 +148,17 @@ class NewAgentForm(Vertical):
             id="new-agent-hint",
         )
 
+    def on_mount(self) -> None:
+        # Focus the type list on open so the user can arrow + Enter without
+        # first having to Tab into the list. Deferred via call_after_refresh
+        # so we win against Textual's initial auto-focus pass.
+        def _focus():
+            try:
+                self.query_one("#type-list", OptionList).focus()
+            except Exception:
+                pass
+        self.call_after_refresh(_focus)
+
     def select_type(self) -> None:
         """Handle type selection and advance to dir step."""
         try:
@@ -198,6 +209,7 @@ class NewAgentForm(Vertical):
         self.query_one("#new-agent-hint").update(
             "   ".join([key_hint("Enter", "select"), key_hint("Esc", "cancel")])
         )
+        self.query_one("#type-list", OptionList).focus()
         self.query_one("#type-list", OptionList).focus()
 
     def show_command_step(self) -> None:

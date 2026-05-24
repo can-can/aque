@@ -130,6 +130,17 @@ class TestNewAgentFormWithPicker:
             trees = app.query("#dir-tree")
             assert len(trees) == 0
 
+    @pytest.mark.asyncio
+    async def test_type_list_is_focused_on_open(self, tmp_aque_dir):
+        """User shouldn't have to Tab into the type list — it should grab
+        focus when the form mounts so arrow + Enter works immediately."""
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.press("n")
+            await pilot.pause()
+            type_list = app.query_one("#type-list")
+            assert type_list.has_focus, "type-list should be focused after form opens"
+
 
 class TestNarrowMode:
     @pytest.mark.asyncio
