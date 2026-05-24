@@ -12,6 +12,14 @@ from typing import NamedTuple, Protocol
 
 
 class SessionSummary(NamedTuple):
+    """Lightweight metadata for one prior agent session, used by the
+    create-time resume picker.
+
+    Construct via the capturer's `summarize()` method, not directly.
+    `mtime` is a real `datetime` (caller is responsible for wrapping
+    `path.stat().st_mtime` with `datetime.fromtimestamp(..., tz=timezone.utc)`
+    before passing it in).
+    """
     uuid: str
     first_prompt: str | None    # first non-meta user message, ~80 chars
     last_activity: str | None   # last user or assistant message, ~80 chars
