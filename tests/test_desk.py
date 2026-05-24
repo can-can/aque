@@ -1040,3 +1040,43 @@ class TestPerformLaunchClaudeRouting:
         # Command should have been rewritten by resume_command (claude uses --resume for resuming)
         assert "--resume" in launched["command"]
         assert "aaaa" in launched["command"]
+
+
+class TestQuickLaunchPickerRouting:
+    @pytest.mark.asyncio
+    async def test_quick_launch_claude_routes_through_picker(self, tmp_aque_dir, monkeypatch):
+        """_launch_quick_task_with_type for a claude task must delegate to
+        _perform_launch, which (after Task 9) pushes ResumePickerScreen when
+        prior sessions exist in the target directory."""
+        from datetime import datetime, timezone
+        from aque import sessions, desk as desk_mod
+        from aque.sessions import SessionSummary
+        from aque.widgets.resume_picker import ResumePickerScreen
+
+        fake_summary = SessionSummary(
+            uuid="aaaa", first_prompt="hi", last_activity="there",
+            mtime=datetime.now(timezone.utc), size_bytes=100,
+        )
+        monkeypatch.setattr(
+            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+        )
+
+        pushed: list = []
+
+        def fake_push_screen(screen, callback=None):
+            pushed.append(screen)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        monkeypatch.setattr(app, "push_screen", fake_push_screen)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            task = {
+                "command": ["cc"], "dir": "/tmp/x",
+                "label": "quick", "agent_type": "claude",
+            }
+            app._launch_quick_task_with_type(task, "claude")
+            await pilot.pause()
+
+        assert len(pushed) == 1
+        assert isinstance(pushed[0], ResumePickerScreen)
