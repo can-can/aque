@@ -239,20 +239,14 @@ class NewAgentForm(Vertical):
 
     def show_label_step(self) -> None:
         self._step = "label"
-        # Pre-fill a sensible default label: ``<command-word> . <dir-basename>``.
-        # Mirrors the prompt-style convention the rest of the desk uses
-        # (``claude . docs``, ``claude . monorepo``) so users can launch
-        # without typing while still being able to override.
-        cmd_word = (self._command.split() or ["agent"])[0]
-        dir_base = Path(self._selected_dir).name or "agent"
-        self._label = f"{cmd_word} . {dir_base}"
+        self._label = ""
         self.query_one("#new-agent-step").update(
             f"Step 4/4: Label  (dir: {self._selected_dir}, cmd: {self._command})"
         )
         self.query_one("#command-input").remove()
         self.mount(
             Input(
-                value=self._label,
+                value="",
                 placeholder="Agent label (optional)",
                 id="label-input",
             ),
