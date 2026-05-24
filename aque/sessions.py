@@ -215,6 +215,14 @@ class CodexCapturer:
     def resume_command(self, original_cmd: list[str], session_id: str) -> list[str]:
         return [original_cmd[0], "resume", session_id, *original_cmd[1:]]
 
+    def preassign(self, original_cmd: list[str]) -> tuple[list[str], str] | None:
+        return None
+
+    def summarize(self, cwd: str) -> list[SessionSummary]:
+        # Codex sessions aren't cwd-partitioned; cwd-filtered summary is
+        # out of scope for now. See spec § Non-goals.
+        return []
+
 
 CAPTURERS: dict[str, SessionCapturer] = {
     "claude": ClaudeCapturer(),

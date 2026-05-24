@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aque.sessions import CAPTURERS, ClaudeCapturer, _read_last_line
+from aque.sessions import CAPTURERS, ClaudeCapturer, CodexCapturer, _read_last_line
 
 
 def test_claude_session_dir_slug(monkeypatch, tmp_path):
@@ -286,3 +286,11 @@ class TestClaudeSummarize:
         assert out[0].uuid == "dddd"
         assert out[0].first_prompt is None
         assert out[0].last_activity is None
+
+
+class TestCodexStubs:
+    def test_preassign_returns_none(self):
+        assert CodexCapturer().preassign(["codex"]) is None
+
+    def test_summarize_returns_empty_list(self, tmp_path):
+        assert CodexCapturer().summarize("/tmp/x") == []
