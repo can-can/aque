@@ -6,8 +6,17 @@ session. Aque uses these to enable the Resume action in the orphan modal
 without installing any hooks.
 """
 
+from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
+
+
+class SessionSummary(NamedTuple):
+    uuid: str
+    first_prompt: str | None    # first non-meta user message, ~80 chars
+    last_activity: str | None   # last user or assistant message, ~80 chars
+    mtime: datetime             # file mtime (proxy for "last active")
+    size_bytes: int             # file size
 
 
 def _read_last_line(path: Path, window: int = 8192) -> str | None:
@@ -42,6 +51,8 @@ class SessionCapturer(Protocol):
     def session_dir(self, cwd: str) -> Path: ...
     def existing_uuids(self, cwd: str) -> set[str]: ...
     def resume_command(self, original_cmd: list[str], session_id: str) -> list[str]: ...
+    def preassign(self, original_cmd: list[str]) -> tuple[list[str], str] | None: ...
+    def summarize(self, cwd: str) -> list[SessionSummary]: ...
 
 
 class ClaudeCapturer:
