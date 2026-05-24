@@ -121,3 +121,46 @@ def test_codex_in_registry():
     from aque.sessions import CAPTURERS, CodexCapturer
     assert "codex" in CAPTURERS
     assert isinstance(CAPTURERS["codex"], CodexCapturer)
+
+
+import io
+from aque.sessions import _read_last_line
+
+
+class TestReadLastLine:
+    def test_returns_none_for_missing_file(self, tmp_path):
+        assert _read_last_line(tmp_path / "nope.jsonl") is None
+
+    def test_returns_none_for_empty_file(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        p.write_text("")
+        assert _read_last_line(p) is None
+
+    def test_returns_only_line_when_single_line(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        p.write_text("alpha\n")
+        assert _read_last_line(p) == "alpha"
+
+    def test_returns_last_line_when_multiline(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        p.write_text("alpha\nbeta\ngamma\n")
+        assert _read_last_line(p) == "gamma"
+
+    def test_handles_missing_trailing_newline(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        p.write_text("alpha\nbeta")
+        assert _read_last_line(p) == "beta"
+
+    def test_handles_file_larger_than_window(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        # Write 20 KB so we definitely exceed an 8 KB window.
+        lines = [f"line-{i:05d}" for i in range(2000)]
+        p.write_text("\n".join(lines) + "\n")
+        assert _read_last_line(p) == "line-01999"
+
+    def test_handles_last_line_longer_than_window(self, tmp_path):
+        # Last line is bigger than the window; helper should grow.
+        p = tmp_path / "f.jsonl"
+        long_line = "x" * 20000
+        p.write_text(f"short\n{long_line}\n")
+        assert _read_last_line(p) == long_line

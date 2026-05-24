@@ -10,6 +10,34 @@ from pathlib import Path
 from typing import Protocol
 
 
+def _read_last_line(path: Path, window: int = 8192) -> str | None:
+    """Read the last non-empty line of a file without loading the whole thing.
+
+    Seeks `window` bytes from EOF and walks forward. Doubles the window if the
+    last line is bigger than it. Returns None for missing or empty files.
+    """
+    try:
+        size = path.stat().st_size
+    except (FileNotFoundError, OSError):
+        return None
+    if size == 0:
+        return None
+    with path.open("rb") as f:
+        read = min(window, size)
+        while True:
+            f.seek(size - read)
+            chunk = f.read(read)
+            # Drop trailing newlines so we don't return "".
+            chunk = chunk.rstrip(b"\n")
+            nl = chunk.rfind(b"\n")
+            if nl != -1:
+                return chunk[nl + 1:].decode("utf-8", errors="replace")
+            if read >= size:
+                # Whole file is one line.
+                return chunk.decode("utf-8", errors="replace")
+            read = min(read * 2, size)
+
+
 class SessionCapturer(Protocol):
     def session_dir(self, cwd: str) -> Path: ...
     def existing_uuids(self, cwd: str) -> set[str]: ...
