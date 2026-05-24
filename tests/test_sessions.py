@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aque.sessions import CAPTURERS, ClaudeCapturer, CodexCapturer, _read_last_line
+from aque.sessions import CAPTURERS, ClaudeCapturer, CodexCapturer, _read_last_line, _read_last_user_or_assistant
 
 
 def test_claude_session_dir_slug(monkeypatch, tmp_path):
@@ -275,6 +275,21 @@ class TestClaudeSummarize:
         out = ClaudeCapturer().summarize("/tmp/x")
         assert [s.uuid for s in out] == ["cccc", "bbbb", "aaaa"]
 
+    def test_last_activity_survives_trailing_system_entries(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".claude" / "projects" / "-tmp-x"
+        d.mkdir(parents=True)
+        _write_jsonl(d / "eeee.jsonl", [
+            {"type": "user", "message": {"role": "user", "content": "first prompt"}},
+            {"type": "assistant", "message": {"role": "assistant", "content": "the last real reply"}},
+            {"type": "system", "subtype": "turn_duration"},
+            {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}},
+        ])
+        out = ClaudeCapturer().summarize("/tmp/x")
+        assert len(out) == 1
+        assert out[0].first_prompt == "first prompt"
+        assert out[0].last_activity == "the last real reply"
+
     def test_handles_corrupt_jsonl_gracefully(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
         d = tmp_path / ".claude" / "projects" / "-tmp-x"
@@ -286,6 +301,53 @@ class TestClaudeSummarize:
         assert out[0].uuid == "dddd"
         assert out[0].first_prompt is None
         assert out[0].last_activity is None
+
+
+class TestReadLastUserOrAssistant:
+    def test_returns_none_for_missing_file(self, tmp_path):
+        assert _read_last_user_or_assistant(tmp_path / "missing.jsonl") == (None, None)
+
+    def test_returns_last_assistant_even_with_trailing_system_entries(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        _write_jsonl(p, [
+            {"type": "user", "message": {"role": "user", "content": "old prompt"}},
+            {"type": "assistant", "message": {"role": "assistant", "content": "real last reply"}},
+            {"type": "system", "subtype": "turn_duration"},
+            {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}},
+        ])
+        text, role = _read_last_user_or_assistant(p)
+        assert text == "real last reply"
+        assert role == "assistant"
+
+    def test_returns_last_user_when_no_assistant_after(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        _write_jsonl(p, [
+            {"type": "assistant", "message": {"role": "assistant", "content": "old reply"}},
+            {"type": "user", "message": {"role": "user", "content": "newer prompt"}},
+            {"type": "system", "subtype": "away_summary"},
+        ])
+        text, role = _read_last_user_or_assistant(p)
+        assert text == "newer prompt"
+        assert role == "user"
+
+    def test_returns_none_when_no_user_or_assistant_in_window(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        _write_jsonl(p, [
+            {"type": "system", "subtype": "x"},
+            {"type": "attachment"},
+        ])
+        assert _read_last_user_or_assistant(p) == (None, None)
+
+    def test_skips_meta_user_entries(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        _write_jsonl(p, [
+            {"type": "user", "message": {"role": "user", "content": "real one"}},
+            {"type": "user", "isMeta": True,
+             "message": {"role": "user", "content": "<local-command-caveat>x</local-command-caveat>"}},
+        ])
+        text, role = _read_last_user_or_assistant(p)
+        assert text == "real one"
+        assert role == "user"
 
 
 class TestCodexStubs:

@@ -57,6 +57,48 @@ def _read_last_line(path: Path, window: int = 8192) -> str | None:
             read = min(read * 2, size)
 
 
+def _read_last_user_or_assistant(path: Path, window: int = 65536) -> tuple[str | None, str | None]:
+    """Walk backwards through the last `window` bytes of a jsonl file to find
+    the most-recent entry whose type is "user" or "assistant" (and is not a
+    meta entry).
+
+    Returns (content_text, role) for the first such match found from the end,
+    or (None, None) if none is found within the window (or if the file is
+    missing/empty).
+    """
+    try:
+        size = path.stat().st_size
+    except (FileNotFoundError, OSError):
+        return (None, None)
+    if size == 0:
+        return (None, None)
+    with path.open("rb") as f:
+        read = min(window, size)
+        f.seek(size - read)
+        chunk = f.read(read)
+    # Split into lines and walk backwards.
+    lines = chunk.split(b"\n")
+    for raw in reversed(lines):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw.decode("utf-8", errors="replace"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if obj.get("type") not in ("user", "assistant"):
+            continue
+        if obj.get("isMeta"):
+            continue
+        msg = obj.get("message") or {}
+        text = _extract_text(msg.get("content"))
+        if text is None or text.startswith("<local-command-caveat>"):
+            continue
+        role = obj.get("type")
+        return (text, role)
+    return (None, None)
+
+
 def _extract_text(content) -> str | None:
     """Extract a text string from a message.content value.
 
@@ -148,15 +190,8 @@ class ClaudeCapturer:
                         first_prompt = text
                         break
 
-                last_line = _read_last_line(path)
-                if last_line:
-                    try:
-                        obj = json.loads(last_line)
-                        if obj.get("type") in ("user", "assistant"):
-                            msg = obj.get("message") or {}
-                            last_activity = _extract_text(msg.get("content"))
-                    except json.JSONDecodeError:
-                        pass
+                last_text, _last_role = _read_last_user_or_assistant(path)
+                last_activity = last_text  # may be None
 
                 summaries.append(SessionSummary(
                     uuid=uuid_str,
