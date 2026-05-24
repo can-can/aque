@@ -1465,6 +1465,10 @@ class DeskApp(App):
     def _launch_quick_task_with_type(self, task: dict, agent_type: str | None) -> None:
         for w in self.query("QuickLaunchForm"):
             w.remove()
+        # Reset mode now that the form widget is gone — _perform_launch
+        # may push a modal (resume picker) and we don't want the on_key
+        # handler trying to query a QuickLaunchForm that no longer exists.
+        self._mode = "dashboard"
         self._perform_launch(
             command=list(task["command"]),
             working_dir=task["dir"],
@@ -1972,6 +1976,10 @@ class DeskApp(App):
             label = form._label or None
             for w in self.query("NewAgentForm"):
                 w.remove()
+            # Reset mode now that the form widget is gone — _perform_launch
+            # may push a modal (resume picker) and we don't want the on_key
+            # handler trying to query a NewAgentForm that no longer exists.
+            self._mode = "dashboard"
             self._perform_launch(
                 command=command,
                 working_dir=working_dir,

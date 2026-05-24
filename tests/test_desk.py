@@ -1080,3 +1080,42 @@ class TestQuickLaunchPickerRouting:
 
         assert len(pushed) == 1
         assert isinstance(pushed[0], ResumePickerScreen)
+        # Mode must be reset off the form so on_key doesn't try to
+        # query_one(QuickLaunchForm) while the picker modal is on top.
+        assert app._mode != "quick_launch_form"
+
+
+class TestFormCompletionResetsMode:
+    """Both NewAgentForm and QuickLaunchForm submission paths must reset
+    _mode away from the form mode before _perform_launch can push a modal.
+    Otherwise the next keypress crashes in on_key on a missing widget."""
+
+    @pytest.mark.asyncio
+    async def test_quick_launch_resets_mode_before_picker(self, tmp_aque_dir, monkeypatch):
+        from datetime import datetime, timezone
+        from aque import sessions, desk as desk_mod
+        from aque.sessions import SessionSummary
+
+        monkeypatch.setattr(
+            sessions.ClaudeCapturer, "summarize",
+            lambda self, cwd: [SessionSummary(
+                uuid="aaaa", first_prompt="hi", last_activity="there",
+                mtime=datetime.now(timezone.utc), size_bytes=100,
+            )],
+        )
+        monkeypatch.setattr(desk_mod, "launch_agent", lambda **kw: 1)
+
+        pushed: list = []
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        monkeypatch.setattr(app, "push_screen", lambda s, cb=None: pushed.append(s))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._mode = "quick_launch_form"  # simulate mid-form state
+            app._launch_quick_task_with_type(
+                {"command": ["cc"], "dir": "/tmp/x", "label": "q", "agent_type": "claude"},
+                "claude",
+            )
+            await pilot.pause()
+
+        assert app._mode != "quick_launch_form"
