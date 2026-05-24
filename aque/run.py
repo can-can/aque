@@ -79,6 +79,7 @@ def launch_agent(
     agent_type: str | None = None,
     is_responder: bool = False,
     partner_id: int | None = None,
+    session_id: str | None = None,
 ) -> int:
     if label is None:
         dir_basename = Path(working_dir).name
@@ -127,6 +128,7 @@ def launch_agent(
         agent_type=agent_type,
         is_responder=is_responder,
         partner_id=partner_id,
+        session_id=session_id,
     )
     state_manager.add_agent(agent)
 
@@ -141,8 +143,9 @@ def launch_agent(
             if agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
             # Snapshot BEFORE send_keys so we don't race the agent's file write.
+            # Skip capture entirely when caller pre-assigned the id.
             before: set[str] | None = None
-            if agent_type in sessions.CAPTURERS:
+            if session_id is None and agent_type in sessions.CAPTURERS:
                 before = sessions.CAPTURERS[agent_type].existing_uuids(working_dir)
             pane.send_keys(cmd_str, enter=True)
             if before is not None:

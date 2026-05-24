@@ -522,3 +522,58 @@ def test_capture_session_id_uses_supplied_before_snapshot(monkeypatch, tmp_path)
     )
 
     assert captured == {"agent_id": 7, "session_id": "raced-uuid"}
+
+
+class TestLaunchAgentSessionId:
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_supplied_session_id_is_stamped_on_agent(
+        self, mock_server_cls, mock_which, mock_wait, tmp_aque_dir
+    ):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        agent_id = launch_agent(
+            command=["claude", "--session-id", "abc-123"],
+            working_dir="/tmp/x",
+            label="t",
+            state_manager=mgr,
+            agent_type="claude",
+            session_id="abc-123",
+        )
+        agent = next(a for a in mgr.load().agents if a.id == agent_id)
+        assert agent.session_id == "abc-123"
+
+    @patch("aque.run.threading.Thread")
+    @patch("aque.run._wait_for_shell")
+    @patch("aque.run.shutil.which", return_value="/usr/bin/tmux")
+    @patch("aque.run.libtmux.Server")
+    def test_supplied_session_id_skips_capture_thread(
+        self, mock_server_cls, mock_which, mock_wait, mock_thread, tmp_aque_dir
+    ):
+        mock_server = MagicMock()
+        mock_server_cls.return_value = mock_server
+        mock_session = MagicMock()
+        mock_pane = MagicMock()
+        mock_pane.pane_pid = "99999"
+        mock_session.active_pane = mock_pane
+        mock_server.new_session.return_value = mock_session
+
+        mgr = StateManager(tmp_aque_dir)
+        launch_agent(
+            command=["claude", "--session-id", "abc-123"],
+            working_dir="/tmp/x",
+            label="t",
+            state_manager=mgr,
+            agent_type="claude",
+            session_id="abc-123",
+        )
+        # No capture thread started — Thread() never invoked.
+        mock_thread.assert_not_called()
