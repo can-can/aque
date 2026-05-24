@@ -6,8 +6,9 @@ session. Aque uses these to enable the Resume action in the orphan modal
 without installing any hooks.
 """
 
+import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple, Protocol
 
@@ -56,6 +57,33 @@ def _read_last_line(path: Path, window: int = 8192) -> str | None:
             read = min(read * 2, size)
 
 
+def _extract_text(content) -> str | None:
+    """Extract a text string from a message.content value.
+
+    content may be a plain string or a list of {type:"text", text:...} blocks.
+    Returns None for non-text shapes.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    return text
+    return None
+
+
+def _truncate(text: str | None, limit: int = 80) -> str | None:
+    if text is None:
+        return None
+    # Collapse newlines to spaces for single-line display.
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    return flat[:limit] + "…"
+
+
 class SessionCapturer(Protocol):
     def session_dir(self, cwd: str) -> Path: ...
     def existing_uuids(self, cwd: str) -> set[str]: ...
@@ -87,6 +115,61 @@ class ClaudeCapturer:
     def preassign(self, original_cmd: list[str]) -> tuple[list[str], str]:
         sid = str(uuid.uuid4())
         return ([*original_cmd, "--session-id", sid], sid)
+
+    def summarize(self, cwd: str) -> list[SessionSummary]:
+        d = self.session_dir(cwd)
+        if not d.is_dir():
+            return []
+
+        summaries: list[SessionSummary] = []
+        for path in d.glob("*.jsonl"):
+            uuid_str = path.stem
+            first_prompt: str | None = None
+            last_activity: str | None = None
+            try:
+                stat = path.stat()
+                with path.open("r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if obj.get("type") != "user":
+                            continue
+                        if obj.get("isMeta"):
+                            continue
+                        msg = obj.get("message") or {}
+                        text = _extract_text(msg.get("content"))
+                        if text is None or text.startswith("<local-command-caveat>"):
+                            continue
+                        first_prompt = text
+                        break
+
+                last_line = _read_last_line(path)
+                if last_line:
+                    try:
+                        obj = json.loads(last_line)
+                        if obj.get("type") in ("user", "assistant"):
+                            msg = obj.get("message") or {}
+                            last_activity = _extract_text(msg.get("content"))
+                    except json.JSONDecodeError:
+                        pass
+
+                summaries.append(SessionSummary(
+                    uuid=uuid_str,
+                    first_prompt=_truncate(first_prompt),
+                    last_activity=_truncate(last_activity),
+                    mtime=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+                    size_bytes=stat.st_size,
+                ))
+            except OSError:
+                continue
+
+        summaries.sort(key=lambda s: s.mtime, reverse=True)
+        return summaries
 
 
 _CODEX_UUID_TOKEN_COUNT = 5  # last 5 hyphen-separated tokens of the stem form the UUID

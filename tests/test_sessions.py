@@ -1,3 +1,5 @@
+import json
+import os
 import uuid as uuid_mod
 from pathlib import Path
 
@@ -192,3 +194,95 @@ class TestClaudePreassign:
         cmd_in = ["claude"]
         c.preassign(cmd_in)
         assert cmd_in == ["claude"]
+
+
+def _write_jsonl(path: Path, entries: list[dict]) -> None:
+    path.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+
+class TestClaudeSummarize:
+    def test_returns_empty_when_dir_missing(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert ClaudeCapturer().summarize("/tmp/no-such-dir") == []
+
+    def test_returns_empty_when_dir_has_no_jsonl(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".claude" / "projects" / "-tmp-x").mkdir(parents=True)
+        assert ClaudeCapturer().summarize("/tmp/x") == []
+
+    def test_skips_meta_first_user_entry(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".claude" / "projects" / "-tmp-x"
+        d.mkdir(parents=True)
+        _write_jsonl(d / "aaaa.jsonl", [
+            {"type": "file-history-snapshot"},
+            {"type": "user", "isMeta": True,
+             "message": {"role": "user",
+                         "content": "<local-command-caveat>x</local-command-caveat>"}},
+            {"type": "user",
+             "message": {"role": "user", "content": "real first prompt here"}},
+            {"type": "assistant",
+             "message": {"role": "assistant", "content": "real last reply here"}},
+        ])
+        out = ClaudeCapturer().summarize("/tmp/x")
+        assert len(out) == 1
+        assert out[0].first_prompt == "real first prompt here"
+        assert out[0].last_activity == "real last reply here"
+
+    def test_handles_list_content_blocks(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".claude" / "projects" / "-tmp-x"
+        d.mkdir(parents=True)
+        _write_jsonl(d / "bbbb.jsonl", [
+            {"type": "user",
+             "message": {"role": "user",
+                         "content": [{"type": "text", "text": "block-style prompt"}]}},
+            {"type": "assistant",
+             "message": {"role": "assistant",
+                         "content": [{"type": "text", "text": "block-style reply"}]}},
+        ])
+        out = ClaudeCapturer().summarize("/tmp/x")
+        assert out[0].first_prompt == "block-style prompt"
+        assert out[0].last_activity == "block-style reply"
+
+    def test_truncates_long_text(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".claude" / "projects" / "-tmp-x"
+        d.mkdir(parents=True)
+        long = "z" * 200
+        _write_jsonl(d / "cccc.jsonl", [
+            {"type": "user", "message": {"role": "user", "content": long}},
+        ])
+        out = ClaudeCapturer().summarize("/tmp/x")
+        assert len(out[0].first_prompt) <= 81  # 80 chars + ellipsis
+        assert out[0].first_prompt.endswith("…")
+
+    def test_sorts_newest_first_by_mtime(self, monkeypatch, tmp_path):
+        import time
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".claude" / "projects" / "-tmp-x"
+        d.mkdir(parents=True)
+        for name in ("aaaa.jsonl", "bbbb.jsonl", "cccc.jsonl"):
+            _write_jsonl(d / name, [
+                {"type": "user",
+                 "message": {"role": "user", "content": f"prompt-{name}"}}
+            ])
+        # Force distinct mtimes: aaaa oldest, cccc newest.
+        now = time.time()
+        os.utime(d / "aaaa.jsonl", (now - 300, now - 300))
+        os.utime(d / "bbbb.jsonl", (now - 100, now - 100))
+        os.utime(d / "cccc.jsonl", (now, now))
+        out = ClaudeCapturer().summarize("/tmp/x")
+        assert [s.uuid for s in out] == ["cccc", "bbbb", "aaaa"]
+
+    def test_handles_corrupt_jsonl_gracefully(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        d = tmp_path / ".claude" / "projects" / "-tmp-x"
+        d.mkdir(parents=True)
+        (d / "dddd.jsonl").write_bytes(b"not json at all\xff\xfe\n")
+        out = ClaudeCapturer().summarize("/tmp/x")
+        # Corrupt file shows up but with None previews.
+        assert len(out) == 1
+        assert out[0].uuid == "dddd"
+        assert out[0].first_prompt is None
+        assert out[0].last_activity is None
