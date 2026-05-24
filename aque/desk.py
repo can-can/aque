@@ -45,6 +45,7 @@ from aque.widgets.confirm_modal import ConfirmModal
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
 from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
+from aque.widgets.resume_picker import PickerResult, ResumePickerScreen
 from aque.widgets.triage_modal import ATTACH, PEEK, SNOOZE, TriageModal
 from aque.widgets.undo_bar import UndoBar
 from aque.terminal.widget import TerminalView
@@ -1480,11 +1481,62 @@ class DeskApp(App):
     ) -> int:
         """Launch an agent and run the shared post-launch flow.
 
-        Used by both the new-agent wizard and Quick Launch. Installs the
-        agent-type hook if needed, creates a paired responder (when enabled),
-        records directory use, ensures the monitor is running, and attaches to
-        the new agent (or returns to the dashboard when attach is skipped).
+        For claude with prior sessions in the target dir, this opens
+        ResumePickerScreen first; the actual launch happens in the picker
+        callback. For all other types (and claude in empty dirs), launch
+        proceeds directly via _finish_perform_launch.
+
+        Returns the agent_id for the direct (non-picker) path; the picker
+        path returns -1 because the actual id isn't known until the callback
+        fires. Callers that care about the id (none today) should be reworked
+        to use a callback.
         """
+        if agent_type == "claude":
+            capturer = CAPTURERS["claude"]
+            summaries = capturer.summarize(working_dir)
+            if summaries:
+                def on_pick(result: PickerResult | None) -> None:
+                    if result is None:
+                        return  # user cancelled
+                    self._finish_perform_launch(
+                        command=command, working_dir=working_dir,
+                        label=label, agent_type="claude",
+                        session_id=result.session_id,
+                    )
+                self.push_screen(
+                    ResumePickerScreen(summaries, working_dir, "claude"),
+                    on_pick,
+                )
+                return -1
+            # No prior sessions — still pre-assign so we skip capture.
+            cmd, sid = capturer.preassign(command)
+            return self._finish_perform_launch(
+                command=cmd, working_dir=working_dir,
+                label=label, agent_type="claude", session_id=sid,
+            )
+        return self._finish_perform_launch(
+            command=command, working_dir=working_dir,
+            label=label, agent_type=agent_type, session_id=None,
+        )
+
+    def _finish_perform_launch(
+        self,
+        command: list[str],
+        working_dir: str,
+        label: str | None,
+        agent_type: str | None,
+        session_id: str | None,
+    ) -> int:
+        """The deterministic tail of _perform_launch. Plugin hook install,
+        launch_agent, responder pairing, dir-history record, attach."""
+        # If caller passed a session_id but the command wasn't already rewritten
+        # (e.g. picker returned a resume id), rewrite it now.
+        if session_id is not None and agent_type in CAPTURERS:
+            capturer = CAPTURERS[agent_type]
+            # Only rewrite if --session-id isn't already in the command.
+            if "--session-id" not in command:
+                command = capturer.resume_command(command, session_id)
+
         if agent_type:
             from aque.plugins import get_plugin
             plugin = get_plugin(agent_type)
@@ -1498,6 +1550,7 @@ class DeskApp(App):
             prefix=self.config["session_prefix"],
             background=True,
             agent_type=agent_type,
+            session_id=session_id,
         )
         if self.config.get("responder_enabled", True):
             partner = next(

@@ -859,3 +859,96 @@ class TestKillConfirmation:
             await pilot.press("y")
             await pilot.pause()
             assert killed == [1]
+
+
+class TestPerformLaunchClaudeRouting:
+    @pytest.mark.asyncio
+    async def test_no_prior_sessions_skips_picker(self, tmp_aque_dir, monkeypatch):
+        """When summarize() returns [], _perform_launch goes straight to launch
+        with a pre-assigned session_id (no picker shown)."""
+        from aque import sessions, desk as desk_mod
+
+        monkeypatch.setattr(
+            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [],
+        )
+        launched: dict = {}
+
+        def fake_launch(**kwargs):
+            launched.update(kwargs)
+            return 1
+
+        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._perform_launch(
+                command=["cc"], working_dir="/tmp/x",
+                label="t", agent_type="claude",
+            )
+            await pilot.pause()
+
+        assert launched["session_id"] is not None
+        assert launched["agent_type"] == "claude"
+        # Command was rewritten by preassign to include --session-id.
+        assert "--session-id" in launched["command"]
+
+    @pytest.mark.asyncio
+    async def test_prior_sessions_shows_picker(self, tmp_aque_dir, monkeypatch):
+        """When summarize() returns sessions, ResumePickerScreen is pushed."""
+        from datetime import datetime, timezone
+        from aque import sessions, desk as desk_mod
+        from aque.sessions import SessionSummary
+        from aque.widgets.resume_picker import ResumePickerScreen
+
+        fake_summary = SessionSummary(
+            uuid="aaaa", first_prompt="hi", last_activity="there",
+            mtime=datetime.now(timezone.utc), size_bytes=100,
+        )
+        monkeypatch.setattr(
+            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+        )
+
+        pushed: list = []
+
+        def fake_push_screen(screen, callback=None):
+            pushed.append(screen)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        monkeypatch.setattr(app, "push_screen", fake_push_screen)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._perform_launch(
+                command=["cc"], working_dir="/tmp/x",
+                label="t", agent_type="claude",
+            )
+            await pilot.pause()
+
+        assert len(pushed) == 1
+        assert isinstance(pushed[0], ResumePickerScreen)
+
+    @pytest.mark.asyncio
+    async def test_non_claude_skips_picker_entirely(self, tmp_aque_dir, monkeypatch):
+        """agent_type=None or 'codex' or 'aider' bypasses the picker."""
+        from aque import desk as desk_mod
+
+        launched: dict = {}
+
+        def fake_launch(**kwargs):
+            launched.update(kwargs)
+            return 1
+
+        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._perform_launch(
+                command=["aider"], working_dir="/tmp/x",
+                label="t", agent_type="aider",
+            )
+            await pilot.pause()
+
+        assert launched.get("session_id") is None
+        assert launched["agent_type"] == "aider"
