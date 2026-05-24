@@ -8,9 +8,9 @@ Feature: Filter and search the agent list
     And the following agents exist:
       | label   | state    | agent_type |
       | alpha   | running  | claude     |
-      | bravo   | waiting  | claude     |
+      | bravo   | waiting  |            |
       | charlie | on_hold  |            |
-      | delta   | exited   | codex      |
+      | delta   | exited   |            |
 
   # ── State filters via number keys ──────────────────────────────
 
@@ -50,9 +50,9 @@ Feature: Filter and search the agent list
 
   Scenario: Searching by agent type matches even though the type is not shown on the row
     When the dashboard loads
-    And the user opens search and types "codex"
-    Then the agent list should contain "delta"
-    And the agent list should not contain "alpha"
+    And the user opens search and types "claude"
+    Then the agent list should contain "alpha"
+    And the agent list should not contain "delta"
 
   # ── Active filter indicator ───────────────────────────────────
 

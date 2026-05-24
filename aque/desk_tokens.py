@@ -24,17 +24,14 @@ STATE_COLORS: dict[AgentState, str] = {
 # truth the vendor-colour BDD step asserts against).
 #
 #   claude — amber
-#   codex  — slate
 TYPE_COLORS: dict[str, str] = {
     "claude": "#B45309",
-    "codex":  "#475569",
 }
 
 
 # Light tint backgrounds for each vendor pill, paired with TYPE_COLORS text.
 TYPE_FILLS: dict[str, str] = {
     "claude": "#FBE6D4",
-    "codex":  "#E2E8F0",
 }
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aque.sessions import CAPTURERS, ClaudeCapturer, CodexCapturer, _read_last_line, _read_last_user_or_assistant
+from aque.sessions import CAPTURERS, ClaudeCapturer, _read_last_line, _read_last_user_or_assistant
 
 
 def test_claude_session_dir_slug(monkeypatch, tmp_path):
@@ -52,78 +52,6 @@ def test_claude_resume_command_appends_flag():
 def test_claude_in_registry():
     assert "claude" in CAPTURERS
     assert isinstance(CAPTURERS["claude"], ClaudeCapturer)
-
-
-def test_codex_session_dir_root(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    from aque.sessions import CodexCapturer
-    c = CodexCapturer()
-    assert c.session_dir("/any/cwd") == tmp_path / ".codex" / "sessions"
-
-
-def test_codex_existing_uuids_extracts_uuid_from_filename(monkeypatch, tmp_path):
-    """Codex filenames look like rollout-<timestamp>-<uuid>.jsonl.
-    The UUID is the last 5 hyphen-separated tokens of the stem.
-    """
-    monkeypatch.setenv("HOME", str(tmp_path))
-    today_dir = tmp_path / ".codex" / "sessions" / "2026" / "05" / "18"
-    today_dir.mkdir(parents=True)
-    (today_dir / "rollout-2026-05-18T10-00-00-aaaa1111-bbbb-cccc-dddd-eeeeffff0000.jsonl").write_text("")
-    (today_dir / "rollout-2026-05-18T11-00-00-aaaa2222-bbbb-cccc-dddd-eeeeffff1111.jsonl").write_text("")
-    yesterday_dir = tmp_path / ".codex" / "sessions" / "2026" / "05" / "17"
-    yesterday_dir.mkdir(parents=True)
-    (yesterday_dir / "rollout-2026-05-17T10-00-00-aaaa3333-bbbb-cccc-dddd-eeeeffff2222.jsonl").write_text("")
-
-    from aque.sessions import CodexCapturer
-    c = CodexCapturer()
-    assert c.existing_uuids("/any/cwd") == {
-        "aaaa1111-bbbb-cccc-dddd-eeeeffff0000",
-        "aaaa2222-bbbb-cccc-dddd-eeeeffff1111",
-        "aaaa3333-bbbb-cccc-dddd-eeeeffff2222",
-    }
-
-
-def test_codex_existing_uuids_missing_dir(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    from aque.sessions import CodexCapturer
-    c = CodexCapturer()
-    assert c.existing_uuids("/any/cwd") == set()
-
-
-def test_codex_existing_uuids_skips_malformed_filenames(monkeypatch, tmp_path):
-    """Files whose stems have fewer than 6 hyphen-separated tokens are skipped
-    (not enough parts to contain a UUID after the rollout/date prefix)."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    d = tmp_path / ".codex" / "sessions" / "2026" / "05" / "18"
-    d.mkdir(parents=True)
-    (d / "short.jsonl").write_text("")  # 1 token — skipped
-    (d / "rollout-2026-05-18T10-00-00-aaaa-bbbb-cccc-dddd-eeee.jsonl").write_text("")  # 11 tokens, valid
-
-    from aque.sessions import CodexCapturer
-    c = CodexCapturer()
-    assert c.existing_uuids("/any/cwd") == {"aaaa-bbbb-cccc-dddd-eeee"}
-
-
-def test_codex_resume_command():
-    from aque.sessions import CodexCapturer
-    c = CodexCapturer()
-    out = c.resume_command(["codex"], "uuid-a")
-    assert out == ["codex", "resume", "uuid-a"]
-
-
-def test_codex_resume_command_with_extra_args():
-    """Codex resume injects 'resume <id>' as the first positional after
-    'codex', preserving any flags the user originally passed."""
-    from aque.sessions import CodexCapturer
-    c = CodexCapturer()
-    out = c.resume_command(["codex", "--profile", "work"], "uuid-a")
-    assert out == ["codex", "resume", "uuid-a", "--profile", "work"]
-
-
-def test_codex_in_registry():
-    from aque.sessions import CAPTURERS, CodexCapturer
-    assert "codex" in CAPTURERS
-    assert isinstance(CAPTURERS["codex"], CodexCapturer)
 
 
 class TestReadLastLine:
@@ -350,53 +278,3 @@ class TestReadLastUserOrAssistant:
         assert role == "user"
 
 
-class TestCodexStubs:
-    def test_preassign_returns_none(self):
-        assert CodexCapturer().preassign(["codex"]) is None
-
-    def test_summarize_returns_empty_list(self, tmp_path):
-        assert CodexCapturer().summarize("/tmp/x") == []
-
-
-class TestCodexExistingUuids:
-    def test_picks_up_uuid_from_rollout_file(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HOME", str(tmp_path))
-        d = tmp_path / ".codex" / "sessions" / "2026" / "05" / "24"
-        d.mkdir(parents=True)
-        uuid = "019e5b51-3ff5-7c43-bd69-ef8dfdd9bd84"
-        (d / f"rollout-2026-05-24T11-48-31-{uuid}.jsonl").write_text("")
-        assert uuid in CodexCapturer().existing_uuids("/tmp/x")
-
-    def test_picks_up_uuid_from_shell_snapshot(self, monkeypatch, tmp_path):
-        """shell_snapshots/<uuid>.<ts>.sh appears BEFORE the rollout file —
-        codex writes it within seconds of session init, well before the user
-        submits any prompt. Capturer must pick it up to avoid stalling on
-        idle codex sessions."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        d = tmp_path / ".codex" / "shell_snapshots"
-        d.mkdir(parents=True)
-        uuid = "019e5b60-3288-76d1-a7c5-820fa6ad161e"
-        (d / f"{uuid}.1779649491861955000.sh").write_text("# snapshot")
-        assert uuid in CodexCapturer().existing_uuids("/tmp/x")
-
-    def test_unions_uuids_from_both_locations(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HOME", str(tmp_path))
-        sessions_d = tmp_path / ".codex" / "sessions" / "2026" / "05" / "24"
-        sessions_d.mkdir(parents=True)
-        rollout_uuid = "019e5b51-3ff5-7c43-bd69-ef8dfdd9bd84"
-        (sessions_d / f"rollout-2026-05-24T11-48-31-{rollout_uuid}.jsonl").write_text("")
-        snapshots_d = tmp_path / ".codex" / "shell_snapshots"
-        snapshots_d.mkdir(parents=True)
-        snapshot_uuid = "019e5b60-3288-76d1-a7c5-820fa6ad161e"
-        (snapshots_d / f"{snapshot_uuid}.1779649491861955000.sh").write_text("")
-        uuids = CodexCapturer().existing_uuids("/tmp/x")
-        assert rollout_uuid in uuids
-        assert snapshot_uuid in uuids
-
-    def test_ignores_unrelated_files_in_shell_snapshots(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HOME", str(tmp_path))
-        d = tmp_path / ".codex" / "shell_snapshots"
-        d.mkdir(parents=True)
-        (d / "not-a-uuid.sh").write_text("")
-        (d / "README.sh").write_text("")
-        assert CodexCapturer().existing_uuids("/tmp/x") == set()

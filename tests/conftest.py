@@ -40,9 +40,9 @@ def sample_agents():
         {
             "id": 2,
             "tmux_session": "aque-2",
-            "label": "codex . frontend",
+            "label": "frontend agent",
             "dir": "/tmp/frontend",
-            "command": ["codex"],
+            "command": ["echo", "hello"],
             "state": "waiting",
             "pid": 12346,
             "created_at": "2026-03-28T10:01:00Z",

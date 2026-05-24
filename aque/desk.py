@@ -229,7 +229,7 @@ class NewAgentForm(Vertical):
         self._step = "label"
         # Pre-fill a sensible default label: ``<command-word> . <dir-basename>``.
         # Mirrors the prompt-style convention the rest of the desk uses
-        # (``codex . docs``, ``claude . monorepo``) so users can launch
+        # (``claude . docs``, ``claude . monorepo``) so users can launch
         # without typing while still being able to override.
         cmd_word = (self._command.split() or ["agent"])[0]
         dir_base = Path(self._selected_dir).name or "agent"

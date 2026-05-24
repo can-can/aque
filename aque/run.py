@@ -10,7 +10,6 @@ import libtmux
 from libtmux.pane import Pane
 from libtmux.test.retry import retry_until
 
-from aque import sessions
 from aque.state import AgentInfo, AgentState, StateManager
 
 SHELL_PROMPT_RE = re.compile(r"[\$#%>➜❯→⟩›]\s*$")
@@ -34,43 +33,6 @@ def _wait_for_shell(pane: Pane, timeout: float = 5.0) -> None:
         return False
 
     retry_until(_check, seconds=timeout, raises=False)
-
-
-def _capture_session_id(
-    agent_id: int,
-    agent_type: str | None,
-    working_dir: str,
-    state_manager: StateManager,
-    before: set[str],
-    timeout: float = 300.0,
-) -> None:
-    """Poll the type's session dir for a new UUID and persist it on the agent.
-
-    `before` is the set of UUIDs that existed in the session dir at the
-    moment the launch command was sent. Caller is responsible for
-    snapshotting BEFORE send_keys to avoid a race where the file appears
-    before the snapshot is taken.
-
-    Default timeout is 5 minutes because codex defers writing its session
-    UUID until after a slow init sequence (auth, MCP servers, skill loads
-    — observed 45s+ in production).
-
-    No-op for agent types without a registered capturer. On timeout or
-    ambiguous matches (zero or multiple new UUIDs), the agent's session_id
-    stays None — Resume will be disabled in the orphan modal.
-    """
-    if agent_type not in sessions.CAPTURERS:
-        return
-    capturer = sessions.CAPTURERS[agent_type]
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        new_uuids = capturer.existing_uuids(working_dir) - before
-        if len(new_uuids) == 1:
-            state_manager.set_session_id(agent_id, new_uuids.pop())
-            return
-        if len(new_uuids) > 1:
-            return
-        time.sleep(0.5)
 
 
 def launch_agent(
@@ -142,18 +104,7 @@ def launch_agent(
             _wait_for_shell(pane)
             if agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
-            # Snapshot BEFORE send_keys so we don't race the agent's file write.
-            # Skip capture entirely when caller pre-assigned the id.
-            before: set[str] | None = None
-            if session_id is None and agent_type in sessions.CAPTURERS:
-                before = sessions.CAPTURERS[agent_type].existing_uuids(working_dir)
             pane.send_keys(cmd_str, enter=True)
-            if before is not None:
-                threading.Thread(
-                    target=_capture_session_id,
-                    args=(agent_id, agent_type, working_dir, state_manager, before),
-                    daemon=True,
-                ).start()
         except Exception:
             pass
 
@@ -182,8 +133,9 @@ def relaunch_agent(
     modal's Resume and Relaunch actions so the displayed agent ID stays
     stable across the operation.
 
-    If preserve_session_id is False, clears session_id so the capture loop
-    on the new launch repopulates it (fresh conversation).
+    If preserve_session_id is False, clears session_id (caller is expected
+    to have rewritten the command for a fresh conversation, e.g. via
+    ClaudeCapturer.preassign).
     """
     state = state_manager.load()
     agent = next((a for a in state.agents if a.id == agent_id), None)
@@ -230,16 +182,7 @@ def relaunch_agent(
             _wait_for_shell(pane)
             if agent.agent_type is not None:
                 pane.send_keys(f"export AQUE_AGENT_ID={agent_id}", enter=True)
-            before: set[str] | None = None
-            if (not preserve_session_id) and agent.agent_type in sessions.CAPTURERS:
-                before = sessions.CAPTURERS[agent.agent_type].existing_uuids(agent.dir)
             pane.send_keys(cmd_str, enter=True)
-            if before is not None:
-                threading.Thread(
-                    target=_capture_session_id,
-                    args=(agent_id, agent.agent_type, agent.dir, state_manager, before),
-                    daemon=True,
-                ).start()
         except Exception:
             pass
 

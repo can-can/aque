@@ -52,7 +52,7 @@ def ensure_monitor_running() -> None:
 def run(
     dir: str = typer.Option(..., "--dir", help="Working directory for the agent"),
     label: Optional[str] = typer.Option(None, "--label", help="Human-readable label"),
-    agent_type: Optional[str] = typer.Option(None, "--type", help="Agent type for hook-based detection (e.g. claude, codex)"),
+    agent_type: Optional[str] = typer.Option(None, "--type", help="Agent type for hook-based detection (e.g. claude)"),
     no_responder: bool = typer.Option(False, "--no-responder", help="Do not auto-create a paired responder agent."),
     responder_cmd: Optional[str] = typer.Option(None, "--responder-cmd", help="Override the responder command for this launch (shell-quoted)."),
     responder_dir: Optional[str] = typer.Option(None, "--responder-dir", help="Override the responder working directory for this launch."),
