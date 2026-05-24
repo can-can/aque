@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from aque.sessions import CAPTURERS, ClaudeCapturer
+from aque.sessions import CAPTURERS, ClaudeCapturer, _read_last_line
 
 
 def test_claude_session_dir_slug(monkeypatch, tmp_path):
@@ -123,10 +123,6 @@ def test_codex_in_registry():
     assert isinstance(CAPTURERS["codex"], CodexCapturer)
 
 
-import io
-from aque.sessions import _read_last_line
-
-
 class TestReadLastLine:
     def test_returns_none_for_missing_file(self, tmp_path):
         assert _read_last_line(tmp_path / "nope.jsonl") is None
@@ -164,3 +160,8 @@ class TestReadLastLine:
         long_line = "x" * 20000
         p.write_text(f"short\n{long_line}\n")
         assert _read_last_line(p) == long_line
+
+    def test_strips_windows_crlf_line_endings(self, tmp_path):
+        p = tmp_path / "f.jsonl"
+        p.write_bytes(b"alpha\r\nbeta\r\n")
+        assert _read_last_line(p) == "beta"

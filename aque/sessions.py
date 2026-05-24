@@ -28,13 +28,13 @@ def _read_last_line(path: Path, window: int = 8192) -> str | None:
             f.seek(size - read)
             chunk = f.read(read)
             # Drop trailing newlines so we don't return "".
-            chunk = chunk.rstrip(b"\n")
+            chunk = chunk.rstrip(b"\r\n")
             nl = chunk.rfind(b"\n")
             if nl != -1:
-                return chunk[nl + 1:].decode("utf-8", errors="replace")
+                return chunk[nl + 1:].rstrip(b"\r").decode("utf-8", errors="replace")
             if read >= size:
                 # Whole file is one line.
-                return chunk.decode("utf-8", errors="replace")
+                return chunk.rstrip(b"\r").decode("utf-8", errors="replace")
             read = min(read * 2, size)
 
 
