@@ -171,13 +171,16 @@ def handle_session_gone(
         responder.cleanup(agent, state_manager, server, aque_dir=aque_dir)
 
 
-def check_signal_files(signals_dir: Path) -> dict[int, str]:
-    """Read and consume signal files. Returns ``{agent_id: event}``.
+def check_signal_files(signals_dir: Path) -> dict[int, dict[str, str]]:
+    """Read and consume signal files. Returns ``{agent_id: payload}``.
 
-    ``event`` comes from the JSON ``event`` field; malformed or legacy files
-    default to ``"stop"`` (the original single-event behaviour).
+    ``payload`` is the parsed JSON (with at least an ``event`` key, plus
+    optional ``source`` carrying the originating Claude ``hook_event_name``).
+    Malformed or legacy files default to ``{"event": "stop", "source":
+    "malformed"}`` — the conservative behaviour preserves the original "treat
+    unknown as stop" contract while still letting the monitor log *why*.
     """
-    signaled: dict[int, str] = {}
+    signaled: dict[int, dict[str, str]] = {}
     if not signals_dir.is_dir():
         return signaled
     for f in signals_dir.iterdir():
@@ -190,10 +193,14 @@ def check_signal_files(signals_dir: Path) -> dict[int, str]:
             f.unlink(missing_ok=True)
             continue
         try:
-            event = json.loads(f.read_text()).get("event", "stop")
-        except (json.JSONDecodeError, OSError, AttributeError):
-            event = "stop"
-        signaled[agent_id] = event
+            payload = json.loads(f.read_text())
+            if not isinstance(payload, dict):
+                raise ValueError("payload is not an object")
+        except (json.JSONDecodeError, OSError, ValueError):
+            payload = {"event": "stop", "source": "malformed"}
+        payload.setdefault("event", "stop")
+        payload.setdefault("source", "legacy")
+        signaled[agent_id] = payload
         f.unlink(missing_ok=True)
     return signaled
 
@@ -211,6 +218,31 @@ def cleanup_stale_signals(signals_dir: Path, active_ids: set[int]) -> None:
             continue
         if agent_id not in active_ids:
             f.unlink(missing_ok=True)
+
+
+def clear_all_signals(signals_dir: Path) -> int:
+    """Delete every signal file. Called on monitor startup.
+
+    A signal file written during a monitor-restart gap (the seconds between
+    the old monitor dying and the new one polling) survives by virtue of nobody
+    consuming it. The first poll of the new monitor would then apply that
+    stale signal — and we cannot tell whether the underlying hook event was
+    legitimate or a misfire, because we lost the timing context.
+
+    Solution: the new monitor starts from a clean signals dir and trusts the
+    persisted state.json as the source of truth. Any subsequent hook event
+    fires fresh under the new monitor's watch.
+
+    Returns the number of files removed (for logging).
+    """
+    if not signals_dir.is_dir():
+        return 0
+    count = 0
+    for f in signals_dir.iterdir():
+        if f.suffix == ".json":
+            f.unlink(missing_ok=True)
+            count += 1
+    return count
 
 
 def process_pending_nudges(
@@ -290,17 +322,19 @@ def _poll_once(
     signaled = check_signal_files(signals_dir)
     if signaled:
         by_id = {a.id: a for a in mgr.load().agents}
-        for aid, event in signaled.items():
+        for aid, payload in signaled.items():
             agent = by_id.get(aid)
             if agent is None:
                 continue
+            event = payload.get("event", "stop")
+            source = payload.get("source", "unknown")
             if event == "start":
                 if agent.state == AgentState.WAITING:
-                    dbg("monitor.signal->running", aque_dir, agent_id=aid)
+                    dbg("monitor.signal->running", aque_dir, agent_id=aid, source=source)
                     mgr.update_agent_state(aid, AgentState.RUNNING)
             else:  # "stop" (and any unknown event)
                 if agent.state == AgentState.RUNNING:
-                    dbg("monitor.signal->waiting", aque_dir, agent_id=aid)
+                    dbg("monitor.signal->waiting", aque_dir, agent_id=aid, source=source)
                     mgr.update_agent_state(aid, AgentState.WAITING)
                     detector.remove_agent(aid)
         state = mgr.load()
@@ -394,10 +428,14 @@ def run_monitor(aque_dir: Path) -> None:
 
     server = libtmux.Server()
 
-    # Cleanup stale signals on startup
-    state = mgr.load()
-    active_ids = {a.id for a in state.agents}
-    cleanup_stale_signals(signals_dir, active_ids)
+    # Drop every pre-existing signal file. A signal written during the
+    # restart gap (no monitor polling) would otherwise be applied on the
+    # first poll against a state context that doesn't match — flipping an
+    # actively-running agent to WAITING with no way to recover until the
+    # next user prompt. State.json is the source of truth on startup.
+    cleared = clear_all_signals(signals_dir)
+    if cleared:
+        dbg("monitor.signals.cleared_on_startup", aque_dir, count=cleared)
 
     waiting_hashes: dict[int, str] = {}
 

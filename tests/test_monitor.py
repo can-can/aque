@@ -3,7 +3,12 @@ import os
 import time
 from pathlib import Path
 
-from aque.monitor import IdleDetector, check_signal_files, cleanup_stale_signals
+from aque.monitor import (
+    IdleDetector,
+    check_signal_files,
+    cleanup_stale_signals,
+    clear_all_signals,
+)
 
 
 class TestIdleDetector:
@@ -102,17 +107,40 @@ class TestSignalFiles:
     def test_check_signal_files_returns_events(self, tmp_path):
         signals_dir = tmp_path / "signals"
         signals_dir.mkdir()
+        (signals_dir / "3.json").write_text(
+            json.dumps({"event": "stop", "source": "Stop"})
+        )
+        (signals_dir / "7.json").write_text(
+            json.dumps({"event": "start", "source": "UserPromptSubmit"})
+        )
+        assert check_signal_files(signals_dir) == {
+            3: {"event": "stop", "source": "Stop"},
+            7: {"event": "start", "source": "UserPromptSubmit"},
+        }
+
+    def test_check_signal_files_legacy_payload_without_source(self, tmp_path):
+        """Older hook installs wrote ``{"event": "stop"}`` with no source — the
+        monitor must still consume them, tagging source as ``legacy`` so the
+        debug log can flag pre-upgrade signals on sight."""
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
         (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
-        (signals_dir / "7.json").write_text(json.dumps({"event": "start"}))
-        assert check_signal_files(signals_dir) == {3: "stop", 7: "start"}
+        result = check_signal_files(signals_dir)
+        assert result == {3: {"event": "stop", "source": "legacy"}}
 
     def test_check_signal_files_defaults_malformed_to_stop(self, tmp_path):
         signals_dir = tmp_path / "signals"
         signals_dir.mkdir()
         (signals_dir / "3.json").write_text("not json")
         (signals_dir / "4.json").write_text(json.dumps({"no_event": 1}))
-        (signals_dir / "5.json").write_text("[]")
-        assert check_signal_files(signals_dir) == {3: "stop", 4: "stop", 5: "stop"}
+        (signals_dir / "5.json").write_text("[]")  # JSON but not an object
+        result = check_signal_files(signals_dir)
+        # Unparseable / non-object → flagged as malformed.
+        assert result[3] == {"event": "stop", "source": "malformed"}
+        assert result[5] == {"event": "stop", "source": "malformed"}
+        # Object without ``event`` keeps its own keys and defaults event/source.
+        assert result[4]["event"] == "stop"
+        assert result[4]["source"] == "legacy"
 
     def test_check_signal_files_consumes_files(self, tmp_path):
         signals_dir = tmp_path / "signals"
@@ -135,7 +163,7 @@ class TestSignalFiles:
         (signals_dir / "readme.txt").write_text("not a signal")
         (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
         result = check_signal_files(signals_dir)
-        assert result == {3: "stop"}
+        assert result == {3: {"event": "stop", "source": "legacy"}}
         assert (signals_dir / "readme.txt").exists()
 
     def test_check_signal_files_ignores_non_numeric_names(self, tmp_path):
@@ -153,6 +181,26 @@ class TestSignalFiles:
         cleanup_stale_signals(signals_dir, active_ids)
         assert (signals_dir / "1.json").exists()
         assert not (signals_dir / "99.json").exists()
+
+    def test_clear_all_signals_removes_every_json_file(self, tmp_path):
+        """Regression: a stop signal written during a monitor-restart gap used
+        to survive into the new monitor and flip an actively-running Claude
+        agent to WAITING. The new monitor now clears every signal on startup."""
+        signals_dir = tmp_path / "signals"
+        signals_dir.mkdir()
+        (signals_dir / "3.json").write_text(json.dumps({"event": "stop"}))
+        (signals_dir / "7.json").write_text(json.dumps({"event": "start"}))
+        (signals_dir / "11.json").write_text(json.dumps({"event": "stop"}))
+        (signals_dir / "readme.txt").write_text("kept")  # non-json untouched
+        removed = clear_all_signals(signals_dir)
+        assert removed == 3
+        assert not (signals_dir / "3.json").exists()
+        assert not (signals_dir / "7.json").exists()
+        assert not (signals_dir / "11.json").exists()
+        assert (signals_dir / "readme.txt").exists()
+
+    def test_clear_all_signals_dir_missing(self, tmp_path):
+        assert clear_all_signals(tmp_path / "missing") == 0
 
 
 from datetime import datetime, timedelta, timezone

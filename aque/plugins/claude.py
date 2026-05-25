@@ -2,8 +2,13 @@
 
 Installs Stop, Notification, and UserPromptSubmit hooks in
 ~/.claude/settings.json so that:
-  - Stop / Notification → writes {"event":"stop"}  (agent waiting / turn done)
-  - UserPromptSubmit   → writes {"event":"start"} (user sent a prompt = working)
+  - Stop / Notification → writes {"event":"stop", "source": <hook>}  (waiting)
+  - UserPromptSubmit   → writes {"event":"start", "source": <hook>} (working)
+
+The signal payload's ``source`` field carries Claude's ``hook_event_name`` from
+the hook input on stdin. It lets the monitor log which event triggered a
+transition — essential when a misfired hook flips an actively-running agent
+to WAITING and we need to pin down *which* Claude hook fired.
 """
 
 import json
@@ -11,15 +16,28 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path.home() / ".claude" / "settings.json"
 
-# Commands must always exit 0: a non-zero hook makes Claude Code report a hook
-# error even when there's no aque agent. The `if [ -n … ]` form exits 0 when
-# AQUE_AGENT_ID is unset.
+
+# Each hook reads its stdin (Claude passes JSON with `hook_event_name`),
+# extracts the event name with sed, and writes a signal payload that carries
+# it forward to the monitor as ``source``. Commands must always exit 0:
+# a non-zero hook makes Claude Code report a hook error even when there's no
+# aque agent. The ``if [ -n … ]`` form exits 0 when AQUE_AGENT_ID is unset.
 def _cmd(event: str) -> str:
+    # ``[ ! -t 0 ]`` guards the cat: when Claude invokes the hook, stdin is a
+    # closed pipe carrying the JSON payload, so cat reads it then sees EOF.
+    # In tests / interactive shells stdin is a tty, where cat would block
+    # forever; we skip reading and the source falls through to ``unknown``.
     return (
         "if [ -n \"$AQUE_AGENT_ID\" ]; then "
-        f"echo '{{\"event\":\"{event}\"}}' > ~/.aque/signals/$AQUE_AGENT_ID.json; "
+        "INPUT=''; "
+        "if [ ! -t 0 ]; then INPUT=$(cat 2>/dev/null || true); fi; "
+        "SRC=$(printf '%s' \"$INPUT\" | sed -n 's/.*\"hook_event_name\":\"\\([^\"]*\\)\".*/\\1/p' | head -1); "
+        ": \"${SRC:=unknown}\"; "
+        f"printf '{{\"event\":\"{event}\",\"source\":\"%s\"}}\\n' \"$SRC\" "
+        "> ~/.aque/signals/$AQUE_AGENT_ID.json; "
         "fi"
     )
+
 
 # Claude hook event -> aque signal event.
 _HOOKS = {
@@ -51,9 +69,15 @@ def _load(config_path: Path) -> dict:
 
 
 def is_installed(config_path: Path = DEFAULT_CONFIG_PATH) -> bool:
-    """True only if an aque hook is configured for every required event."""
+    """True only if an aque hook with the current command is configured for
+    every required event. A stale command (from an older aque version) counts
+    as not-installed so the next launch upgrades it in place."""
     hooks = _load(config_path).get("hooks", {})
-    return all(_aque_hook_in(hooks.get(event, [])) is not None for event in _HOOKS)
+    for event, expected in _HOOKS.items():
+        existing = _aque_hook_in(hooks.get(event, []))
+        if existing is None or existing.get("command") != expected:
+            return False
+    return True
 
 
 def install_hook(config_path: Path = DEFAULT_CONFIG_PATH) -> None:
