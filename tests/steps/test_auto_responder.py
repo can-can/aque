@@ -627,8 +627,8 @@ def given_responder_highlighted(ctx, app_ctx, resp_name):
     partner_id = _add_partner(ctx, "builder")
     _add_responder_for(ctx, partner_id, resp_name)
     app_ctx.ensure_mounted()
-    app_ctx.app.show_responders = True
-    app_ctx.app._last_agent_fingerprint = None
+    app_ctx.app.dash.show_responders = True
+    app_ctx.app.dash.invalidate_fingerprint()
     app_ctx.app._refresh_agent_list()
     resp_id = ctx["agents_by_name"][resp_name]
     _highlight_agent_id(app_ctx, resp_id)
@@ -719,7 +719,7 @@ def then_name_in_list(ctx, app_ctx, name):
     app_ctx.ensure_mounted()
 
     async def _refresh():
-        app_ctx.app._last_agent_fingerprint = None
+        app_ctx.app.dash.invalidate_fingerprint()
         app_ctx.app._refresh_agent_list()
         await app_ctx.pilot.pause()
     app_ctx.run(_refresh())
@@ -735,7 +735,7 @@ def then_name_not_in_list(ctx, app_ctx, name):
     app_ctx.ensure_mounted()
 
     async def _refresh():
-        app_ctx.app._last_agent_fingerprint = None
+        app_ctx.app.dash.invalidate_fingerprint()
         app_ctx.app._refresh_agent_list()
         await app_ctx.pilot.pause()
     app_ctx.run(_refresh())
@@ -785,7 +785,7 @@ def given_responder_is_top_waiting(ctx, resp_name):
 def when_auto_attach_picker_runs(ctx):
     app = DeskApp(aque_dir=ctx["aque_dir"], _skip_attach=True)
     state = ctx["mgr"].load()
-    ctx["picked"] = app.pick_auto_attach_target(state.agents)
+    ctx["picked"] = app.dash.pick_auto_attach_target(state.agents)
 
 
 @then(parsers.parse('"{name}" should not be selected'))

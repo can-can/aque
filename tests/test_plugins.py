@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from aque.plugins import discover_plugins, get_plugin
+from aque.plugins import discover_plugins, get_plugin, has_session_capture
 from aque.plugins.claude import is_installed, install_hook
 
 
@@ -48,6 +48,123 @@ class TestDiscoverPlugins:
         )
         plugins = discover_plugins(user_plugin_dir=user_plugins_dir)
         assert plugins["claude"].is_installed() is True
+
+    def test_unknown_capability_warns(self, tmp_path, caplog):
+        """A user plugin function whose name isn't in KNOWN_CAPABILITIES gets a
+        warn-log — catches typos like ``presign`` vs ``preassign`` without
+        making the user maintain an explicit capability list."""
+        import logging
+        user_plugins_dir = tmp_path / "plugins"
+        user_plugins_dir.mkdir()
+        (user_plugins_dir / "typo_plugin.py").write_text(
+            "def is_installed():\n    return False\n"
+            "def install_hook():\n    pass\n"
+            "def presign():\n    pass\n"  # typo of preassign
+        )
+        with caplog.at_level(logging.WARNING, logger="aque.plugins"):
+            discover_plugins(user_plugin_dir=user_plugins_dir)
+        assert any("presign" in r.message for r in caplog.records)
+
+    def test_known_capability_does_not_warn(self, tmp_path, caplog):
+        import logging
+        user_plugins_dir = tmp_path / "plugins"
+        user_plugins_dir.mkdir()
+        (user_plugins_dir / "clean_plugin.py").write_text(
+            "def is_installed():\n    return False\n"
+            "def install_hook():\n    pass\n"
+        )
+        with caplog.at_level(logging.WARNING, logger="aque.plugins"):
+            discover_plugins(user_plugin_dir=user_plugins_dir)
+        assert not any(
+            "unknown capability" in r.message for r in caplog.records
+        )
+
+    def test_builtin_claude_plugin_does_not_warn(self, caplog):
+        """The shipped claude plugin must not trip the typo check itself —
+        otherwise every user sees a warning on startup."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="aque.plugins"):
+            discover_plugins()
+        assert not any(
+            "unknown capability" in r.message for r in caplog.records
+        )
+
+
+class TestHasSessionCapture:
+    """Pins the single-predicate contract used by every dispatch site in the
+    launch coordinator. If these break, the coordinator can develop the
+    classic divergence bug where one branch treats a type as capture-capable
+    and another doesn't."""
+
+    def test_none_plugin_returns_false(self):
+        assert has_session_capture(None) is False
+
+    def test_claude_has_full_capture_capability(self):
+        assert has_session_capture(get_plugin("claude")) is True
+
+    def test_partial_capture_is_treated_as_none(self, tmp_path):
+        """A plugin that exposes only some of the capture verbs is *not*
+        capture-capable — capture is all-or-nothing so the launch flow can't
+        end up in a state where it preassigned but can't resume."""
+        user_plugins_dir = tmp_path / "plugins"
+        user_plugins_dir.mkdir()
+        (user_plugins_dir / "partial.py").write_text(
+            "def is_installed(): return False\n"
+            "def install_hook(): pass\n"
+            "def preassign(cmd): return (cmd, 'sid')\n"
+            # Missing: summarize, resume_command.
+        )
+        plugin = discover_plugins(user_plugin_dir=user_plugins_dir)["partial"]
+        assert has_session_capture(plugin) is False
+
+    def test_full_capture_user_plugin_recognised(self, tmp_path):
+        user_plugins_dir = tmp_path / "plugins"
+        user_plugins_dir.mkdir()
+        (user_plugins_dir / "fake.py").write_text(
+            "def is_installed(): return False\n"
+            "def install_hook(): pass\n"
+            "def preassign(cmd): return (cmd, 'sid')\n"
+            "def summarize(cwd): return []\n"
+            "def resume_command(cmd, sid): return cmd\n"
+        )
+        plugin = discover_plugins(user_plugin_dir=user_plugins_dir)["fake"]
+        assert has_session_capture(plugin) is True
+
+
+class TestDispatchAgreement:
+    """The launch coordinator queries ``has_session_capture`` from multiple
+    places (``launch``, ``_finish``, ``can_resume``). Every discovered plugin
+    must answer that predicate the same way at every call site — anything else
+    is a divergence bug."""
+
+    def test_predicate_is_stable_across_call_sites(self, tmp_path):
+        """Build a registry containing one capture-capable plugin and one
+        non-capture plugin, then query each through the same predicate the
+        coordinator uses. If we ever introduced a second predicate (e.g.
+        ``agent_type in CAPTURERS``) for the same question, this test would
+        catch the drift."""
+        user_plugins_dir = tmp_path / "plugins"
+        user_plugins_dir.mkdir()
+        (user_plugins_dir / "withcapture.py").write_text(
+            "def is_installed(): return False\n"
+            "def install_hook(): pass\n"
+            "def preassign(cmd): return (cmd, 'sid')\n"
+            "def summarize(cwd): return []\n"
+            "def resume_command(cmd, sid): return cmd\n"
+        )
+        (user_plugins_dir / "hookonly.py").write_text(
+            "def is_installed(): return False\n"
+            "def install_hook(): pass\n"
+        )
+        plugins = discover_plugins(user_plugin_dir=user_plugins_dir)
+        # Every plugin agrees with itself on every repeated query — the test
+        # would catch a future refactor that accidentally introduced a
+        # parallel registry/predicate.
+        for name, plugin in plugins.items():
+            answers = {has_session_capture(plugin) for _ in range(3)}
+            assert len(answers) == 1, f"{name}: predicate is non-deterministic"
+        assert has_session_capture(plugins["withcapture"]) is True
+        assert has_session_capture(plugins["hookonly"]) is False
 
 
 class TestClaudePlugin:

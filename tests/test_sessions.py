@@ -5,28 +5,26 @@ from pathlib import Path
 
 import pytest
 
-from aque.sessions import CAPTURERS, ClaudeCapturer, _read_last_line, _read_last_user_or_assistant
+from aque.plugins import claude
+from aque.sessions import _read_last_line, _read_last_user_or_assistant
 
 
 def test_claude_session_dir_slug(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
-    c = ClaudeCapturer()
-    assert c.session_dir("/Users/me/code/api") == \
+    assert claude._session_dir("/Users/me/code/api") == \
         tmp_path / ".claude" / "projects" / "-Users-me-code-api"
 
 
 def test_claude_existing_uuids_missing_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
-    c = ClaudeCapturer()
-    assert c.existing_uuids("/Users/me/code/api") == set()
+    assert claude.existing_uuids("/Users/me/code/api") == set()
 
 
 def test_claude_existing_uuids_empty_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     target = tmp_path / ".claude" / "projects" / "-Users-me-code-api"
     target.mkdir(parents=True)
-    c = ClaudeCapturer()
-    assert c.existing_uuids("/Users/me/code/api") == set()
+    assert claude.existing_uuids("/Users/me/code/api") == set()
 
 
 def test_claude_existing_uuids_picks_up_jsonl(monkeypatch, tmp_path):
@@ -36,22 +34,25 @@ def test_claude_existing_uuids_picks_up_jsonl(monkeypatch, tmp_path):
     (target / "uuid-1.jsonl").write_text("")
     (target / "uuid-2.jsonl").write_text("")
     (target / "ignore.txt").write_text("")
-    c = ClaudeCapturer()
-    assert c.existing_uuids("/Users/me/code/api") == {"uuid-1", "uuid-2"}
+    assert claude.existing_uuids("/Users/me/code/api") == {"uuid-1", "uuid-2"}
 
 
 def test_claude_resume_command_appends_flag():
-    c = ClaudeCapturer()
     cmd = ["claude", "--model", "opus"]
-    out = c.resume_command(cmd, "uuid-1")
+    out = claude.resume_command(cmd, "uuid-1")
     assert out == ["claude", "--model", "opus", "--resume", "uuid-1"]
     # input not mutated
     assert cmd == ["claude", "--model", "opus"]
 
 
-def test_claude_in_registry():
-    assert "claude" in CAPTURERS
-    assert isinstance(CAPTURERS["claude"], ClaudeCapturer)
+def test_claude_resume_command_is_idempotent_when_preassigned():
+    """If the command already carries --session-id (preassigned at launch
+    time), resume_command must return it unchanged — the coordinator trusts
+    this so it doesn't need to know about claude-specific flag names."""
+    cmd = ["claude", "--session-id", "preassigned-uuid"]
+    out = claude.resume_command(cmd, "new-uuid")
+    assert out == cmd
+    assert "--resume" not in out
 
 
 class TestReadLastLine:
@@ -100,27 +101,23 @@ class TestReadLastLine:
 
 class TestClaudePreassign:
     def test_appends_session_id_flag(self):
-        c = ClaudeCapturer()
-        cmd, sid = c.preassign(["claude", "--model", "opus"])
+        cmd, sid = claude.preassign(["claude", "--model", "opus"])
         assert cmd[:3] == ["claude", "--model", "opus"]
         assert cmd[3] == "--session-id"
         assert cmd[4] == sid
 
     def test_generated_uuid_is_valid_v4(self):
-        c = ClaudeCapturer()
-        _, sid = c.preassign(["claude"])
+        _, sid = claude.preassign(["claude"])
         parsed = uuid_mod.UUID(sid)
         assert parsed.version == 4
 
     def test_each_call_yields_a_different_uuid(self):
-        c = ClaudeCapturer()
-        ids = {c.preassign(["claude"])[1] for _ in range(10)}
+        ids = {claude.preassign(["claude"])[1] for _ in range(10)}
         assert len(ids) == 10
 
     def test_does_not_mutate_input_list(self):
-        c = ClaudeCapturer()
         cmd_in = ["claude"]
-        c.preassign(cmd_in)
+        claude.preassign(cmd_in)
         assert cmd_in == ["claude"]
 
 
@@ -131,12 +128,12 @@ def _write_jsonl(path: Path, entries: list[dict]) -> None:
 class TestClaudeSummarize:
     def test_returns_empty_when_dir_missing(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
-        assert ClaudeCapturer().summarize("/tmp/no-such-dir") == []
+        assert claude.summarize("/tmp/no-such-dir") == []
 
     def test_returns_empty_when_dir_has_no_jsonl(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
         (tmp_path / ".claude" / "projects" / "-tmp-x").mkdir(parents=True)
-        assert ClaudeCapturer().summarize("/tmp/x") == []
+        assert claude.summarize("/tmp/x") == []
 
     def test_skips_meta_first_user_entry(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -152,7 +149,7 @@ class TestClaudeSummarize:
             {"type": "assistant",
              "message": {"role": "assistant", "content": "real last reply here"}},
         ])
-        out = ClaudeCapturer().summarize("/tmp/x")
+        out = claude.summarize("/tmp/x")
         assert len(out) == 1
         assert out[0].first_prompt == "real first prompt here"
         assert out[0].last_activity == "real last reply here"
@@ -169,7 +166,7 @@ class TestClaudeSummarize:
              "message": {"role": "assistant",
                          "content": [{"type": "text", "text": "block-style reply"}]}},
         ])
-        out = ClaudeCapturer().summarize("/tmp/x")
+        out = claude.summarize("/tmp/x")
         assert out[0].first_prompt == "block-style prompt"
         assert out[0].last_activity == "block-style reply"
 
@@ -181,7 +178,7 @@ class TestClaudeSummarize:
         _write_jsonl(d / "cccc.jsonl", [
             {"type": "user", "message": {"role": "user", "content": long}},
         ])
-        out = ClaudeCapturer().summarize("/tmp/x")
+        out = claude.summarize("/tmp/x")
         assert len(out[0].first_prompt) <= 81  # 80 chars + ellipsis
         assert out[0].first_prompt.endswith("…")
 
@@ -200,7 +197,7 @@ class TestClaudeSummarize:
         os.utime(d / "aaaa.jsonl", (now - 300, now - 300))
         os.utime(d / "bbbb.jsonl", (now - 100, now - 100))
         os.utime(d / "cccc.jsonl", (now, now))
-        out = ClaudeCapturer().summarize("/tmp/x")
+        out = claude.summarize("/tmp/x")
         assert [s.uuid for s in out] == ["cccc", "bbbb", "aaaa"]
 
     def test_last_activity_survives_trailing_system_entries(self, monkeypatch, tmp_path):
@@ -213,7 +210,7 @@ class TestClaudeSummarize:
             {"type": "system", "subtype": "turn_duration"},
             {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}},
         ])
-        out = ClaudeCapturer().summarize("/tmp/x")
+        out = claude.summarize("/tmp/x")
         assert len(out) == 1
         assert out[0].first_prompt == "first prompt"
         assert out[0].last_activity == "the last real reply"
@@ -223,7 +220,7 @@ class TestClaudeSummarize:
         d = tmp_path / ".claude" / "projects" / "-tmp-x"
         d.mkdir(parents=True)
         (d / "dddd.jsonl").write_bytes(b"not json at all\xff\xfe\n")
-        out = ClaudeCapturer().summarize("/tmp/x")
+        out = claude.summarize("/tmp/x")
         # Corrupt file shows up but with None previews.
         assert len(out) == 1
         assert out[0].uuid == "dddd"

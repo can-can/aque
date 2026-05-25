@@ -928,7 +928,7 @@ def when_completes_agent_creation(ctx):
         await ctx.pilot.press("enter")
         await ctx.pilot.pause()
         # Now on label step; press Enter to accept default label (mocked launch)
-        with _patch("aque.desk.launch_agent", side_effect=_fake_launch):
+        with _patch("aque.launch.launch_agent", side_effect=_fake_launch):
             await ctx.pilot.press("enter")
             await ctx.pilot.pause()
 
@@ -1420,7 +1420,7 @@ def given_label_is(ctx, label_text):
         state_manager.add_agent(agent)
         return agent_id
 
-    patcher = patch("aque.desk.launch_agent", side_effect=_fake_launch)
+    patcher = patch("aque.launch.launch_agent", side_effect=_fake_launch)
     mock_obj = patcher.start()
     ctx.data["mock_launch_agent"] = mock_obj
     ctx.data["_mock_patcher"] = patcher

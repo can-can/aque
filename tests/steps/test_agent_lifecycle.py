@@ -26,7 +26,8 @@ import libtmux
 import pytest
 from pytest_bdd import scenario, given, when, then, parsers
 
-from aque.desk import DeskApp, sorted_agents
+from aque.dashboard import sorted_agents
+from aque.desk import DeskApp
 from aque.history import HistoryManager
 from aque.monitor import IdleDetector, session_exists
 from aque.run import launch_agent

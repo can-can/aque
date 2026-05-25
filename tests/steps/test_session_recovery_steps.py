@@ -160,9 +160,16 @@ class _RecoveryContext:
                         a.session_id = None
             state_manager.save(state)
 
+        # Patch both reference sites: ``desk_module.relaunch_agent`` covers
+        # the orphan-relaunch branch (still in desk.py); ``aque.launch.
+        # relaunch_agent`` covers the resume branch (now in the launch
+        # coordinator). Same fake records both.
         p2 = patch.object(desk_module, "relaunch_agent", fake_relaunch)
         p2.start()
         self._patches.append(p2)
+        p2b = patch("aque.launch.relaunch_agent", fake_relaunch)
+        p2b.start()
+        self._patches.append(p2b)
 
         # Patch responder.cleanup and responder.create_for to recorders.
         def fake_cleanup(partner, sm, server, *, aque_dir):

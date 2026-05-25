@@ -100,7 +100,7 @@ def _install_fake_launch(ctx):
             state=AgentState.RUNNING, pid=99999, agent_type=agent_type,
         ))
         return agent_id
-    patcher = patch("aque.desk.launch_agent", side_effect=_fake_launch)
+    patcher = patch("aque.launch.launch_agent", side_effect=_fake_launch)
     ctx.data["mock_launch"] = patcher.start()
     ctx.data["_patcher"] = patcher
 

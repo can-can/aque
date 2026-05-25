@@ -1,16 +1,16 @@
-"""Per-type session-ID capture and resume-command logic for aque.
+"""Shared types and parsers for per-type session capture.
 
-Each capturer knows where its agent type stores session files for a given
-working directory and how to rewrite a launch command to resume an existing
-session. Aque uses these to enable the Resume action in the orphan modal
-without installing any hooks.
+The capture *implementations* live on each plugin (``aque/plugins/<type>.py``)
+behind the ``preassign`` / ``summarize`` / ``resume_command`` capability set.
+This module owns just the shared bits: the ``SessionSummary`` record returned
+to the resume picker, plus the JSONL parsing helpers Claude's capture relies on
+and which any future capturer can reuse.
 """
 
 import json
-import uuid
-from datetime import datetime, timezone
+from typing import NamedTuple
 from pathlib import Path
-from typing import NamedTuple, Protocol
+from datetime import datetime
 
 
 class SessionSummary(NamedTuple):
@@ -126,87 +126,3 @@ def _truncate(text: str | None, limit: int = 80) -> str | None:
     return flat[:limit] + "…"
 
 
-class SessionCapturer(Protocol):
-    def session_dir(self, cwd: str) -> Path: ...
-    def existing_uuids(self, cwd: str) -> set[str]: ...
-    def resume_command(self, original_cmd: list[str], session_id: str) -> list[str]: ...
-    def preassign(self, original_cmd: list[str]) -> tuple[list[str], str] | None: ...
-    def summarize(self, cwd: str) -> list[SessionSummary]: ...
-
-
-class ClaudeCapturer:
-    """Capture Claude Code session UUIDs.
-
-    Claude stores each session as `~/.claude/projects/<slug>/<uuid>.jsonl`
-    where slug is the cwd with `/` replaced by `-`.
-    """
-
-    def session_dir(self, cwd: str) -> Path:
-        slug = cwd.replace("/", "-")
-        return Path.home() / ".claude" / "projects" / slug
-
-    def existing_uuids(self, cwd: str) -> set[str]:
-        d = self.session_dir(cwd)
-        if not d.is_dir():
-            return set()
-        return {p.stem for p in d.glob("*.jsonl")}
-
-    def resume_command(self, original_cmd: list[str], session_id: str) -> list[str]:
-        return [*original_cmd, "--resume", session_id]
-
-    def preassign(self, original_cmd: list[str]) -> tuple[list[str], str]:
-        sid = str(uuid.uuid4())
-        return ([*original_cmd, "--session-id", sid], sid)
-
-    def summarize(self, cwd: str) -> list[SessionSummary]:
-        d = self.session_dir(cwd)
-        if not d.is_dir():
-            return []
-
-        summaries: list[SessionSummary] = []
-        for path in d.glob("*.jsonl"):
-            uuid_str = path.stem
-            first_prompt: str | None = None
-            last_activity: str | None = None
-            try:
-                stat = path.stat()
-                with path.open("r", encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            obj = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        if obj.get("type") != "user":
-                            continue
-                        if obj.get("isMeta"):
-                            continue
-                        msg = obj.get("message") or {}
-                        text = _extract_text(msg.get("content"))
-                        if text is None or text.startswith("<local-command-caveat>"):
-                            continue
-                        first_prompt = text
-                        break
-
-                last_text, _last_role = _read_last_user_or_assistant(path)
-                last_activity = last_text  # may be None
-
-                summaries.append(SessionSummary(
-                    uuid=uuid_str,
-                    first_prompt=_truncate(first_prompt),
-                    last_activity=_truncate(last_activity),
-                    mtime=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
-                    size_bytes=stat.st_size,
-                ))
-            except OSError:
-                continue
-
-        summaries.sort(key=lambda s: s.mtime, reverse=True)
-        return summaries
-
-
-CAPTURERS: dict[str, SessionCapturer] = {
-    "claude": ClaudeCapturer(),
-}

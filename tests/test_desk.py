@@ -3,9 +3,9 @@ from click.exceptions import Exit
 import pytest
 from textual.widgets import OptionList
 
-from aque import desk_tokens
-import aque.desk as desk
-from aque.desk import DeskApp, STATE_PRIORITY, sorted_agents
+from aque import dashboard, desk_tokens
+from aque.dashboard import STATE_PRIORITY, sorted_agents
+from aque.desk import DeskApp
 from aque.state import AgentState, AgentInfo, StateManager
 
 
@@ -27,7 +27,7 @@ def test_no_focused_in_token_maps():
         getattr(s, "name", "") != "FOCUSED" for s in desk_tokens.STATE_COLORS
     )
     assert all(
-        getattr(s, "name", "") != "FOCUSED" for s in desk.STATE_PRIORITY
+        getattr(s, "name", "") != "FOCUSED" for s in dashboard.STATE_PRIORITY
     )
 
 
@@ -325,7 +325,7 @@ class TestResponderVisibility:
             is_responder=True, partner_id=1,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir)
-        visible = app.visible_agents(mgr.load().agents)
+        visible = app.dash.visible_agents(mgr.load().agents)
         ids = {a.id for a in visible}
         assert ids == {1}
 
@@ -344,8 +344,8 @@ class TestResponderVisibility:
             is_responder=True, partner_id=1,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir)
-        app.show_responders = True
-        visible = app.visible_agents(mgr.load().agents)
+        app.dash.show_responders = True
+        visible = app.dash.visible_agents(mgr.load().agents)
         ids = {a.id for a in visible}
         assert ids == {1, 2}
 
@@ -378,7 +378,7 @@ class TestAutoRespondToggle:
             is_responder=True, partner_id=1, auto_respond=True,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-        app.show_responders = True
+        app.dash.show_responders = True
         async with app.run_test() as pilot:
             ol = app.query_one("#agent-option-list", OptionList)
             # Find responder (id=2) in the list and highlight it
@@ -416,7 +416,7 @@ class TestAutoAttachSkipsResponders:
             dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=102,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir)
-        picked = app.pick_auto_attach_target(mgr.load().agents)
+        picked = app.dash.pick_auto_attach_target(mgr.load().agents)
         assert picked is not None
         assert picked.id == 3
 
@@ -528,7 +528,7 @@ def test_handle_orphan_action_resume_rebuilds_responder(monkeypatch, tmp_aque_di
                         lambda partner, sm, server, *, aque_dir: cleanup_calls.append(partner.id))
     monkeypatch.setattr(responder, "create_for",
                         lambda partner, cfg, sm, *, aque_dir: create_calls.append(partner.id) or 99)
-    monkeypatch.setattr(desk, "relaunch_agent",
+    monkeypatch.setattr("aque.launch.relaunch_agent",
                         lambda agent_id, command, state_manager, *, preserve_session_id=True: None)
     monkeypatch.setattr(desk.libtmux, "Server", lambda: object())
 
@@ -879,21 +879,19 @@ class TestPerformLaunchClaudeRouting:
         with a pre-assigned session_id (no picker shown)."""
         from aque import sessions, desk as desk_mod
 
-        monkeypatch.setattr(
-            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [],
-        )
+        monkeypatch.setattr("aque.plugins.claude.summarize", lambda cwd: [])
         launched: dict = {}
 
         def fake_launch(**kwargs):
             launched.update(kwargs)
             return 1
 
-        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+        monkeypatch.setattr("aque.launch.launch_agent", fake_launch)
 
         app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._perform_launch(
+            app._start_launch(
                 command=["cc"], working_dir="/tmp/x",
                 label="t", agent_type="claude",
             )
@@ -917,7 +915,7 @@ class TestPerformLaunchClaudeRouting:
             mtime=datetime.now(timezone.utc), size_bytes=100,
         )
         monkeypatch.setattr(
-            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+            "aque.plugins.claude.summarize", lambda cwd: [fake_summary],
         )
 
         pushed: list = []
@@ -930,7 +928,7 @@ class TestPerformLaunchClaudeRouting:
 
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._perform_launch(
+            app._start_launch(
                 command=["cc"], working_dir="/tmp/x",
                 label="t", agent_type="claude",
             )
@@ -950,12 +948,12 @@ class TestPerformLaunchClaudeRouting:
             launched.update(kwargs)
             return 1
 
-        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+        monkeypatch.setattr("aque.launch.launch_agent", fake_launch)
 
         app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._perform_launch(
+            app._start_launch(
                 command=["echo"], working_dir="/tmp/x",
                 label="t", agent_type=None,
             )
@@ -978,14 +976,14 @@ class TestPerformLaunchClaudeRouting:
             mtime=datetime.now(timezone.utc), size_bytes=100,
         )
         monkeypatch.setattr(
-            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+            "aque.plugins.claude.summarize", lambda cwd: [fake_summary],
         )
 
         launched: dict = {}
         def fake_launch(**kwargs):
             launched.update(kwargs)
             return 1
-        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+        monkeypatch.setattr("aque.launch.launch_agent", fake_launch)
 
         # Capture the on_pick callback that _perform_launch passes to push_screen
         captured_callback: list = []
@@ -995,7 +993,7 @@ class TestPerformLaunchClaudeRouting:
         async with app.run_test() as pilot:
             await pilot.pause()
             monkeypatch.setattr(app, "push_screen", fake_push_screen)
-            app._perform_launch(
+            app._start_launch(
                 command=["cc"], working_dir="/tmp/x",
                 label="t", agent_type="claude",
             )
@@ -1022,14 +1020,14 @@ class TestPerformLaunchClaudeRouting:
             mtime=datetime.now(timezone.utc), size_bytes=100,
         )
         monkeypatch.setattr(
-            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+            "aque.plugins.claude.summarize", lambda cwd: [fake_summary],
         )
 
         launched: dict = {}
         def fake_launch(**kwargs):
             launched.update(kwargs)
             return 1
-        monkeypatch.setattr(desk_mod, "launch_agent", fake_launch)
+        monkeypatch.setattr("aque.launch.launch_agent", fake_launch)
 
         captured_callback: list = []
         def fake_push_screen(screen, callback=None):
@@ -1038,7 +1036,7 @@ class TestPerformLaunchClaudeRouting:
         async with app.run_test() as pilot:
             await pilot.pause()
             monkeypatch.setattr(app, "push_screen", fake_push_screen)
-            app._perform_launch(
+            app._start_launch(
                 command=["cc"], working_dir="/tmp/x",
                 label="t", agent_type="claude",
             )
@@ -1069,7 +1067,7 @@ class TestQuickLaunchPickerRouting:
             mtime=datetime.now(timezone.utc), size_bytes=100,
         )
         monkeypatch.setattr(
-            sessions.ClaudeCapturer, "summarize", lambda self, cwd: [fake_summary],
+            "aque.plugins.claude.summarize", lambda cwd: [fake_summary],
         )
 
         pushed: list = []
@@ -1104,17 +1102,17 @@ class TestFormCompletionResetsMode:
     @pytest.mark.asyncio
     async def test_quick_launch_resets_mode_before_picker(self, tmp_aque_dir, monkeypatch):
         from datetime import datetime, timezone
-        from aque import sessions, desk as desk_mod
+        from aque import desk as desk_mod
         from aque.sessions import SessionSummary
 
         monkeypatch.setattr(
-            sessions.ClaudeCapturer, "summarize",
-            lambda self, cwd: [SessionSummary(
+            "aque.plugins.claude.summarize",
+            lambda cwd: [SessionSummary(
                 uuid="aaaa", first_prompt="hi", last_activity="there",
                 mtime=datetime.now(timezone.utc), size_bytes=100,
             )],
         )
-        monkeypatch.setattr(desk_mod, "launch_agent", lambda **kw: 1)
+        monkeypatch.setattr("aque.launch.launch_agent", lambda **kw: 1)
 
         pushed: list = []
         app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)

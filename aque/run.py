@@ -135,7 +135,7 @@ def relaunch_agent(
 
     If preserve_session_id is False, clears session_id (caller is expected
     to have rewritten the command for a fresh conversation, e.g. via
-    ClaudeCapturer.preassign).
+    aque.plugins.claude.preassign).
     """
     agent = state_manager.load().get_agent(agent_id)
     if agent is None:
