@@ -447,8 +447,7 @@ def when_monitor_polls(ctx):
     # monitor's session-gone branch for it.
     killed = ctx.get("killed_responder_id")
     if killed is not None:
-        st = mgr.load()
-        responder = next((a for a in st.agents if a.id == killed), None)
+        responder = mgr.load().get_agent(killed)
         if responder is not None:
             # Replicate monitor: a responder whose session is gone becomes EXITED.
             mgr.update_agent_state(responder.id, AgentState.EXITED)
@@ -844,8 +843,7 @@ def _scenario_kill_partner(ctx, name):
     mgr: StateManager = ctx["mgr"]
     server = ctx["server"]
     partner_id = ctx["agents_by_name"][name]
-    state = mgr.load()
-    partner = next((a for a in state.agents if a.id == partner_id), None)
+    partner = mgr.load().get_agent(partner_id)
     if partner is None:
         return
     # First clean up its responder (mirrors desk._kill_agent flow).

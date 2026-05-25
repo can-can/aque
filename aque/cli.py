@@ -98,7 +98,7 @@ def run(
             responder_config["responder_command"] = shlex.split(responder_cmd)
         if responder_dir is not None:
             responder_config["responder_dir"] = responder_dir
-        partner = next((a for a in mgr.load().agents if a.id == agent_id), None)
+        partner = mgr.load().get_agent(agent_id)
         responder.create_for(partner, responder_config, mgr, aque_dir=AQUE_DIR)
 
     dir_history_mgr = DirHistoryManager(AQUE_DIR)
@@ -165,8 +165,7 @@ def kill(agent_id: int = typer.Argument(..., help="Agent ID to terminate")) -> N
 
     mgr = get_state_manager()
     hmgr = HistoryManager(AQUE_DIR)
-    state = mgr.load()
-    agent = next((a for a in state.agents if a.id == agent_id), None)
+    agent = mgr.load().get_agent(agent_id)
 
     if agent is None:
         console.print(f"[red]Agent #{agent_id} not found.[/red]")

@@ -399,7 +399,7 @@ def agent_removed(ctx, agent_id):
 
 @then(parsers.parse("agent {agent_id:d} is in state EXITED"))
 def agent_state_exited(ctx, agent_id):
-    a = next((a for a in ctx.state_mgr.load().agents if a.id == agent_id), None)
+    a = ctx.state_mgr.load().get_agent(agent_id)
     assert a is not None, f"Agent {agent_id} not found in state.json"
     assert a.state == AgentState.EXITED, (
         f"Expected EXITED, got {a.state.value}"

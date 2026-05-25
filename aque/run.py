@@ -137,8 +137,7 @@ def relaunch_agent(
     to have rewritten the command for a fresh conversation, e.g. via
     ClaudeCapturer.preassign).
     """
-    state = state_manager.load()
-    agent = next((a for a in state.agents if a.id == agent_id), None)
+    agent = state_manager.load().get_agent(agent_id)
     if agent is None:
         raise KeyError(agent_id)
 

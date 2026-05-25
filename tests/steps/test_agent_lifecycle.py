@@ -210,8 +210,7 @@ def when_new_agent_launched(ctx):
         )
     ctx.data["new_agent_id"] = agent_id
     # Track the tmux session for cleanup
-    state = ctx.state_mgr.load()
-    agent = next((a for a in state.agents if a.id == agent_id), None)
+    agent = ctx.state_mgr.load().get_agent(agent_id)
     if agent:
         ctx._tmux_sessions.append(agent.tmux_session)
 
@@ -219,8 +218,7 @@ def when_new_agent_launched(ctx):
 @then(parsers.parse('the agent should be in "{state_str}" state'))
 def then_new_agent_in_state(ctx, state_str):
     agent_id = ctx.data["new_agent_id"]
-    state = ctx.state_mgr.load()
-    agent = next((a for a in state.agents if a.id == agent_id), None)
+    agent = ctx.state_mgr.load().get_agent(agent_id)
     assert agent is not None, f"Agent id={agent_id} not found"
     assert agent.state.value == state_str, (
         f"Expected state '{state_str}', got '{agent.state.value}'"

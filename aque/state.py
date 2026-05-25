@@ -69,6 +69,17 @@ class AppState:
     agents: list[AgentInfo] = field(default_factory=list)
     monitor_pid: Optional[int] = None
 
+    def get_agent(self, agent_id: int) -> Optional[AgentInfo]:
+        """Find an agent by id. Returns ``None`` if absent."""
+        return next((a for a in self.agents if a.id == agent_id), None)
+
+    def get_responder_for(self, partner_id: int) -> Optional[AgentInfo]:
+        """Find the responder paired with ``partner_id``. Returns ``None`` if absent."""
+        return next(
+            (a for a in self.agents if a.is_responder and a.partner_id == partner_id),
+            None,
+        )
+
 
 class StateManager:
     def __init__(self, aque_dir: Path):
@@ -179,7 +190,7 @@ class StateManager:
     def done_agent(self, agent_id: int, history_manager) -> None:
         with self._locked():
             state = self.load()
-            agent = next((a for a in state.agents if a.id == agent_id), None)
+            agent = state.get_agent(agent_id)
             if agent is None:
                 raise KeyError(agent_id)
             history_manager.add_entry(

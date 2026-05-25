@@ -852,7 +852,7 @@ class DeskApp(App):
         partner_id.
         """
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent is None:
             return "Agent not found"
         try:
@@ -889,7 +889,7 @@ class DeskApp(App):
         if not self.config.get("responder_enabled", True):
             return
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent is None or agent.is_responder:
             return
         server = libtmux.Server()
@@ -1284,7 +1284,7 @@ class DeskApp(App):
         # Decay stale snooze entries: any snoozed agent whose last_change_at
         # has moved (or whose record is gone) is fair game again.
         for aid in list(self._snoozed):
-            agent = next((a for a in state.agents if a.id == aid), None)
+            agent = state.get_agent(aid)
             if agent is None:
                 self._snoozed.discard(aid)
                 self._snoozed_last_change.pop(aid, None)
@@ -1586,7 +1586,7 @@ class DeskApp(App):
         self.dir_history_mgr.record_use(working_dir)
         self._ensure_monitor_running()
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent and not self._skip_attach:
             self._attach_to_agent(agent)
         else:
@@ -1634,7 +1634,7 @@ class DeskApp(App):
         self._post_detach_debounce_until = time.monotonic() + 0.5
 
         state = self.state_mgr.load()
-        updated_agent = next((a for a in state.agents if a.id == agent.id), agent)
+        updated_agent = state.get_agent(agent.id) or agent
         dbg(
             "desk.attach.resumed",
             self.aque_dir,
@@ -1649,7 +1649,7 @@ class DeskApp(App):
 
     def _kill_agent(self, agent_id: int) -> None:
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent is None:
             return
         # Snapshot the agent (and its responder, if any) so undo can put
@@ -1659,10 +1659,7 @@ class DeskApp(App):
         snapshot = AgentInfo.from_dict(agent.to_dict())
         responder_snapshot: AgentInfo | None = None
         if not agent.is_responder:
-            resp = next(
-                (a for a in state.agents if a.is_responder and a.partner_id == agent.id),
-                None,
-            )
+            resp = state.get_responder_for(agent.id)
             if resp is not None:
                 responder_snapshot = AgentInfo.from_dict(resp.to_dict())
 
@@ -1724,7 +1721,7 @@ class DeskApp(App):
 
     def _hold_agent(self, agent_id: int) -> None:
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent is None:
             return
         if agent.state == AgentState.ON_HOLD:
@@ -1829,7 +1826,7 @@ class DeskApp(App):
             return
         agent_id = int(event.option.id)
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent is None:
             return
         if self._skip_attach:
@@ -1869,7 +1866,7 @@ class DeskApp(App):
             return
         option = ol.get_option_at_index(ol.highlighted)
         agent_id = int(option.id)
-        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        agent = self.state_mgr.load().get_agent(agent_id)
         if agent is None:
             term.detach()
             self._unpin_embed_window()
@@ -2014,7 +2011,7 @@ class DeskApp(App):
         agent_id = self._get_highlighted_agent_id()
         if agent_id is None:
             return
-        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        agent = self.state_mgr.load().get_agent(agent_id)
         label = agent.label if agent is not None else f"agent {agent_id}"
 
         def _on_confirm(confirmed: bool | None) -> None:
@@ -2067,7 +2064,7 @@ class DeskApp(App):
             return
         if item.kind in ("attach", "peek"):
             state = self.state_mgr.load()
-            agent = next((a for a in state.agents if a.id == item.payload), None)
+            agent = state.get_agent(item.payload)
             if agent is None:
                 return
             if item.kind == "attach":
@@ -2154,7 +2151,7 @@ class DeskApp(App):
         if agent_id is None:
             return
         state = self.state_mgr.load()
-        agent = next((a for a in state.agents if a.id == agent_id), None)
+        agent = state.get_agent(agent_id)
         if agent is None:
             return
         if agent.is_responder:
@@ -2183,7 +2180,7 @@ class DeskApp(App):
         if ol.highlighted is None:
             return
         agent_id = int(ol.get_option_at_index(ol.highlighted).id)
-        agent = next((a for a in self.state_mgr.load().agents if a.id == agent_id), None)
+        agent = self.state_mgr.load().get_agent(agent_id)
         if agent is not None and not self._skip_attach:
             self._attach_to_agent(agent)
 

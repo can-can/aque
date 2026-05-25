@@ -101,8 +101,7 @@ def create_for(
 
     # Schedule the system-prompt delivery in a background thread so it fires
     # after the responder's CLI has had time to start up.
-    state = state_manager.load()
-    responder_agent = next((a for a in state.agents if a.id == responder_id), None)
+    responder_agent = state_manager.load().get_agent(responder_id)
     if responder_agent is not None:
         prompt_text = system_prompt(partner)
         thread = threading.Thread(

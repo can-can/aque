@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from aque.state import AgentState, StateManager, AgentInfo
+from aque.state import AgentState, AppState, StateManager, AgentInfo
 
 
 class TestAgentInfo:
@@ -126,6 +126,49 @@ class TestAgentInfo:
         assert agent.partner_id is None
         assert agent.auto_respond is True
         assert agent.last_nudge_at is None
+
+
+class TestAppStateLookups:
+    def _agent(self, **overrides):
+        defaults = dict(
+            id=1,
+            tmux_session="aque-1",
+            label="test",
+            dir="/tmp",
+            command=["claude"],
+            state=AgentState.RUNNING,
+            pid=100,
+        )
+        defaults.update(overrides)
+        return AgentInfo(**defaults)
+
+    def test_get_agent_returns_match(self):
+        a1 = self._agent(id=1)
+        a2 = self._agent(id=2, tmux_session="aque-2")
+        state = AppState(agents=[a1, a2])
+        assert state.get_agent(2) is a2
+
+    def test_get_agent_returns_none_when_missing(self):
+        state = AppState(agents=[self._agent(id=1)])
+        assert state.get_agent(99) is None
+
+    def test_get_responder_for_returns_paired_responder(self):
+        partner = self._agent(id=1)
+        responder = self._agent(
+            id=2, tmux_session="aque-2", is_responder=True, partner_id=1
+        )
+        unrelated = self._agent(
+            id=3, tmux_session="aque-3", is_responder=True, partner_id=42
+        )
+        state = AppState(agents=[partner, responder, unrelated])
+        assert state.get_responder_for(1) is responder
+
+    def test_get_responder_for_ignores_non_responders(self):
+        # An agent that happens to share the id should not be returned.
+        partner = self._agent(id=1)
+        impostor = self._agent(id=2, tmux_session="aque-2", partner_id=1)
+        state = AppState(agents=[partner, impostor])
+        assert state.get_responder_for(1) is None
 
 
 class TestStateManager:
