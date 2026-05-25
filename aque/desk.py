@@ -1507,7 +1507,12 @@ class DeskApp(App):
             if summaries:
                 def on_pick(result: PickerResult | None) -> None:
                     if result is None:
-                        return  # user cancelled
+                        # User cancelled. The form that opened this picker
+                        # hid #dashboard/#status-bar before pushing us; if we
+                        # don't restore them we leave the user staring at a
+                        # blank screen (just the Header).
+                        self._show_dashboard()
+                        return
                     if result.action == "fresh":
                         # Pre-assign a fresh UUID, exactly like the empty-dir path.
                         cmd, sid = capturer.preassign(command)
