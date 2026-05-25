@@ -46,3 +46,17 @@ dev = [
 Homepage = "https://github.com/can-can/aque"
 Repository = "https://github.com/can-can/aque"
 Issues = "https://github.com/can-can/aque/issues"
+
+# Hatchling otherwise tries to include local development directories in the
+# sdist; ``venv/`` contains absolute symlinks that the Python 3.12+ tarfile
+# filter rejects (AbsoluteLinkError), failing the build.
+[tool.hatch.build]
+exclude = [
+    "venv",
+    ".venv",
+    ".codegraph",
+    ".claude",
+    ".github",
+    "demo",
+    "publish.sh",
+]
