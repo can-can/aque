@@ -2,9 +2,12 @@
 
 Owns the "what should be on screen right now" question:
 
-* filter / search / responder-visibility toggles
+* filter / search
 * per-session snooze tracking and triage-candidate selection
 * sort order, fingerprint dedup, and row state-change cue accounting
+
+Responders are never their own row — they surface as a badge on the partner's
+row and are reachable via the partner-side ``attach_responder_embed`` action.
 
 The controller never touches widgets — it accepts ``AppState`` snapshots and
 returns plain Python values so it can be unit-tested without spinning a
@@ -58,10 +61,8 @@ class DashboardController:
     """
 
     def __init__(self) -> None:
-        self.show_responders: bool = False
         # Filter is one of the AgentStates (or None); search is a substring
-        # matched against name, dir, type, and state. Both apply on top of the
-        # show_responders pairing.
+        # matched against name, dir, type, and state.
         self.filter: AgentState | None = None
         self.search: str = ""
         # Agents the user has explicitly snoozed in this session — they won't
@@ -80,7 +81,7 @@ class DashboardController:
         # by the refresh path to skip rebuilds when nothing changed.
         self._last_fingerprint: list[tuple[int, str]] | None = None
 
-    # ── Filter / search / responders ────────────────────────────────
+    # ── Filter / search ─────────────────────────────────────────────
 
     def toggle_filter(self, state: AgentState | None) -> None:
         """Click ``state`` once to filter to it, again to clear."""
@@ -100,32 +101,15 @@ class DashboardController:
         self.invalidate_fingerprint()
         return True
 
-    def toggle_responders(self) -> None:
-        self.show_responders = not self.show_responders
-        self.invalidate_fingerprint()
-
     # ── Visibility pipeline ─────────────────────────────────────────
 
     def visible_agents(self, agents: list[AgentInfo]) -> list[AgentInfo]:
-        """Apply responders / filter / search to ``agents`` in that order.
+        """Apply filter / search to ``agents``.
 
-        With ``show_responders`` on, each non-responder is followed by its
-        paired responder so the list reads parent → child. Off, responders
-        are hidden entirely.
+        Responders never get their own row — they surface as a badge on the
+        partner row (the renderer looks them up via ``AppState.get_responder_for``).
         """
-        if self.show_responders:
-            partners = [a for a in agents if not a.is_responder]
-            responders_by_partner = {
-                a.partner_id: a for a in agents if a.is_responder
-            }
-            base: list[AgentInfo] = []
-            for p in partners:
-                base.append(p)
-                r = responders_by_partner.get(p.id)
-                if r is not None:
-                    base.append(r)
-        else:
-            base = [a for a in agents if not a.is_responder]
+        base = [a for a in agents if not a.is_responder]
 
         if self.filter is not None:
             base = [a for a in base if a.state == self.filter]
@@ -152,17 +136,28 @@ class DashboardController:
 
     # ── Fingerprint dedup ───────────────────────────────────────────
 
-    def fingerprint(self, agents: list[AgentInfo]) -> list[tuple[int, str]]:
-        return [(a.id, a.state.value) for a in agents]
-
-    def fingerprint_changed(self, agents: list[AgentInfo]) -> bool:
-        """Compare ``agents`` against the cached fingerprint and update it.
-
-        Returns ``True`` when the new fingerprint differs from the previous
-        one (or no fingerprint was cached). Callers skip the rebuild path
-        when this returns ``False``.
+    def fingerprint(
+        self,
+        agents: list[AgentInfo],
+        responder_states: dict[int, str] | None = None,
+    ) -> list[tuple[int, str, str]]:
+        """Per-row identity tuple used to detect when the rendered list must
+        rebuild. Includes the paired responder's state (when provided) so a
+        responder transition refreshes the partner's badge even though the
+        partner's own state didn't change.
         """
-        new = self.fingerprint(agents)
+        rs = responder_states or {}
+        return [(a.id, a.state.value, rs.get(a.id, "")) for a in agents]
+
+    def fingerprint_changed(
+        self,
+        agents: list[AgentInfo],
+        responder_states: dict[int, str] | None = None,
+    ) -> bool:
+        """Compare ``agents`` (and optional paired responder states) against
+        the cached fingerprint and update it. Returns ``True`` when anything
+        changed; callers skip the rebuild path when ``False``."""
+        new = self.fingerprint(agents, responder_states)
         changed = new != self._last_fingerprint
         self._last_fingerprint = new
         return changed

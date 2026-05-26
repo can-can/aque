@@ -68,23 +68,13 @@ Feature: Auto-responder
     When the user presses "a"
     Then "builder"'s auto_respond flag should be false
 
-  Scenario: Dashboard "a" key is a no-op on a responder selection
-    Given responder "resp(builder)" is highlighted on the dashboard
-    When the user presses "a"
-    Then no auto_respond flag should change
-
   # ── Visibility ─────────────────────────────────────────────────
 
-  Scenario: Responders are hidden from the default dashboard list
+  Scenario: Responders never appear as their own row in the dashboard list
     Given agent "builder" has a paired responder "resp(builder)"
     When the dashboard renders the agent list
     Then "builder" should appear in the list
     And "resp(builder)" should not appear in the list
-
-  Scenario: Pressing R toggles responder visibility
-    Given agent "builder" has a paired responder "resp(builder)"
-    When the user presses "R" on the dashboard
-    Then "resp(builder)" should appear in the list indented under "builder"
 
   Scenario: Auto-attach countdown skips responders
     Given responder "resp(builder)" is the highest-priority waiting agent

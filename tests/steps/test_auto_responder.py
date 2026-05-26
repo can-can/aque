@@ -83,18 +83,8 @@ def test_dashboard_a_key_toggles_auto_respond():
     pass
 
 
-@scenario(FEATURE, 'Dashboard "a" key is a no-op on a responder selection')
-def test_dashboard_a_key_noop_on_responder():
-    pass
-
-
-@scenario(FEATURE, "Responders are hidden from the default dashboard list")
-def test_responders_hidden_by_default():
-    pass
-
-
-@scenario(FEATURE, "Pressing R toggles responder visibility")
-def test_press_r_toggles_responder_visibility():
+@scenario(FEATURE, "Responders never appear as their own row in the dashboard list")
+def test_responders_never_appear_as_rows():
     pass
 
 
@@ -618,20 +608,6 @@ def given_agent_highlighted(ctx, app_ctx, name):
     partner_id = _add_partner(ctx, name)
     app_ctx.ensure_mounted()
     _highlight_agent_id(app_ctx, partner_id)
-
-
-@given(parsers.parse('responder "{resp_name}" is highlighted on the dashboard'))
-def given_responder_highlighted(ctx, app_ctx, resp_name):
-    # Create a partner + responder; show_responders must be enabled to
-    # let the responder appear in the list and become highlightable.
-    partner_id = _add_partner(ctx, "builder")
-    _add_responder_for(ctx, partner_id, resp_name)
-    app_ctx.ensure_mounted()
-    app_ctx.app.dash.show_responders = True
-    app_ctx.app.dash.invalidate_fingerprint()
-    app_ctx.app._refresh_agent_list()
-    resp_id = ctx["agents_by_name"][resp_name]
-    _highlight_agent_id(app_ctx, resp_id)
 
 
 @when(parsers.parse('the user presses "{key}"'))

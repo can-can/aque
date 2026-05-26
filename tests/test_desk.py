@@ -310,7 +310,7 @@ class TestDeskTmuxCheck:
 
 
 class TestResponderVisibility:
-    def test_responders_hidden_by_default(self, tmp_aque_dir):
+    def test_responders_never_appear_as_rows(self, tmp_aque_dir):
         from aque.desk import DeskApp
         from aque.state import AgentInfo, AgentState, StateManager
 
@@ -326,28 +326,95 @@ class TestResponderVisibility:
         ))
         app = DeskApp(aque_dir=tmp_aque_dir)
         visible = app.dash.visible_agents(mgr.load().agents)
+        # Responders are now surfaced via the partner row's badge instead
+        # of a separate row, so the list contains only the partner.
         ids = {a.id for a in visible}
         assert ids == {1}
 
-    def test_r_toggle_reveals_responders(self, tmp_aque_dir):
+
+class TestResponderBadge:
+    def test_row_label_includes_badge_when_responder_paired(self, tmp_aque_dir):
+        from aque.desk import DeskApp
+        from aque.state import AgentInfo, AgentState
+
+        app = DeskApp(aque_dir=tmp_aque_dir)
+        partner = AgentInfo(
+            id=1, tmux_session="aque-1", label="builder",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        )
+        responder = AgentInfo(
+            id=2, tmux_session="aque-2", label="resp(1)",
+            dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=101,
+            is_responder=True, partner_id=1,
+        )
+        with_badge = str(app._build_row_label(partner, width=60, responder=responder))
+        without = str(app._build_row_label(partner, width=60, responder=None))
+        # The badge contributes a "●r" pair to the rendered row.
+        assert "●r" in with_badge
+        assert "●r" not in without
+
+
+class TestResponderEmbedToggle:
+    @pytest.mark.asyncio
+    async def test_ctrl_enter_swaps_embed_between_partner_and_responder(self, tmp_aque_dir):
         from aque.desk import DeskApp
         from aque.state import AgentInfo, AgentState, StateManager
+        from aque.terminal.widget import TerminalView
 
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
-            id=1, tmux_session="aque-1", label="partner",
+            id=1, tmux_session="aque-partner", label="builder",
             dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
         ))
         mgr.add_agent(AgentInfo(
-            id=2, tmux_session="aque-2", label="resp(1)",
+            id=2, tmux_session="aque-resp", label="resp(1)",
             dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=101,
             is_responder=True, partner_id=1,
         ))
-        app = DeskApp(aque_dir=tmp_aque_dir)
-        app.dash.show_responders = True
-        visible = app.dash.visible_agents(mgr.load().agents)
-        ids = {a.id for a in visible}
-        assert ids == {1, 2}
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            attached: list[str] = []
+            # Stub TerminalView.attach to capture which session we'd swap to,
+            # and pretend the embed isn't headless so the action proceeds.
+            term = app.query_one("#embedded-terminal", TerminalView)
+            term.attach = lambda argv, size_sync=None: attached.append(argv[-1])
+            term.focus = lambda: None
+            app._skip_attach = False
+            app.query_one("#agent-option-list").highlighted = 0
+
+            # First press: partner highlighted, embed currently on partner →
+            # swap to responder.
+            app._embed_pinned = ("aque-partner", 80, 24)
+            app.action_attach_responder_embed()
+            assert attached == ["aque-resp"]
+
+            # Second press: embed now on responder → swap back to partner.
+            app._embed_pinned = ("aque-resp", 80, 24)
+            app.action_attach_responder_embed()
+            assert attached == ["aque-resp", "aque-partner"]
+
+    @pytest.mark.asyncio
+    async def test_ctrl_enter_noop_when_no_responder_paired(self, tmp_aque_dir):
+        from aque.desk import DeskApp
+        from aque.state import AgentInfo, AgentState, StateManager
+        from aque.terminal.widget import TerminalView
+
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="aque-solo", label="solo",
+            dir="/tmp", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            attached: list[str] = []
+            term = app.query_one("#embedded-terminal", TerminalView)
+            term.attach = lambda argv, size_sync=None: attached.append(argv[-1])
+            term.focus = lambda: None
+            app._skip_attach = False
+            app.query_one("#agent-option-list").highlighted = 0
+
+            app.action_attach_responder_embed()
+            assert attached == []
 
 
 class TestAutoRespondToggle:
@@ -367,6 +434,11 @@ class TestAutoRespondToggle:
 
     @pytest.mark.asyncio
     async def test_a_key_noop_on_responder(self, tmp_aque_dir):
+        # Responders aren't reachable via the list anymore (they're badges,
+        # not rows), but the action_toggle_auto_respond guard against
+        # is_responder still matters for any code path that hands a responder
+        # AgentInfo to the toggle directly. We exercise the guard by stubbing
+        # the highlighted-agent lookup to return the responder.
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="aque-1", label="partner",
@@ -378,14 +450,8 @@ class TestAutoRespondToggle:
             is_responder=True, partner_id=1, auto_respond=True,
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-        app.dash.show_responders = True
         async with app.run_test() as pilot:
-            ol = app.query_one("#agent-option-list", OptionList)
-            # Find responder (id=2) in the list and highlight it
-            for i in range(ol.option_count):
-                if ol.get_option_at_index(i).id == "2":
-                    ol.highlighted = i
-                    break
+            app._get_highlighted_agent_id = lambda: 2  # pretend responder is selected
             app.action_toggle_auto_respond()
             agents = mgr.load().agents
             by_id = {a.id: a for a in agents}
@@ -818,7 +884,7 @@ class TestEmbedShortcuts:
         from aque.widgets.command_palette import CommandPalette
         payloads = {i.payload for i in CommandPalette([])._all_items() if i.kind == "action"}
         for needed in ("new", "quick_launch", "kill", "hold", "auto",
-                       "fullscreen", "undo", "responders", "help"):
+                       "fullscreen", "undo", "attach_responder", "help"):
             assert needed in payloads, f"palette missing action: {needed}"
 
     def test_palette_dispatch_routes_management_actions(self, tmp_aque_dir, monkeypatch):

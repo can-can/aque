@@ -7,7 +7,7 @@ caller via ``dismiss(result)``.
 
 Each item carries a ``kind`` ('attach' / 'peek' / 'action') and a
 ``payload`` (the agent id for attach/peek, or an action string for
-actions like ``new``, ``help``, ``responders``, ``filter:waiting``).
+actions like ``new``, ``help``, ``attach_responder``, ``filter:waiting``).
 """
 from dataclasses import dataclass
 
@@ -105,7 +105,7 @@ class CommandPalette(ModalScreen[CommandItem | None]):
             CommandItem("Full-screen attach (highlighted)", "action", "fullscreen"),
             CommandItem("Cycle layout (auto/wide/stacked)", "action", "cycle_layout"),
             CommandItem("Undo last action", "action", "undo"),
-            CommandItem("Toggle responders", "action", "responders"),
+            CommandItem("Show responder for highlighted (Ctrl+Enter)", "action", "attach_responder"),
             CommandItem("Show shortcuts (?)", "action", "help"),
             CommandItem("Filter: waiting", "action", "filter:waiting"),
             CommandItem("Filter: running", "action", "filter:running"),

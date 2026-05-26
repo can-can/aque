@@ -532,7 +532,7 @@ class DeskApp(App):
         ("a", "toggle_auto_respond", "Auto"),
         ("ctrl+k", "command_palette", "⌘K"),
         ("question_mark", "show_help", "?"),
-        Binding("R", "toggle_responders", "Responders", show=False),
+        Binding("ctrl+enter", "attach_responder_embed", "Responder embed", show=False),
         Binding("r", "quick_launch", "Relaunch", show=False),
         Binding("1", "filter_state('running')", "Filter running", show=False),
         Binding("2", "filter_state('waiting')", "Filter waiting", show=False),
@@ -754,7 +754,7 @@ class DeskApp(App):
     # palette are never gated.
     _EMBED_GATED_ACTIONS = frozenset({
         "new_agent", "kill_agent", "hold_agent", "toggle_auto_respond",
-        "quick_launch", "toggle_responders", "filter_state", "focus_search",
+        "quick_launch", "filter_state", "focus_search",
         "undo", "show_help",
     })
 
@@ -954,52 +954,61 @@ class DeskApp(App):
         for w in self.query("#search-input"):
             w.remove()
 
-    def _build_row_label(self, agent: AgentInfo, width: int = 0) -> Text:
+    def _build_row_label(
+        self,
+        agent: AgentInfo,
+        width: int = 0,
+        responder: AgentInfo | None = None,
+    ) -> Text:
         """Render an agent row in the locked Project layout.
 
-            ●  name                                        auto
+            ●  name                                    ●r  auto
 
-        The layout encodes three cells — state dot, bold name, soft auto/manual
-        chip — and nothing else. State is carried by the dot's colour alone (the
-        design dropped the state word from the row; it lives in the preview
-        header). The agent type is intentionally not shown on the row; it lives
-        in the preview header and stays searchable.
+        The layout encodes four cells — state dot, bold name, optional
+        responder badge (``●r`` coloured by responder state), soft auto/manual
+        chip. State is carried by the dot's colour alone (the design dropped
+        the state word from the row; it lives in the preview header).
+        Responders never get their own row — they appear as the ``●r`` badge
+        on their partner's row and are reachable via Ctrl+Enter.
 
-        The mode chip is right-aligned to ``width`` (the list's content width);
-        when a name would push the chip past the edge it is truncated with an
-        ellipsis rather than wrapping onto a second line.
+        The auto chip is right-aligned to ``width`` (the list's content width);
+        when a name would push it past the edge it is truncated rather than
+        wrapping.
 
         Returns a ``rich.text.Text`` so ``str(prompt)`` yields the plain row
         without markup tags — callers can still substring-search for labels.
         """
         state_color = STATE_COLORS.get(agent.state, "white")
         state_dot = f"[{state_color}]●[/{state_color}]"
-        indent = "↳ " if agent.is_responder else ""
         # Brief state-change cue: a leading ``▴`` for ~3 s after we detect this
         # agent's state changing — the TUI stand-in for the design's animated
         # row reorder.
         recent = self.dash.should_show_change_cue(agent.id, time.monotonic())
         cue = f"[{state_color}]▴[/{state_color}]" if recent else " "
 
-        # Mode chip shows on every partner row; responder sub-rows don't own a
-        # toggle, so they omit it.
-        if agent.is_responder:
-            chip_markup, chip_w = "", 0
-        else:
-            chip_markup = auto_chip_markup(agent.auto_respond)
-            chip_w = len(" auto " if agent.auto_respond else " manual ")
+        chip_markup = auto_chip_markup(agent.auto_respond)
+        chip_w = len(" auto " if agent.auto_respond else " manual ")
 
-        # Fixed glyphs before the name: "cue space dot 2sp indent".
-        prefix_w = 1 + 1 + 1 + 2 + len(indent)
-        # Pad so the mode chip lands at the right edge. The name is never
+        if responder is not None:
+            resp_color = STATE_COLORS.get(responder.state, "white")
+            # Leading space groups the badge with the chip; "●r" is 2 cells.
+            badge_markup = f" [{resp_color}]●r[/{resp_color}]"
+            badge_w = 3
+        else:
+            badge_markup = ""
+            badge_w = 0
+
+        # Fixed glyphs before the name: "cue space dot 2sp".
+        prefix_w = 1 + 1 + 1 + 2
+        # Pad so the badge + chip land at the right edge. The name is never
         # truncated (so callers can still match on it); a name long enough to
         # crowd the chip simply collapses the gap to a single space.
         avail = (width or 36) - 1
-        pad = max(1, avail - prefix_w - len(agent.label) - chip_w)
+        pad = max(1, avail - prefix_w - len(agent.label) - badge_w - chip_w)
 
         return Text.from_markup(
-            f"{cue} {state_dot}  {indent}[bold]{agent.label}[/bold]"
-            f"{' ' * pad}{chip_markup}"
+            f"{cue} {state_dot}  [bold]{agent.label}[/bold]"
+            f"{' ' * pad}{badge_markup}{chip_markup}"
         )
 
     def _refresh_agent_list(self, reset_highlight: bool = False, state: AppState | None = None) -> None:
@@ -1011,8 +1020,19 @@ class DeskApp(App):
         if state is None:
             state = self.state_mgr.load()
         agents = self.dash.compute_visible(state)
+        # Responder lookup feeds both the fingerprint (so a responder state
+        # change invalidates the cache and rebuilds the partner row) and the
+        # row label (which draws the badge).
+        responders_by_partner: dict[int, AgentInfo] = {
+            a.partner_id: a for a in state.agents
+            if a.is_responder and a.partner_id is not None
+        }
+        responder_states = {
+            partner_id: r.state.value
+            for partner_id, r in responders_by_partner.items()
+        }
 
-        changed = self.dash.fingerprint_changed(agents)
+        changed = self.dash.fingerprint_changed(agents, responder_states)
         if not reset_highlight and not changed:
             return
 
@@ -1031,7 +1051,8 @@ class DeskApp(App):
         row_width = option_list.content_size.width
         option_list.clear_options()
         for agent in agents:
-            label = self._build_row_label(agent, width=row_width)
+            responder = responders_by_partner.get(agent.id)
+            label = self._build_row_label(agent, width=row_width, responder=responder)
             option_list.add_option(Option(label, id=str(agent.id)))
 
         if current_highlighted_id is not None:
@@ -1882,8 +1903,8 @@ class DeskApp(App):
             self.action_cycle_layout()
         elif action == "undo":
             self.action_undo()
-        elif action == "responders":
-            self.action_toggle_responders()
+        elif action == "attach_responder":
+            self.action_attach_responder_embed()
         elif action == "help":
             self.action_show_help()
         elif action == "filter:none":
@@ -1928,11 +1949,47 @@ class DeskApp(App):
         agent_panel.mount(search, before="#agent-option-list")
         search.focus()
 
-    def action_toggle_responders(self) -> None:
+    def action_attach_responder_embed(self) -> None:
+        """Swap the embedded terminal between the highlighted partner's tmux
+        session and the paired responder's session.
+
+        Responders no longer have their own list row — Ctrl+Enter is the way
+        to peek at one. If the embed is already showing the responder, pressing
+        again returns to the partner. No-op when the highlighted agent has no
+        paired responder (or the highlighted row is itself a responder, which
+        shouldn't happen now that responders aren't listed)."""
         if self._mode != "dashboard":
             return
-        self.dash.toggle_responders()
-        self._refresh_agent_list()
+        agent_id = self._get_highlighted_agent_id()
+        if agent_id is None:
+            return
+        state = self.state_mgr.load()
+        agent = state.get_agent(agent_id)
+        if agent is None or agent.is_responder:
+            return
+        responder = state.get_responder_for(agent.id)
+        if responder is None:
+            self.notify("No responder paired with this agent.", timeout=2)
+            return
+        if self._skip_attach:
+            return
+        try:
+            term = self.query_one("#embedded-terminal", TerminalView)
+        except Exception:
+            return
+        # Decide which session to swap to. _embed_pinned is the session the
+        # embed last attached to; if it's already the responder, flip back to
+        # the partner so the toggle is reversible.
+        currently_on_responder = (
+            self._embed_pinned is not None
+            and self._embed_pinned[0] == responder.tmux_session
+        )
+        target = agent if currently_on_responder else responder
+        term.attach(
+            ["tmux", "attach-session", "-t", target.tmux_session],
+            size_sync=self._embed_size_sync(target.tmux_session),
+        )
+        term.focus()
 
     def action_toggle_auto_respond(self) -> None:
         if self._mode != "dashboard":

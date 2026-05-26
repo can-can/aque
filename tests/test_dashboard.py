@@ -56,19 +56,14 @@ class TestStatePriority:
 
 
 class TestVisibleAgents:
-    def test_hides_responders_by_default(self):
+    def test_responders_never_appear_as_rows(self):
         c = DashboardController()
         partner = _agent(1)
         resp = _agent(2, is_responder=True, partner_id=1)
-        assert [a.id for a in c.visible_agents([partner, resp])] == [1]
-
-    def test_pairs_responders_after_partner_when_shown(self):
-        c = DashboardController()
-        c.show_responders = True
-        partner = _agent(1)
         other = _agent(3)
-        resp = _agent(2, is_responder=True, partner_id=1)
-        assert [a.id for a in c.visible_agents([partner, other, resp])] == [1, 2, 3]
+        # Responders are always elided from the list — the renderer surfaces
+        # them via the partner row's badge instead.
+        assert [a.id for a in c.visible_agents([partner, resp, other])] == [1, 3]
 
     def test_filter_restricts_to_one_state(self):
         c = DashboardController()
@@ -133,6 +128,15 @@ class TestFingerprint:
         c.fingerprint_changed(agents)
         c.invalidate_fingerprint()
         assert c.fingerprint_changed(agents) is True
+
+    def test_changed_when_responder_state_flips(self):
+        # The partner's row carries the responder badge, so a responder
+        # transition must invalidate the cache even though the partner's
+        # own (id, state) didn't change.
+        c = DashboardController()
+        agents = [_agent(1)]
+        c.fingerprint_changed(agents, responder_states={1: "running"})
+        assert c.fingerprint_changed(agents, responder_states={1: "waiting"}) is True
 
 
 class TestChangeCue:
