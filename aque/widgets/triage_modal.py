@@ -7,16 +7,21 @@ kill-confirm ``ConfirmModal``): it floats centered over the dashboard, dims and
 blocks it, and is dismissed by an explicit action. Because it is a separate
 screen, the dashboard's layout is never touched.
 
-Card contents (matching the old banner):
+Card contents:
 
   line 1: ● {label} needs you · {dir}      (+ N more waiting, when queued)
-  line 2: [ attach ↵ ]  [ peek space ]  [ snooze 5m s ]
+  line 2: [ attach ↵ ]  [ peek space ]
 
-Three actions resolve the modal via ``dismiss(result)``:
+Two actions are advertised, plus a silent escape hatch:
 
   * **Enter** — ``"attach"``: attach to the waiting agent
   * **Space** — ``"peek"``: load the agent into the dashboard preview, no attach
-  * **s** / **Esc** — ``"snooze"``: don't re-surface until its state changes
+  * **Esc** — silently dismisses + snoozes; the modal won't re-surface until
+    the agent transitions state again. Not labelled as a pill — it's just the
+    universal "get me out of here" key.
+
+Adapts to narrow terminals (``width < 40``): the ``· {dir}`` title suffix is
+hidden and the action pills stack vertically so they never overflow.
 """
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -29,7 +34,12 @@ from aque.state import AgentInfo
 # Result values handed back through ``dismiss``.
 ATTACH = "attach"
 PEEK = "peek"
-SNOOZE = "snooze"
+SNOOZE = "snooze"  # Internal-only now — Esc dismisses with this result.
+
+# Below this width the modal switches to its narrow layout (no dir suffix,
+# pills stacked vertically). 40 cells is roughly an iTerm pane split in half
+# on a 14" laptop — the smallest realistic interactive width.
+_NARROW_THRESHOLD = 40
 
 
 class TriageModal(ModalScreen[str]):
@@ -38,8 +48,10 @@ class TriageModal(ModalScreen[str]):
     BINDINGS = [
         Binding("enter", "attach", "Attach"),
         Binding("space", "peek", "Peek"),
-        Binding("s", "snooze", "Snooze"),
-        Binding("escape", "snooze", "Snooze"),
+        # Esc is intentionally not advertised in the pill row — it's a silent
+        # dismiss-with-snooze so users always have an escape hatch even though
+        # the snooze action isn't a first-class affordance anymore.
+        Binding("escape", "snooze", "Dismiss", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -48,18 +60,25 @@ class TriageModal(ModalScreen[str]):
     }
     TriageModal #triage-box {
         width: auto;
-        max-width: 70;
+        max-width: 56;
         height: auto;
         background: $panel;
         border: thick $warning;
         padding: 1 2;
     }
     TriageModal .triage-row1 {
-        height: 1;
+        height: auto;
         margin-bottom: 1;
     }
     TriageModal .triage-title {
         width: 1fr;
+    }
+    TriageModal .triage-dir {
+        width: auto;
+        color: $text-muted;
+    }
+    TriageModal .triage-dir.hidden {
+        display: none;
     }
     TriageModal .triage-stack {
         width: auto;
@@ -70,11 +89,20 @@ class TriageModal(ModalScreen[str]):
         height: 1;
         align-horizontal: center;
     }
+    TriageModal .triage-actions.narrow {
+        layout: vertical;
+        height: auto;
+        align-horizontal: left;
+    }
     TriageModal .act {
         height: 1;
         padding: 0 1;
         margin-right: 1;
         width: auto;
+    }
+    TriageModal .triage-actions.narrow .act {
+        margin-right: 0;
+        margin-bottom: 0;
     }
     TriageModal .act-primary {
         background: $warning;
@@ -90,7 +118,7 @@ class TriageModal(ModalScreen[str]):
     # Each action pill: (label, key-cap glyph). The cap is the key that fires
     # the action; keys are routed by this screen's BINDINGS.
     _PRIMARY = ("attach", "↵")
-    _SECONDARY = (("peek", "space"), ("snooze 5m", "s"))
+    _SECONDARY = (("peek", "space"),)
 
     def __init__(self, agent: AgentInfo, queue_len: int = 1) -> None:
         # No fixed id: attaching from one modal surfaces the next agent's modal
@@ -102,14 +130,23 @@ class TriageModal(ModalScreen[str]):
         self.queue_len = queue_len
 
     def compose(self) -> ComposeResult:
-        sub = f" [dim]· {self.agent.dir}[/dim]" if self.agent.dir else ""
         title = Static(
             f"[bold yellow]●[/bold yellow] "
-            f"[bold]{self.agent.label}[/bold] needs you{sub}",
+            f"[bold]{self.agent.label}[/bold] needs you",
             classes="triage-title",
             id="triage-title",
         )
         row1: list[Static] = [title]
+        # Dir suffix lives in its own Static so narrow mode can hide it
+        # without rebuilding the title's markup.
+        if self.agent.dir:
+            row1.append(
+                Static(
+                    f"[dim]· {self.agent.dir}[/dim]",
+                    classes="triage-dir",
+                    id="triage-dir",
+                )
+            )
         if self.queue_len > 1:
             row1.append(
                 Static(
@@ -124,6 +161,30 @@ class TriageModal(ModalScreen[str]):
         with Vertical(id="triage-box"):
             yield Horizontal(*row1, classes="triage-row1")
             yield Horizontal(*pills, classes="triage-actions")
+
+    def on_resize(self, event) -> None:
+        """Re-evaluate the narrow layout when the screen size changes.
+
+        Narrow mode hides the dir suffix and stacks the action pills
+        vertically. ``self.size`` is the screen size (the full terminal) since
+        a ModalScreen is sized to fill the screen and centers its contents.
+        """
+        self._apply_layout(event.size.width)
+
+    def on_mount(self) -> None:
+        # First layout pass — ``on_resize`` doesn't fire on the initial mount.
+        self._apply_layout(self.size.width)
+
+    def _apply_layout(self, width: int) -> None:
+        narrow = width < _NARROW_THRESHOLD
+        try:
+            self.query_one(".triage-actions").set_class(narrow, "narrow")
+        except Exception:
+            pass
+        try:
+            self.query_one("#triage-dir").set_class(narrow, "hidden")
+        except Exception:
+            pass  # No dir suffix to hide (agent.dir was empty)
 
     @staticmethod
     def _pill(label: str, cap: str, primary: bool = False) -> Static:

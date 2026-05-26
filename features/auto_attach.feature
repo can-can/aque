@@ -41,13 +41,6 @@ Feature: Triage pill for waiting agents
     And agent "fixer" should still be in "waiting" state
     And the highlighted agent should be "fixer"
 
-  Scenario: Pressing "s" snoozes the triaged agent
-    Given the triage pill is showing for agent "fixer"
-    When the user presses "s"
-    Then the triage pill should be dismissed
-    And the periodic refresh runs
-    And no triage pill should appear
-
   Scenario: Pressing Escape snoozes the triaged agent
     Given the triage pill is showing for agent "fixer"
     When the user presses Escape
@@ -75,7 +68,7 @@ Feature: Triage pill for waiting agents
 
   Scenario: Snooze decays when the agent transitions to waiting again
     Given the triage pill is showing for agent "fixer"
-    When the user presses "s"
+    When the user presses Escape
     And the monitor changes agent "fixer" to "running"
     And the monitor changes agent "fixer" to "waiting"
     And the periodic refresh runs

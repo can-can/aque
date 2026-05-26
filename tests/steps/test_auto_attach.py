@@ -2,8 +2,8 @@
 
 The forced-modal countdown was replaced with a non-blocking ``TriagePill``
 that mounts inside the dashboard layout. Tests assert on the pill's
-presence, its label content, and the side effects of the three actions
-(Enter/Space/s + Esc as snooze synonym).
+presence, its label content, and the side effects of the two advertised
+actions (Enter attach / Space peek) plus the silent Esc dismiss-and-snooze.
 """
 import asyncio
 from unittest.mock import patch
@@ -45,11 +45,6 @@ def test_enter_attaches():
 
 @scenario(FEATURE, "Pressing Space peeks the triaged agent without attaching")
 def test_space_peeks():
-    pass
-
-
-@scenario(FEATURE, 'Pressing "s" snoozes the triaged agent')
-def test_s_snoozes():
     pass
 
 
