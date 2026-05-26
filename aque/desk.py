@@ -1690,13 +1690,13 @@ class DeskApp(App):
         resize when a notification mounts), tmux feeds wrong-sized frames into
         the pyte screen and the embed shows duplicated/garbled rows.
 
-        We disable the session's status line (so the window height equals the
-        client height — leaving it on steals a row and offsets every line by
-        one) and pin ``window-size manual`` + ``resize-window`` to the embed's
-        size. Larger external clients letterbox; that's the accepted trade-off
-        for a clean embed. The status bar stays off to give the borderless embed
-        every row for the agent's own output. The pin is reverted in
-        ``_unpin_embed_window`` when we switch away, go full-screen, or quit.
+        Status is left enabled so the embed shows tmux's status line on its
+        bottom row. The window is pinned one row shorter than the embed
+        (``rows - 1``) so pane + status equals the client/pyte height; otherwise
+        the status row would overflow the pyte screen and offset every line by
+        one. Larger external clients letterbox; that's the accepted trade-off
+        for a clean embed. The pin is reverted in ``_unpin_embed_window`` when
+        we switch away, go full-screen, or quit.
         """
         def _sync(cols: int, rows: int) -> None:
             if self._skip_attach:
@@ -1707,9 +1707,10 @@ class DeskApp(App):
             if self._embed_pinned == (session, cols, rows):
                 return
             self._embed_pinned = (session, cols, rows)
-            self._tmux("set-option", "-t", session, "status", "off")
+            window_rows = max(rows - 1, 1)
+            self._tmux("set-option", "-t", session, "status", "on")
             self._tmux("set-option", "-t", session, "window-size", "manual")
-            self._tmux("resize-window", "-t", session, "-x", str(cols), "-y", str(rows))
+            self._tmux("resize-window", "-t", session, "-x", str(cols), "-y", str(window_rows))
         return _sync
 
     def _unpin_embed_window(self) -> None:
