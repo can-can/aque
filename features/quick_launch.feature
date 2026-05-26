@@ -42,3 +42,17 @@ Feature: Quick Launch
     And the user selects the first recent task
     And the user picks type "none (polling only)"
     Then a new agent should be launched with command "mystery" in "/tmp/old"
+
+  # ── Ordering and type preservation ──────────────────────────────
+
+  Scenario: Recent tasks list the most-recent entry first
+    Given the history has a recent "claude" task in "/tmp/old" labeled "claude . old" with created_at "2026-01-01T00:00:00Z"
+    And the history has a recent "claude" task in "/tmp/new" labeled "claude . new" with created_at "2026-03-01T00:00:00Z"
+    When the user presses "r"
+    Then the first recent task should be "claude . new"
+
+  Scenario: Selecting a typed task preserves the agent type on launch
+    Given the history has a recent "claude" task in "/tmp/api" labeled "claude . api"
+    When the user presses "r"
+    And the user selects the first recent task
+    Then the launched agent's agent_type should be "claude"

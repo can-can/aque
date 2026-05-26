@@ -33,6 +33,16 @@ def test_help_closes_on_question_mark():
     pass
 
 
+@scenario(FEATURE, "Help modal lists the responder embed shortcut")
+def test_help_lists_responder_embed():
+    pass
+
+
+@scenario(FEATURE, "Help modal no longer lists the removed responders toggle")
+def test_help_omits_removed_responders_toggle():
+    pass
+
+
 class Ctx:
     def __init__(self, tmp_aque_dir):
         self.tmp_aque_dir = tmp_aque_dir
@@ -143,4 +153,16 @@ def then_help_mentions(ctx, text):
     )
     assert text in rendered_text, (
         f"Expected '{text}' in help modal, got: {rendered_text!r}"
+    )
+
+
+@then(parsers.parse('the help modal should not mention "{text}"'))
+def then_help_does_not_mention(ctx, text):
+    assert isinstance(ctx.app.screen, HelpModal), "Help modal not active"
+    box = ctx.app.screen.query_one("#help-box")
+    rendered_text = " ".join(
+        str(s.render()) for s in box.query("Static")
+    )
+    assert text not in rendered_text, (
+        f"Expected '{text}' to be absent from help modal, but got: {rendered_text!r}"
     )

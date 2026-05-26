@@ -25,3 +25,11 @@ Feature: Keyboard shortcut help overlay
     Given the help modal is open
     When the user presses "?"
     Then the help modal should be dismissed
+
+  Scenario: Help modal lists the responder embed shortcut
+    When the user presses "?"
+    Then the help modal should mention "responder embed"
+
+  Scenario: Help modal no longer lists the removed responders toggle
+    When the user presses "?"
+    Then the help modal should not mention "show responders"

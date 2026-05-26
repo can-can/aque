@@ -40,3 +40,19 @@ Feature: Undo a destructive action
     When the user presses "u"
     Then the active agents should include "fixer"
     And the history should contain 0 entries
+
+  # ── Auto-dismiss + replace ──────────────────────────────────────
+
+  Scenario: Undo bar auto-dismisses when the timer fires
+    Given agent "fixer" is running and highlighted
+    When the user presses "k"
+    And the user presses "y"
+    Then the undo bar should be visible
+    When the undo timeout elapses
+    Then the undo bar should be dismissed
+
+  Scenario: A second destructive action replaces the previous undo entry
+    Given the desk has shown an undo entry "Killed fixer"
+    When the desk shows a new undo entry "Killed polisher"
+    Then the undo bar should mention "polisher"
+    And the undo bar should not mention "fixer"

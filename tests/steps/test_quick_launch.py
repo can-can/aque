@@ -213,6 +213,16 @@ def test_pick_type_launches():
     pass
 
 
+@scenario(FEATURE, "Recent tasks list the most-recent entry first")
+def test_recent_tasks_ordered_newest_first():
+    pass
+
+
+@scenario(FEATURE, "Selecting a typed task preserves the agent type on launch")
+def test_selecting_task_preserves_agent_type():
+    pass
+
+
 @given(parsers.parse('the history has a legacy task in "{dir}" labeled "{label}"'))
 def given_legacy_task(ctx, dir, label):
     # Write a raw entry with NO agent_type field, simulating pre-feature history.
@@ -247,3 +257,43 @@ def when_pick_type(ctx, type_label):
         await ctx.pilot.pause()
 
     ctx.run(_pick())
+
+
+# ── Ordering + type-preservation scenarios ──────────────────────────────
+
+
+@given(parsers.parse(
+    'the history has a recent "{agent_type}" task in "{dir}" labeled "{label}" '
+    'with created_at "{created_at}"'
+))
+def given_recent_task_with_timestamp(ctx, agent_type, dir, label, created_at):
+    """Like ``given_recent_task`` but with an explicit timestamp and a unique
+    id so multiple entries can coexist for ordering scenarios. Each call
+    uses a monotonically increasing id stored on ctx."""
+    next_id = ctx.data.get("history_id_counter", 0) + 1
+    ctx.data["history_id_counter"] = next_id
+    ctx.history_mgr.add_entry(
+        agent_id=next_id, label=label, dir=dir, command=[agent_type],
+        created_at=created_at, agent_type=agent_type,
+    )
+
+
+@then(parsers.parse('the first recent task should be "{label}"'))
+def then_first_recent_task_is(ctx, label):
+    ol = ctx.app.query_one("#quick-launch-list")
+    assert ol.option_count > 0, "Quick-launch list is empty"
+    first = str(ol.get_option_at_index(0).prompt)
+    assert label in first, (
+        f'Expected first recent task to be "{label}", got: {first!r}'
+    )
+
+
+@then(parsers.parse('the launched agent\'s agent_type should be "{agent_type}"'))
+def then_launched_agent_type(ctx, agent_type):
+    mock = ctx.data.get("mock_launch")
+    assert mock is not None and mock.called, "launch_agent was not called"
+    _, kwargs = mock.call_args
+    assert kwargs.get("agent_type") == agent_type, (
+        f'Expected agent_type="{agent_type}" on the launch call, '
+        f'got: {kwargs.get("agent_type")!r}'
+    )

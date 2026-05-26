@@ -96,3 +96,39 @@ Feature: Auto-responder
     And the monitor polls
     Then "resp(builder)" should be in "exited" state
     And agent "builder" should remain in its previous state
+
+  # ── Badge & embed swap ────────────────────────────────────────────
+
+  Scenario: Partner row shows a responder badge when a responder is paired
+    Given agent "builder" has a paired responder "resp(builder)"
+    When the dashboard renders the agent list
+    Then the row for "builder" should contain a responder badge
+
+  Scenario: Partner row has no responder badge when no responder is paired
+    Given agent "solo" exists without a paired responder
+    When the dashboard renders the agent list
+    Then the row for "solo" should not contain a responder badge
+
+  Scenario: Responder state change invalidates the partner row fingerprint
+    Given agent "builder" has a paired responder "resp(builder)"
+    And the dashboard has cached the current row fingerprint
+    When "resp(builder)" transitions to "waiting"
+    Then the dashboard fingerprint should be marked as changed
+
+  Scenario: Ctrl+Enter on a partner with a responder swaps the embed to the responder
+    Given agent "builder" has a paired responder "resp(builder)"
+    And agent "builder" is highlighted on the dashboard
+    When the user presses "ctrl+enter"
+    Then the embedded terminal should be attached to "resp(builder)"'s tmux session
+
+  Scenario: Ctrl+Enter pressed twice swaps the embed back to the partner
+    Given agent "builder" has a paired responder "resp(builder)"
+    And agent "builder" is highlighted on the dashboard
+    When the user presses "ctrl+enter"
+    And the user presses "ctrl+enter"
+    Then the embedded terminal should be attached to "builder"'s tmux session
+
+  Scenario: Ctrl+Enter on a partner with no responder shows a notification
+    Given agent "solo" is highlighted on the dashboard
+    When the user presses "ctrl+enter"
+    Then a notification containing "No responder" should be shown

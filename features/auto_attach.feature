@@ -85,3 +85,23 @@ Feature: Triage pill for waiting agents
       | third   | waiting | 2026-03-29T06:00:00+00  |
     When the user returns to the dashboard
     Then the triage pill should mention "more waiting"
+
+  # ── Modal layout ───────────────────────────────────────────────
+
+  Scenario: Triage modal advertises only attach and peek pills
+    Given the triage pill is showing for agent "fixer"
+    Then the modal action pills should include "attach"
+    And the modal action pills should include "peek"
+    And the modal action pills should not include "snooze"
+
+  Scenario: Triage modal stacks pills vertically on narrow terminals
+    Given the desk is opened with a narrow terminal
+    And agent "fixer" is in "waiting" state
+    When the user returns to the dashboard
+    Then the triage modal action row should be marked narrow
+    And the triage modal dir suffix should be hidden
+
+  Scenario: Triage modal keeps horizontal layout on wide terminals
+    Given the triage pill is showing for agent "fixer"
+    Then the triage modal action row should not be marked narrow
+    And the triage modal dir suffix should not be hidden

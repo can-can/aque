@@ -103,6 +103,36 @@ def test_responder_exits_unexpectedly():
     pass
 
 
+@scenario(FEATURE, "Partner row shows a responder badge when a responder is paired")
+def test_partner_row_shows_badge():
+    pass
+
+
+@scenario(FEATURE, "Partner row has no responder badge when no responder is paired")
+def test_partner_row_no_badge():
+    pass
+
+
+@scenario(FEATURE, "Responder state change invalidates the partner row fingerprint")
+def test_responder_state_invalidates_fingerprint():
+    pass
+
+
+@scenario(FEATURE, "Ctrl+Enter on a partner with a responder swaps the embed to the responder")
+def test_ctrl_enter_swaps_to_responder():
+    pass
+
+
+@scenario(FEATURE, "Ctrl+Enter pressed twice swaps the embed back to the partner")
+def test_ctrl_enter_swaps_back_to_partner():
+    pass
+
+
+@scenario(FEATURE, "Ctrl+Enter on a partner with no responder shows a notification")
+def test_ctrl_enter_no_responder_notifies():
+    pass
+
+
 # ── Shared fixtures and helpers ───────────────────────────────────────────────
 
 
@@ -605,9 +635,28 @@ def _highlight_agent_id(app_ctx: _AppCtx, agent_id: int) -> None:
 
 @given(parsers.parse('agent "{name}" is highlighted on the dashboard'))
 def given_agent_highlighted(ctx, app_ctx, name):
-    partner_id = _add_partner(ctx, name)
+    """Ensure the named agent exists, mount the app, install embed/notify
+    capture hooks (idempotent so chained Givens compose cleanly), highlight
+    its row, and drain any debounce-driven preview attach that fires from
+    the highlight change so the embed_attach_log starts clean for the
+    scenario's ctrl+enter assertions.
+    """
+    if name not in ctx["agents_by_name"]:
+        _add_partner(ctx, name)
     app_ctx.ensure_mounted()
-    _highlight_agent_id(app_ctx, partner_id)
+    if "embed_attach_log" not in ctx:
+        ctx["embed_attach_log"] = _patch_term_attach(app_ctx)
+    if "notifications" not in ctx:
+        notes: list[str] = []
+        ctx["notifications"] = notes
+        app_ctx.app.notify = lambda msg, **kw: notes.append(msg)
+    _highlight_agent_id(app_ctx, ctx["agents_by_name"][name])
+    # Let the 150ms debounce fire so its preview-attach lands in the log,
+    # then wipe the log: only ctrl+enter-driven attaches should be observed.
+    async def _settle():
+        await app_ctx.pilot.pause(0.2)
+    app_ctx.run(_settle())
+    ctx["embed_attach_log"].clear()
 
 
 @when(parsers.parse('the user presses "{key}"'))
@@ -867,3 +916,152 @@ def then_partner_remains_in_state(ctx, name):
     assert partner.state == expected, (
         f'Expected "{name}" to remain in {expected.value}, got {partner.state.value}'
     )
+
+
+# ── Badge & embed swap scenarios ─────────────────────────────────────────────
+
+
+@given(parsers.parse('agent "{name}" exists without a paired responder'))
+def given_solo_partner_exists(ctx, name):
+    """Seed a single non-responder agent in state; no responder is created."""
+    _add_partner(ctx, name)
+
+
+
+def _rendered_row_for(app_ctx, label: str) -> str:
+    """Return the rendered text of the option whose agent has ``label``.
+
+    Looks up the agent id by label in state, finds the matching option in
+    the rendered list, and returns the option's prompt as a plain string
+    (which retains the ``●r`` badge glyphs Text.from_markup produced).
+    """
+    from textual.widgets import OptionList
+
+    async def _do():
+        ol = app_ctx.app.query_one("#agent-option-list", OptionList)
+        state = app_ctx.app.state_mgr.load()
+        agent_id = next(a.id for a in state.agents if a.label == label)
+        for i in range(ol.option_count):
+            opt = ol.get_option_at_index(i)
+            if opt.id == str(agent_id):
+                return str(opt.prompt)
+        return ""
+
+    return app_ctx.run(_do())
+
+
+@when("the dashboard renders the agent list", target_fixture="rendered_rows")
+def when_dashboard_renders_list(ctx, app_ctx):
+    """Mount the desk so the option list is populated, then return a marker
+    fixture the Then steps can depend on (the actual rendered rows are read
+    on demand in the Then steps via _rendered_row_for)."""
+    app_ctx.ensure_mounted()
+    return True
+
+
+@then(parsers.parse('the row for "{label}" should contain a responder badge'))
+def then_row_has_badge(app_ctx, label):
+    text = _rendered_row_for(app_ctx, label)
+    assert "●r" in text, (
+        f'Expected row for "{label}" to contain "●r" badge, got: {text!r}'
+    )
+
+
+@then(parsers.parse('the row for "{label}" should not contain a responder badge'))
+def then_row_no_badge(app_ctx, label):
+    text = _rendered_row_for(app_ctx, label)
+    assert "●r" not in text, (
+        f'Expected row for "{label}" to have no badge, got: {text!r}'
+    )
+
+
+@given("the dashboard has cached the current row fingerprint")
+def given_fingerprint_cached(ctx, app_ctx):
+    """Mount the desk and force one refresh so DashboardController caches
+    a fingerprint for the current state."""
+    app_ctx.ensure_mounted()
+
+    async def _do():
+        app_ctx.app._refresh_agent_list()
+        await app_ctx.pilot.pause()
+
+    app_ctx.run(_do())
+
+
+@when(parsers.parse('"{resp_name}" transitions to "{state_str}"'))
+def when_responder_transitions(ctx, app_ctx, resp_name, state_str):
+    rid = ctx["agents_by_name"][resp_name]
+    ctx["mgr"].update_agent_state(rid, AgentState(state_str))
+
+
+@then("the dashboard fingerprint should be marked as changed")
+def then_fingerprint_changed(ctx, app_ctx):
+    # Recompute exactly as _refresh_agent_list does — visible partners plus
+    # the partner->responder state map. The new responder state must make
+    # fingerprint_changed return True even though no partner's own state moved.
+    state = ctx["mgr"].load()
+    agents = app_ctx.app.dash.compute_visible(state)
+    responder_states = {
+        a.partner_id: a.state.value
+        for a in state.agents
+        if a.is_responder and a.partner_id is not None
+    }
+    assert app_ctx.app.dash.fingerprint_changed(agents, responder_states), (
+        "Expected fingerprint to be marked changed after responder transition"
+    )
+
+
+def _patch_term_attach(app_ctx) -> list[str]:
+    """Stub the embedded terminal so action_attach_responder_embed can run
+    without spawning a real tmux client. Returns a list that records the
+    session name from each captured attach call.
+
+    The stub invokes ``size_sync`` with dummy dimensions when provided so
+    ``_embed_pinned`` updates the way it does in production. Without this,
+    every Ctrl+Enter press sees ``_embed_pinned=None`` and the toggle logic
+    can't distinguish "currently on responder" from "currently on partner".
+    """
+    from aque.terminal.widget import TerminalView
+
+    captured: list[str] = []
+    term = app_ctx.app.query_one("#embedded-terminal", TerminalView)
+
+    def _stub_attach(argv, size_sync=None):
+        captured.append(argv[-1])
+        if size_sync is not None:
+            try:
+                size_sync(80, 24)
+            except Exception:
+                pass
+
+    term.attach = _stub_attach
+    term.focus = lambda: None
+    app_ctx.app._skip_attach = False
+    # Suppress the preview hover-attach so it doesn't slip in between
+    # Ctrl+Enter presses and pollute the captured-session log.
+    app_ctx.app._attach_highlighted_terminal = lambda: None
+    return captured
+
+
+@then(parsers.parse('the embedded terminal should be attached to "{name}"\'s tmux session'))
+def then_embed_attached_to(ctx, app_ctx, name):
+    captured = ctx.get("embed_attach_log") or []
+    assert captured, "Embed attach was never called"
+    aid = ctx["agents_by_name"][name]
+    expected = next(
+        a.tmux_session for a in ctx["mgr"].load().agents if a.id == aid
+    )
+    assert captured[-1] == expected, (
+        f'Expected embed attached to "{name}" session {expected!r}, '
+        f'got {captured[-1]!r} (full log: {captured})'
+    )
+
+
+@then(parsers.parse('a notification containing "{substr}" should be shown'))
+def then_notification_contains(ctx, substr):
+    notes = ctx.get("notifications") or []
+    assert any(substr in n for n in notes), (
+        f'Expected a notification containing {substr!r}; got {notes!r}'
+    )
+
+
