@@ -917,19 +917,24 @@ def when_completes_agent_creation(ctx):
         state_manager.add_agent(agent)
         return agent_id
 
-    # Disable responder pairing and the monitor fork — neither is what
-    # this scenario is exercising, and both punch real holes through the
-    # test isolation if left enabled.
-    ctx.app.config["responder_enabled"] = False
+    # Short-circuit the monitor fork so the test stays single-process.
+    # Responder pairing is now opt-in via the form's 5/5 step (default No),
+    # so no config flag is needed to suppress it.
     ctx.app._ensure_monitor_running = lambda: None
 
     async def _complete():
-        # We should be on the command step; type a command and press Enter
+        # We should be on the command step; type a command and press Enter.
         await ctx.pilot.press("c", "l", "a", "u", "d", "e")
         await ctx.pilot.press("enter")
         await ctx.pilot.pause()
-        # Now on label step; press Enter to accept default label (mocked launch)
+        # Now on label step; press Enter to advance to the responder step
+        # (no label typed → empty/optional). Then select "No" on the
+        # responder step to trigger the actual launch.
         with _patch("aque.launch.launch_agent", side_effect=_fake_launch):
+            await ctx.pilot.press("enter")
+            await ctx.pilot.pause()
+            # On responder step — default highlight is "No" (index 0); Enter
+            # confirms and fires the launch coordinator.
             await ctx.pilot.press("enter")
             await ctx.pilot.pause()
 
@@ -1426,11 +1431,10 @@ def given_label_is(ctx, label_text):
     ctx.data["mock_launch_agent"] = mock_obj
     ctx.data["_mock_patcher"] = patcher
 
-    # Disable the responder pairing — ``responder.create_for`` spawns a real
-    # tmux session via its own ``launch_agent`` import, which the patcher
-    # above doesn't reach.
-    ctx.app.config["responder_enabled"] = False
-    # And short-circuit the monitor fork so the test stays single-process.
+    # Short-circuit the monitor fork so the test stays single-process.
+    # Responder pairing is now opt-in via the form's 5/5 step, so we no
+    # longer need to disable it here — the test scenario explicitly selects
+    # "No" on that step.
     ctx.app._ensure_monitor_running = lambda: None
 
     async def _set_label():
@@ -1440,6 +1444,25 @@ def given_label_is(ctx, label_text):
         await ctx.pilot.pause()
 
     ctx.run(_set_label())
+
+
+@when(parsers.parse('the user selects "{choice}" on the responder step'))
+def when_user_selects_responder_choice(ctx, choice):
+    """Highlight the matching option on the responder OptionList and press
+    Enter. Used by the launch scenario to acknowledge the new 5/5 step
+    (opt-in responder)."""
+    async def _select():
+        ol = ctx.app.query_one("#responder-list")
+        target_id = "yes" if choice.lower().startswith("y") else "no"
+        for i in range(ol.option_count):
+            if ol.get_option_at_index(i).id == target_id:
+                ol.highlighted = i
+                break
+        await ctx.pilot.pause()
+        await ctx.pilot.press("enter")
+        await ctx.pilot.pause()
+
+    ctx.run(_select())
 
 
 @then("a new tmux session should be created")

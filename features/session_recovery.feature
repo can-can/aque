@@ -23,15 +23,22 @@ Feature: Session recovery after restart
     And the orphan modal is dismissed
 
   Scenario: Resume rebuilds the partner's responder
+    Given agent 1 has a paired responder in the state file
     When I click Resume on agent 1
     Then relaunch_agent is called with preserve_session_id=True for agent 1
     And the dead responder for agent 1 is cleaned up
     And a fresh responder for agent 1 is created
 
   Scenario: Relaunch rebuilds the responder with a fresh conversation
+    Given agent 1 has a paired responder in the state file
     When I click Relaunch on agent 1
     Then relaunch_agent is called with preserve_session_id=False for agent 1
     And a fresh responder for agent 1 is created
+
+  Scenario: Resume does not create a responder for a solo agent
+    When I click Resume on agent 1
+    Then relaunch_agent is called with preserve_session_id=True for agent 1
+    And no fresh responder for agent 1 is created
 
   Scenario: Forget on a partner cleans up the paired responder
     When I click Forget on agent 1

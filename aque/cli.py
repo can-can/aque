@@ -53,9 +53,9 @@ def run(
     dir: str = typer.Option(..., "--dir", help="Working directory for the agent"),
     label: Optional[str] = typer.Option(None, "--label", help="Human-readable label"),
     agent_type: Optional[str] = typer.Option(None, "--type", help="Agent type for session capture (e.g. claude)"),
-    no_responder: bool = typer.Option(False, "--no-responder", help="Do not auto-create a paired responder agent."),
-    responder_cmd: Optional[str] = typer.Option(None, "--responder-cmd", help="Override the responder command for this launch (shell-quoted)."),
-    responder_dir: Optional[str] = typer.Option(None, "--responder-dir", help="Override the responder working directory for this launch."),
+    pair_responder: bool = typer.Option(False, "--responder", help="Pair the agent with an auto-responder (default: off)."),
+    responder_cmd: Optional[str] = typer.Option(None, "--responder-cmd", help="Override the responder command (only meaningful with --responder, shell-quoted)."),
+    responder_dir: Optional[str] = typer.Option(None, "--responder-dir", help="Override the responder working directory (only meaningful with --responder)."),
     command: list[str] = typer.Argument(..., help="Agent command and arguments"),
 ) -> None:
     """Launch an agent in a managed tmux session."""
@@ -77,9 +77,7 @@ def run(
         agent_type=agent_type,
     )
 
-    # Auto-create responder unless suppressed.
-    should_pair = config.get("responder_enabled", True) and not no_responder
-    if should_pair:
+    if pair_responder:
         responder_config = dict(config)
         if responder_cmd is not None:
             responder_config["responder_command"] = shlex.split(responder_cmd)

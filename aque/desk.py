@@ -99,6 +99,10 @@ class NewAgentForm(Vertical):
         self._selected_dir: str = ""
         self._command: str = ""
         self._label: str = ""
+        # Final-step "pair with a responder?" answer. False is the default
+        # (opt-in): the user must explicitly select Yes on step 5/5 to get
+        # a paired responder.
+        self._pair_responder: bool = False
         self._dir_history_mgr = dir_history_mgr
         self._default_dir = default_dir
         self._tree_mode = False
@@ -106,7 +110,7 @@ class NewAgentForm(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static("New Agent", id="new-agent-title")
-        yield Static("Step 1/4: Select agent type", id="new-agent-step")
+        yield Static("Step 1/5: Select agent type", id="new-agent-step")
         type_options = [Option("none (polling only)", id="none")]
         for name in self._plugin_names:
             type_options.append(Option(name, id=name))
@@ -145,7 +149,7 @@ class NewAgentForm(Vertical):
         self._step = "dir"
         type_label = self._selected_type or "none"
         self.query_one("#new-agent-step").update(
-            f"Step 2/4: Select working directory  (type: {type_label})"
+            f"Step 2/5: Select working directory  (type: {type_label})"
         )
         self.mount(
             DirectoryPicker(
@@ -162,7 +166,7 @@ class NewAgentForm(Vertical):
     def show_type_step(self) -> None:
         """Go back to the type selection step."""
         self._step = "type"
-        self.query_one("#new-agent-step").update("Step 1/4: Select agent type")
+        self.query_one("#new-agent-step").update("Step 1/5: Select agent type")
         try:
             self.query_one("#dir-picker").remove()
         except Exception:
@@ -183,7 +187,7 @@ class NewAgentForm(Vertical):
     def show_command_step(self) -> None:
         self._step = "command"
         self.query_one("#new-agent-step").update(
-            f"Step 3/4: Enter command  (dir: {self._selected_dir})"
+            f"Step 3/5: Enter command  (dir: {self._selected_dir})"
         )
         # Remove dir picker or label input depending on direction
         for selector in ("#dir-picker", "#label-input"):
@@ -209,9 +213,15 @@ class NewAgentForm(Vertical):
         self._step = "label"
         self._label = ""
         self.query_one("#new-agent-step").update(
-            f"Step 4/4: Label  (dir: {self._selected_dir}, cmd: {self._command})"
+            f"Step 4/5: Label  (dir: {self._selected_dir}, cmd: {self._command})"
         )
-        self.query_one("#command-input").remove()
+        # The label step can be reached forward (from command) OR backward
+        # (from responder). Clean up whichever step's widget is mounted.
+        for selector in ("#command-input", "#responder-list"):
+            try:
+                self.query_one(selector).remove()
+            except Exception:
+                pass
         self.mount(
             Input(
                 value="",
@@ -221,16 +231,45 @@ class NewAgentForm(Vertical):
             after=self.query_one("#new-agent-step"),
         )
         self.query_one("#new-agent-hint").update(
-            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")])
+            "   ".join([key_hint("Enter", "next"), key_hint("Esc", "back")])
         )
         self.query_one("#label-input").focus()
+
+    def show_responder_step(self) -> None:
+        """Step 5/5: ask whether to pair with an auto-responder.
+
+        Default is No — responder pairing is now opt-in. Selecting either
+        option fires the launch; ``_pair_responder`` carries the choice to
+        the LaunchCoordinator.
+        """
+        self._step = "responder"
+        self.query_one("#new-agent-step").update(
+            f"Step 5/5: Pair with auto-responder?  "
+            f"(label: {self._label or '(none)'})"
+        )
+        try:
+            self.query_one("#label-input").remove()
+        except Exception:
+            pass
+        options = [
+            Option("No  (default, single agent)", id="no"),
+            Option("Yes (paired auto-responder)", id="yes"),
+        ]
+        self.mount(
+            OptionList(*options, id="responder-list"),
+            after=self.query_one("#new-agent-step"),
+        )
+        self.query_one("#new-agent-hint").update(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")])
+        )
+        self.query_one("#responder-list", OptionList).focus()
 
     def show_dir_step(self) -> None:
         """Go back to directory selection step."""
         self._step = "dir"
         type_label = self._selected_type or "none"
         self.query_one("#new-agent-step").update(
-            f"Step 2/4: Select working directory  (type: {type_label})"
+            f"Step 2/5: Select working directory  (type: {type_label})"
         )
         try:
             self.query_one("#command-input").remove()
@@ -794,19 +833,26 @@ class DeskApp(App):
 
     def _rebuild_responder(self, agent_id: int) -> None:
         """After a partner agent is recovered, drop the dead responder and
-        create a fresh one. No-op for responders themselves or when responder
-        support is globally disabled."""
-        if not self.config.get("responder_enabled", True):
-            return
+        create a fresh one — but only if the partner had a responder paired
+        before the orphan event. No-op for responders themselves.
+
+        The check is read-before-cleanup: ``state.get_responder_for`` returns
+        any existing record (the dead responder is still in state.json before
+        we explicitly cleanup), which is exactly the signal we want — "was
+        this agent originally launched with a responder?" Without this gate
+        we'd silently re-create responders for agents that opted out of
+        pairing at launch time."""
         state = self.state_mgr.load()
         agent = state.get_agent(agent_id)
         if agent is None or agent.is_responder:
             return
+        had_responder = state.get_responder_for(agent.id) is not None
         server = libtmux.Server()
         responder.cleanup(agent, self.state_mgr, server, aque_dir=self.aque_dir)
-        responder.create_for(
-            agent, self.config, self.state_mgr, aque_dir=self.aque_dir,
-        )
+        if had_responder:
+            responder.create_for(
+                agent, self.config, self.state_mgr, aque_dir=self.aque_dir,
+            )
 
     def _on_refresh(self) -> None:
         if self._mode != "dashboard":
@@ -1316,12 +1362,16 @@ class DeskApp(App):
         working_dir: str,
         label: str | None,
         agent_type: str | None,
+        include_responder: bool = False,
     ) -> None:
         """Kick the coordinator with the dashboard's post-launch UI hooks.
 
         ``on_launched`` attaches (or restores the dashboard under
         ``_skip_attach``); ``on_cancelled`` restores the dashboard because the
         form that pushed the picker has already hidden it.
+        ``include_responder`` plumbs the new-agent form's "pair with
+        responder?" choice (and the quick-launch flag, when relaunching a
+        task that originally had one) through to the coordinator.
         """
         def on_launched(agent: AgentInfo) -> None:
             if not self._skip_attach:
@@ -1336,6 +1386,7 @@ class DeskApp(App):
             agent_type=agent_type,
             on_launched=on_launched,
             on_cancelled=self._show_dashboard,
+            include_responder=include_responder,
         )
 
     # ── Agent actions ────────────────────────────────────────────
@@ -1548,6 +1599,25 @@ class DeskApp(App):
             form = self.query_one(NewAgentForm)
             form.select_type()
             return
+        if self._mode == "new_agent_form" and event.option_list.id == "responder-list":
+            form = self.query_one(NewAgentForm)
+            form._pair_responder = (event.option.id == "yes")
+            agent_type = form._selected_type
+            command = shlex.split(form._command)
+            working_dir = form._selected_dir
+            label = form._label or None
+            include_responder = form._pair_responder
+            for w in self.query("NewAgentForm"):
+                w.remove()
+            self._mode = "dashboard"
+            self._start_launch(
+                command=command,
+                working_dir=working_dir,
+                label=label,
+                agent_type=agent_type,
+                include_responder=include_responder,
+            )
+            return
         if self._mode == "quick_launch_form":
             form = self.query_one(QuickLaunchForm)
             if event.option_list.id == "quick-launch-list":
@@ -1664,22 +1734,7 @@ class DeskApp(App):
             form.show_label_step()
         elif event.input.id == "label-input":
             form._label = event.value.strip()
-            agent_type = form._selected_type
-            command = shlex.split(form._command)
-            working_dir = form._selected_dir
-            label = form._label or None
-            for w in self.query("NewAgentForm"):
-                w.remove()
-            # Reset mode now that the form widget is gone — the launch coordinator
-            # may push the resume-picker modal and we don't want the on_key
-            # handler trying to query a NewAgentForm that no longer exists.
-            self._mode = "dashboard"
-            self._start_launch(
-                command=command,
-                working_dir=working_dir,
-                label=label,
-                agent_type=agent_type,
-            )
+            form.show_responder_step()
 
     # ── Key handling ─────────────────────────────────────────────
 
@@ -1939,6 +1994,9 @@ class DeskApp(App):
             if event.key == "escape":
                 if form._tree_mode:
                     form.hide_tree_fallback()
+                    return
+                if form._step == "responder":
+                    form.show_label_step()
                     return
                 if form._step == "label":
                     form.show_command_step()

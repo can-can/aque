@@ -10,10 +10,13 @@ runner = CliRunner()
 
 
 class TestRunResponderWiring:
+    """The CLI launch is now opt-in: ``--responder`` enables pairing,
+    the default is no responder."""
+
     @patch("aque.cli.responder.create_for")
     @patch("aque.cli.launch_agent")
     @patch("aque.cli.ensure_monitor_running")
-    def test_run_creates_responder_by_default(
+    def test_run_does_not_create_responder_by_default(
         self, _mon, mock_launch, mock_create, tmp_aque_dir
     ):
         mock_launch.return_value = 1
@@ -21,12 +24,12 @@ class TestRunResponderWiring:
             app, ["--aque-dir", str(tmp_aque_dir), "run", "--dir", "/tmp", "claude"]
         )
         assert result.exit_code == 0, result.output
-        assert mock_create.call_count == 1
+        mock_create.assert_not_called()
 
     @patch("aque.cli.responder.create_for")
     @patch("aque.cli.launch_agent")
     @patch("aque.cli.ensure_monitor_running")
-    def test_no_responder_flag_skips_pairing(
+    def test_responder_flag_pairs(
         self, _mon, mock_launch, mock_create, tmp_aque_dir
     ):
         mock_launch.return_value = 1
@@ -34,11 +37,11 @@ class TestRunResponderWiring:
             app,
             [
                 "--aque-dir", str(tmp_aque_dir),
-                "run", "--dir", "/tmp", "--no-responder", "claude",
+                "run", "--dir", "/tmp", "--responder", "claude",
             ],
         )
         assert result.exit_code == 0, result.output
-        mock_create.assert_not_called()
+        assert mock_create.call_count == 1
 
     @patch("aque.cli.responder.create_for")
     @patch("aque.cli.launch_agent")
@@ -51,7 +54,7 @@ class TestRunResponderWiring:
             app,
             [
                 "--aque-dir", str(tmp_aque_dir),
-                "run", "--dir", "/tmp",
+                "run", "--dir", "/tmp", "--responder",
                 "--responder-cmd", "claude --model haiku",
                 "claude",
             ],
@@ -59,20 +62,6 @@ class TestRunResponderWiring:
         assert result.exit_code == 0, result.output
         passed_config = mock_create.call_args.args[1]
         assert passed_config["responder_command"] == ["claude", "--model", "haiku"]
-
-    @patch("aque.cli.responder.create_for")
-    @patch("aque.cli.launch_agent")
-    @patch("aque.cli.ensure_monitor_running")
-    def test_responder_disabled_in_config(
-        self, _mon, mock_launch, mock_create, tmp_aque_dir
-    ):
-        (tmp_aque_dir / "config.yaml").write_text("responder_enabled: false\n")
-        mock_launch.return_value = 1
-        result = runner.invoke(
-            app, ["--aque-dir", str(tmp_aque_dir), "run", "--dir", "/tmp", "claude"]
-        )
-        assert result.exit_code == 0, result.output
-        mock_create.assert_not_called()
 
 
 class TestListIndent:

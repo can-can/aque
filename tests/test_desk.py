@@ -558,18 +558,26 @@ def test_desk_orphan_scan_skipped_when_skip_attach_true(monkeypatch, tmp_aque_di
 
 
 def test_handle_orphan_action_resume_rebuilds_responder(monkeypatch, tmp_aque_dir):
-    """After Resume succeeds, the partner's dead responder is cleaned up and a
-    fresh one is created. Verifies spec edge case for responder lifecycle."""
+    """After Resume succeeds, the partner's dead responder is cleaned up and
+    a fresh one is created — but only when the partner originally had a
+    paired responder. The state.json snapshot before resume is the signal."""
     from aque import desk, responder
     from aque.state import AgentInfo, AgentState
 
     app = desk.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-    app.config = {"responder_enabled": True, "responder_command": ["claude"], "session_prefix": "aque"}
+    app.config = {"responder_command": ["claude"], "session_prefix": "aque"}
 
     app.state_mgr.add_agent(AgentInfo(
         id=1, tmux_session="aque-1", label="builder", dir="/tmp",
         command=["claude"], state=AgentState.RUNNING, pid=1,
         agent_type="claude", session_id="uuid-1",
+    ))
+    # The dead responder still in state.json — this is what tells the rebuild
+    # path that the partner was originally paired (opt-in choice preserved).
+    app.state_mgr.add_agent(AgentInfo(
+        id=2, tmux_session="aque-resp-1", label="resp(builder)", dir="/tmp",
+        command=["claude"], state=AgentState.RUNNING, pid=2,
+        is_responder=True, partner_id=1,
     ))
 
     cleanup_calls: list = []
@@ -587,6 +595,38 @@ def test_handle_orphan_action_resume_rebuilds_responder(monkeypatch, tmp_aque_di
     assert result is None
     assert cleanup_calls == [1]
     assert create_calls == [1]
+
+
+def test_handle_orphan_action_resume_does_not_rebuild_when_no_prior_responder(monkeypatch, tmp_aque_dir):
+    """Solo agent (no paired responder) → resume must NOT create a new
+    responder. The opt-in choice at launch time is preserved through
+    orphan recovery."""
+    from aque import desk, responder
+    from aque.state import AgentInfo, AgentState
+
+    app = desk.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    app.config = {"responder_command": ["claude"], "session_prefix": "aque"}
+
+    app.state_mgr.add_agent(AgentInfo(
+        id=1, tmux_session="aque-1", label="solo", dir="/tmp",
+        command=["claude"], state=AgentState.RUNNING, pid=1,
+        agent_type="claude", session_id="uuid-solo",
+    ))
+
+    create_calls: list = []
+    monkeypatch.setattr(responder, "cleanup",
+                        lambda partner, sm, server, *, aque_dir: None)
+    monkeypatch.setattr(responder, "create_for",
+                        lambda partner, cfg, sm, *, aque_dir: create_calls.append(partner.id) or 99)
+    monkeypatch.setattr("aque.launch.relaunch_agent",
+                        lambda agent_id, command, state_manager, *, preserve_session_id=True: None)
+    monkeypatch.setattr(desk.libtmux, "Server", lambda: object())
+
+    app._handle_orphan_action("resume", 1)
+
+    assert create_calls == [], (
+        "Solo agent must not get a fresh responder on resume"
+    )
 
 
 def test_handle_orphan_action_forget_cleans_up_responder(monkeypatch, tmp_aque_dir):

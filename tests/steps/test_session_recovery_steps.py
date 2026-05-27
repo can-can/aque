@@ -55,6 +55,11 @@ def test_relaunch_rebuilds_responder():
     pass
 
 
+@scenario(FEATURE, "Resume does not create a responder for a solo agent")
+def test_resume_solo_does_not_create_responder():
+    pass
+
+
 @scenario(FEATURE, "Forget on a partner cleans up the paired responder")
 def test_forget_cleans_up_responder():
     pass
@@ -276,6 +281,26 @@ def given_orphan_without_session_id(ctx, agent_id):
     ))
 
 
+@given(parsers.parse("agent {partner_id:d} has a paired responder in the state file"))
+def given_partner_has_paired_responder(ctx, partner_id):
+    """Seed a dead responder paired with the orphan partner. The
+    rebuild path uses this to decide whether to create a fresh responder
+    on Resume/Relaunch (preserves the user's opt-in choice at launch
+    time through the orphan recovery flow)."""
+    resp_id = partner_id + 100  # avoid id collisions with partner ids
+    ctx.state_mgr.add_agent(AgentInfo(
+        id=resp_id,
+        tmux_session=f"aque-resp-{partner_id}",
+        label=f"resp(agent-{partner_id})",
+        dir="/tmp",
+        command=["claude"],
+        state=AgentState.RUNNING,
+        pid=3,
+        is_responder=True,
+        partner_id=partner_id,
+    ))
+
+
 @given("the desk is launched")
 def given_desk_launched(ctx):
     """Record that the desk should be launched.
@@ -444,6 +469,13 @@ def responder_cleaned_up(ctx, agent_id):
 def responder_created(ctx, agent_id):
     assert agent_id in ctx.create_calls, (
         f"responder.create_for not called for agent {agent_id}; calls={ctx.create_calls}"
+    )
+
+
+@then(parsers.parse("no fresh responder for agent {agent_id:d} is created"))
+def responder_not_created(ctx, agent_id):
+    assert agent_id not in ctx.create_calls, (
+        f"Expected no responder created for agent {agent_id}; calls={ctx.create_calls}"
     )
 
 

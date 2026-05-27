@@ -32,10 +32,7 @@ def coordinator(tmp_aque_dir):
 
     coord = LaunchCoordinator(
         state_mgr=StateManager(tmp_aque_dir),
-        config={
-            "session_prefix": "aque-test",
-            "responder_enabled": False,  # exercise pairing separately
-        },
+        config={"session_prefix": "aque-test"},
         aque_dir=tmp_aque_dir,
         dir_history_mgr=DirHistoryManager(tmp_aque_dir),
         push_modal=push_modal,
@@ -210,32 +207,23 @@ class TestClaudeWithPriorSessions:
 
 
 class TestResponderPairing:
-    def test_paired_when_responder_enabled(self, tmp_aque_dir):
-        pushed: list = []
-        coord = LaunchCoordinator(
-            state_mgr=StateManager(tmp_aque_dir),
-            config={"session_prefix": "aque", "responder_enabled": True},
-            aque_dir=tmp_aque_dir,
-            dir_history_mgr=DirHistoryManager(tmp_aque_dir),
-            push_modal=lambda s, cb: pushed.append((s, cb)),
-            ensure_monitor=lambda: None,
-        )
+    def test_paired_when_include_responder_true(self, coordinator):
         paired: list = []
         with (
             patch("aque.launch.launch_agent", _fake_launch_agent([])),
             patch("aque.launch.responder.create_for",
                   lambda partner, cfg, sm, *, aque_dir: paired.append(partner.id)),
         ):
-            coord.launch(
+            coordinator.launch(
                 command=["echo"], working_dir="/tmp/x",
                 label="t", agent_type=None,
                 on_launched=lambda a: None,
+                include_responder=True,
             )
-
         assert paired == [1]
 
-    def test_not_paired_when_disabled(self, coordinator):
-        # coordinator fixture has responder_enabled=False
+    def test_not_paired_by_default(self, coordinator):
+        """``include_responder`` defaults to False — pairing is opt-in."""
         paired: list = []
         with (
             patch("aque.launch.launch_agent", _fake_launch_agent([])),

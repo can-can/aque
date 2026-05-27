@@ -57,7 +57,10 @@ class TestConfig:
         assert config["default_dir"] == "/tmp/custom"
 
     def test_responder_defaults(self):
-        assert DEFAULT_CONFIG["responder_enabled"] is True
+        # responder_enabled was removed when responders became opt-in: each
+        # launch site (CLI --responder, new-agent form step 5/5) is now
+        # explicit, so a global toggle is dead weight.
+        assert "responder_enabled" not in DEFAULT_CONFIG
         assert DEFAULT_CONFIG["responder_command"] == ["claude"]
         assert DEFAULT_CONFIG["responder_idle_gap"] == 30
         assert DEFAULT_CONFIG["responder_dir"] is None
@@ -76,11 +79,6 @@ class TestConfig:
         config = load_config(tmp_aque_dir)
         assert config["responder_idle_gap"] == 10
 
-    def test_responder_enabled_false(self, tmp_aque_dir):
-        config_path = tmp_aque_dir / "config.yaml"
-        config_path.write_text("responder_enabled: false\n")
-        config = load_config(tmp_aque_dir)
-        assert config["responder_enabled"] is False
 
 
 def test_back_to_list_chord(tmp_path):

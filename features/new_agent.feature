@@ -12,20 +12,20 @@ Feature: New agent creation
   Scenario: Opening the new agent form shows the type selector
     When the user presses "n"
     Then the type selector should be visible
-    And step "1/4: Select agent type" should be shown
+    And step "1/5: Select agent type" should be shown
     And the type list should contain "none (polling only)"
 
   Scenario: Selecting "none" advances to directory picker
     Given the user is on the type selector
     When the user selects "none (polling only)"
     Then the directory picker should be visible
-    And step "2/4: Select working directory" should be shown
+    And step "2/5: Select working directory" should be shown
 
   Scenario: Selecting a type advances to directory picker with type context
     Given the user is on the type selector
     When the user selects "claude"
     Then the directory picker should be visible
-    And step "2/4: Select working directory" should be shown
+    And step "2/5: Select working directory" should be shown
 
   Scenario: Pressing Escape on type selector cancels the form
     Given the user is on the type selector
@@ -37,7 +37,7 @@ Feature: New agent creation
     Given the user is on the directory picker after selecting a type
     When the user presses Escape
     Then the type selector should be visible
-    And step "1/4: Select agent type" should be shown
+    And step "1/5: Select agent type" should be shown
 
   # ── Form navigation ────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ Feature: New agent creation
     Given the user is on the directory picker
     And "~/Projects/aque" is highlighted
     When the user presses Enter
-    Then step "3/4: Enter command" should be shown
+    Then step "3/5: Enter command" should be shown
     And the command input should have focus
 
   Scenario: Selecting a directory records usage in history
@@ -139,7 +139,7 @@ Feature: New agent creation
     Given the tree browser is showing
     And the user has navigated to "~/Projects/myapp"
     When the user presses "s"
-    Then step "3/4: Enter command" should be shown
+    Then step "3/5: Enter command" should be shown
 
   Scenario: Returning from tree to picker
     Given the tree browser is showing
@@ -152,7 +152,7 @@ Feature: New agent creation
   Scenario: Entering a command advances to label step
     Given the user is on the command step
     When the user types "claude --model opus" and presses Enter
-    Then step "4/4: Label" should be shown
+    Then step "4/5: Label" should be shown
     And the label input should have focus
     And the label input should be empty
 
@@ -160,6 +160,7 @@ Feature: New agent creation
     Given the user is on the label step
     And the label is "my-agent"
     When the user presses Enter
+    And the user selects "No" on the responder step
     Then a new tmux session should be created
     And the agent should appear in the state file
     And the user should be attached to the new agent

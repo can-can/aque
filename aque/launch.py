@@ -57,15 +57,21 @@ class LaunchCoordinator:
         agent_type: str | None,
         on_launched: OnLaunched,
         on_cancelled: OnCancelled | None = None,
+        include_responder: bool = False,
     ) -> None:
         """Launch an agent. ``on_launched(agent)`` fires once the agent record
-        exists in state.json and the responder is paired. ``on_cancelled()``
-        fires only if a resume-picker was shown and the user dismissed it.
+        exists in state.json (and the responder is paired when
+        ``include_responder`` is true). ``on_cancelled()`` fires only if a
+        resume-picker was shown and the user dismissed it.
 
         Dispatch: when the plugin for ``agent_type`` exposes session capture,
         check for prior sessions; if any exist push the resume picker (its
         callback drives the rest), otherwise preassign a fresh session_id and
         launch synchronously. Plugins without capture launch straight through.
+
+        Responder pairing is opt-in via ``include_responder`` — every caller
+        (CLI, new-agent form, quick-launch) decides explicitly whether the
+        agent should be paired. There is no global config default.
         """
         plugin = get_plugin(agent_type) if agent_type else None
         if has_session_capture(plugin):
@@ -83,7 +89,8 @@ class LaunchCoordinator:
                         # picked session_id.
                         cmd, sid = command, result.session_id
                     self._finish(
-                        cmd, working_dir, label, agent_type, sid, on_launched
+                        cmd, working_dir, label, agent_type, sid,
+                        on_launched, include_responder,
                     )
                 self.push_modal(
                     ResumePickerScreen(summaries, working_dir, agent_type),
@@ -92,9 +99,15 @@ class LaunchCoordinator:
                 return
             # No prior sessions — still pre-assign so we skip capture.
             cmd, sid = plugin.preassign(command)
-            self._finish(cmd, working_dir, label, agent_type, sid, on_launched)
+            self._finish(
+                cmd, working_dir, label, agent_type, sid,
+                on_launched, include_responder,
+            )
             return
-        self._finish(command, working_dir, label, agent_type, None, on_launched)
+        self._finish(
+            command, working_dir, label, agent_type, None,
+            on_launched, include_responder,
+        )
 
     def _finish(
         self,
@@ -104,10 +117,12 @@ class LaunchCoordinator:
         agent_type: str | None,
         session_id: str | None,
         on_launched: OnLaunched,
+        include_responder: bool = False,
     ) -> None:
         """Deterministic tail of ``launch``: command rewrite, hook install,
-        ``launch_agent`` call, responder pairing, dir-history record,
-        monitor ensure, then hand the new agent to ``on_launched``."""
+        ``launch_agent`` call, responder pairing (only when
+        ``include_responder``), dir-history record, monitor ensure, then
+        hand the new agent to ``on_launched``."""
         plugin = get_plugin(agent_type) if agent_type else None
         # ``resume_command`` is idempotent — calling it when the command was
         # already preassigned (carries ``--session-id``) is a no-op.
@@ -136,7 +151,7 @@ class LaunchCoordinator:
         # instead of re-reading state.json twice.
         agent = self.state_mgr.load().get_agent(agent_id)
 
-        if agent is not None and self.config.get("responder_enabled", True):
+        if agent is not None and include_responder:
             responder.create_for(
                 agent, self.config, self.state_mgr, aque_dir=self.aque_dir
             )
