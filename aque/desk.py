@@ -946,13 +946,15 @@ class DeskApp(App):
         self._refresh_status_bar()
 
     def _clear_filters(self) -> None:
+        # Always unmount the search input if it's open — the user opened it
+        # via "/" and expects Esc to dismiss it (the placeholder says so),
+        # even if no filter or search query is set to clear.
+        for w in self.query("#search-input"):
+            w.remove()
         if not self.dash.clear_filters():
             return
         self._refresh_agent_list()
         self._refresh_status_bar()
-        # Also unmount the search input if it's up.
-        for w in self.query("#search-input"):
-            w.remove()
 
     def _build_row_label(
         self,
@@ -1434,15 +1436,29 @@ class DeskApp(App):
         except Exception:
             pass
 
-        with self.suspend():
-            subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
-            # Erase tmux's "[detached (from session ...)]" line so it doesn't
-            # accumulate in the terminal scrollback on each detach.
-            try:
-                sys.stdout.write("\x1b[1A\x1b[2K\r")
-                sys.stdout.flush()
-            except Exception:
-                pass
+        # Marker file the monitor uses to distinguish OUR attach from any
+        # external tmux client (ghostty window, the desk running inside an
+        # agent's own tmux session, etc.). Without this, external clients
+        # would falsely re-promote WAITING agents to RUNNING every poll.
+        attached_dir = self.aque_dir / "attached"
+        attached_dir.mkdir(exist_ok=True)
+        marker = attached_dir / str(agent.id)
+        try:
+            marker.touch()
+        except OSError:
+            pass
+        try:
+            with self.suspend():
+                subprocess.run(["tmux", "attach-session", "-t", agent.tmux_session])
+                # Erase tmux's "[detached (from session ...)]" line so it doesn't
+                # accumulate in the terminal scrollback on each detach.
+                try:
+                    sys.stdout.write("\x1b[1A\x1b[2K\r")
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+        finally:
+            marker.unlink(missing_ok=True)
         self._post_detach_debounce_until = time.monotonic() + 0.5
 
         state = self.state_mgr.load()

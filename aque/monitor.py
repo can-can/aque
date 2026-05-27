@@ -135,12 +135,26 @@ def session_exists(server: libtmux.Server, session_name: str) -> bool:
         return False
 
 
+def _has_desk_marker(aque_dir: Path, agent_id: int) -> bool:
+    """True if the desk has an open full-screen attach to this agent.
+
+    The desk writes ``<aque_dir>/attached/<id>`` around its ``tmux
+    attach-session`` call (deleted in finally) so the monitor can tell the
+    user's own desk attach apart from any *other* tmux client (a ghostty
+    window manually attached, the desk running inside an agent's own tmux
+    session, etc.). The previous ``session_attached`` count check couldn't
+    distinguish those: any external client falsely re-promoted WAITING
+    agents to RUNNING, causing a steady-state state flap.
+    """
+    return (aque_dir / "attached" / str(agent_id)).exists()
+
+
 def _has_attached_client(server: libtmux.Server, session_name: str) -> bool:
     """True if a tmux client is currently attached to the session.
 
-    The desk's embedded terminal (and the F2 full-screen fallback) attach a
-    real client; while attached we must not run idle detection on the pane —
-    the user is driving it.
+    Used by the RUNNING-stays-running guard so idle detection doesn't fire
+    while the user is driving the pane. The WAITING→RUNNING re-promotion
+    uses ``_has_desk_marker`` instead so external clients don't trigger it.
     """
     try:
         session = server.sessions.get(session_name=session_name)
@@ -390,8 +404,8 @@ def _poll_once(
             continue
         if agent.agent_type in EVENT_DRIVEN_TYPES:
             continue  # event-driven: resumes via a 'start' signal, not content
-        if not _has_attached_client(server, agent.tmux_session):
-            continue
+        if not _has_desk_marker(aque_dir, agent.id):
+            continue  # only the desk's own attach counts — external clients don't
         content = capture_pane_content(server, agent.tmux_session)
         if content is None:
             continue
@@ -436,6 +450,21 @@ def run_monitor(aque_dir: Path) -> None:
     cleared = clear_all_signals(signals_dir)
     if cleared:
         dbg("monitor.signals.cleared_on_startup", aque_dir, count=cleared)
+
+    # Same treatment for desk-attach markers: a marker left behind by a
+    # killed desk (no finally cleanup) would otherwise let the monitor
+    # re-promote on the next poll against a state where nothing is actually
+    # attached. State.json is the truth — start with an empty marker dir.
+    attached_dir = aque_dir / "attached"
+    attached_dir.mkdir(exist_ok=True)
+    stale_markers = list(attached_dir.iterdir())
+    for p in stale_markers:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+    if stale_markers:
+        dbg("monitor.markers.cleared_on_startup", aque_dir, count=len(stale_markers))
 
     waiting_hashes: dict[int, str] = {}
 

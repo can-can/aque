@@ -373,13 +373,20 @@ def test_idle_flips_when_not_attached(monkeypatch, tmp_path):
     assert mgr.load().agents[0].state == AgentState.WAITING
 
 
+def _mark_attached(tmp_path, agent_id: int) -> None:
+    """Drop a desk-attach marker so re-promotion sees an active desk attach."""
+    attached_dir = tmp_path / "attached"
+    attached_dir.mkdir(exist_ok=True)
+    (attached_dir / str(agent_id)).touch()
+
+
 def test_waiting_becomes_running_on_content_change_while_attached(monkeypatch, tmp_path):
     agent = _mk_agent(AgentState.WAITING, agent_type=None)
     mgr, signals, cfg = _setup(tmp_path, agent)
     detector = IdleDetector(idle_timeout=15, aque_dir=tmp_path)
     waiting_hashes: dict[int, str] = {}
+    _mark_attached(tmp_path, agent.id)
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
-    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "before")
     _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
@@ -393,12 +400,40 @@ def test_waiting_unchanged_content_does_not_flip(monkeypatch, tmp_path):
     mgr, signals, cfg = _setup(tmp_path, agent)
     detector = IdleDetector(idle_timeout=15, aque_dir=tmp_path)
     waiting_hashes: dict[int, str] = {}
+    _mark_attached(tmp_path, agent.id)
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
-    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "same")
     _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
     _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
+
+
+def test_waiting_not_repromoted_without_desk_marker(monkeypatch, tmp_path):
+    """Regression for the WAITING↔RUNNING flap caused by external tmux clients.
+
+    Before the marker-file fix, _has_attached_client returned True whenever
+    *any* tmux client was attached — ghostty windows, the desk running
+    inside an agent's own tmux session, etc. Re-promotion fired on every
+    poll despite no actual desk attach, oscillating the state under the
+    user. The gate now is the existence of <aque_dir>/attached/<id>, which
+    only the desk writes around its own attach-session call.
+    """
+    agent = _mk_agent(AgentState.WAITING, agent_type=None)
+    mgr, signals, cfg = _setup(tmp_path, agent)
+    detector = IdleDetector(idle_timeout=15, aque_dir=tmp_path)
+    waiting_hashes: dict[int, str] = {}
+    # External client is attached (session_attached > 0) but the desk has
+    # NOT written its marker — the monitor must leave the agent in WAITING.
+    monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "before")
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING
+    monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "after")
+    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    assert mgr.load().agents[0].state == AgentState.WAITING, (
+        "Content changed but no desk marker — must NOT re-promote"
+    )
 
 
 def test_demoted_agent_does_not_repromote_on_attach_via_stale_hash(monkeypatch, tmp_path):
@@ -428,9 +463,11 @@ def test_demoted_agent_does_not_repromote_on_attach_via_stale_hash(monkeypatch, 
     _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
 
-    # Phase 2: user attaches; pane text is unchanged. Must NOT re-promote —
-    # the stale hash from before the RUNNING window must not survive.
-    monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
+    # Phase 2: user attaches via the desk; pane text is unchanged. Must NOT
+    # re-promote — the stale hash from before the RUNNING window must not
+    # survive. Mark the desk attach so the marker-file gate doesn't trivially
+    # skip the re-promotion path (which would hide the stale-hash regression).
+    _mark_attached(tmp_path, agent.id)
     _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
 
@@ -495,6 +532,11 @@ def _poll(mgr, monkeypatch, *, attached=False, content="x", waiting_hashes=None)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: content)
     monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: attached)
     monkeypatch.setattr(monitor, "process_pending_nudges", lambda *a, **k: None)
+    if attached:
+        attached_dir = mgr.aque_dir / "attached"
+        attached_dir.mkdir(exist_ok=True)
+        for a in mgr.load().agents:
+            (attached_dir / str(a.id)).touch()
     detector = monitor.IdleDetector(idle_timeout=0.01, aque_dir=mgr.aque_dir)
     monitor._poll_once(
         mgr, server=None, detector=detector, config={},
