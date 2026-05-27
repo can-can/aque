@@ -154,7 +154,7 @@ Feature: New agent creation
     When the user types "claude --model opus" and presses Enter
     Then step "4/4: Label" should be shown
     And the label input should have focus
-    And the label input should contain a default label "claude . myapp"
+    And the label input should be empty
 
   Scenario: Submitting the label launches the agent
     Given the user is on the label step

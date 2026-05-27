@@ -431,7 +431,7 @@ class DeskApp(App):
         height: 1fr;
     }
     #agent-panel {
-        width: 40%;
+        width: 25%;
         border-right: solid $surface-lighten-1;
     }
     /* Stacked (narrow/forced): #dashboard flips to vertical; list takes the

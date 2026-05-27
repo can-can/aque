@@ -586,12 +586,13 @@ def then_label_input_has_focus(ctx):
     )
 
 
-@then(parsers.parse('the label input should contain a default label "{expected_label}"'))
-def then_label_input_contains_default(ctx, expected_label):
+@then("the label input should be empty")
+def then_label_input_empty(ctx):
+    """The label input is no longer pre-filled with a default — the user
+    types whatever they want. (Removed in 295477a.)"""
     label_input = ctx.app.query_one("#label-input")
-    actual = label_input.value
-    assert actual == expected_label, (
-        f"Expected label input value '{expected_label}', got '{actual}'"
+    assert label_input.value == "", (
+        f"Expected label input to be empty, got: {label_input.value!r}"
     )
 
 
