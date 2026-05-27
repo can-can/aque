@@ -94,6 +94,45 @@ class TestIdleDetector:
         # Only 0.05s since the post-prune baseline — still below 0.1s timeout
         assert detector.is_idle(1) is False
 
+    def test_reflow_does_not_reset_idle_timer(self):
+        """Regression: an external client attaching/detaching changes the pane
+        size, which reflows the buffer and changes ``capture_pane`` bytes even
+        though the agent did nothing. A size-change poll must be a silent
+        baseline update (no idle-timer reset), so the agent still goes idle
+        on schedule instead of waiting another full idle_timeout."""
+        detector = IdleDetector(idle_timeout=0.1)
+        detector.update(1, ["line at 200 cols"], dims=(200, 50))
+        time.sleep(0.05)                          # ~50% of timeout elapses
+        # Pane size changed (external attach) — content "looks different"
+        # purely from reflow.
+        detector.update(1, ["different bytes from reflow"], dims=(240, 70))
+        # The timer must NOT have reset. After another 0.06s (~0.11s total)
+        # the agent should be idle.
+        time.sleep(0.06)
+        detector.update(1, ["different bytes from reflow"], dims=(240, 70))
+        assert detector.is_idle(1) is True, (
+            "Idle timer was reset by reflow — should have ignored the "
+            "size-change-induced hash delta"
+        )
+
+    def test_real_activity_at_new_size_still_detected(self):
+        """Reflow-tolerance must not swallow REAL agent activity that
+        happens to occur after a size change. The next poll catches it."""
+        detector = IdleDetector(idle_timeout=0.1)
+        detector.update(1, ["line A"], dims=(200, 50))
+        # Resize event — silent baseline update at the new size.
+        detector.update(1, ["line A reflowed"], dims=(240, 70))
+        time.sleep(0.05)
+        # Real activity at the new size: new content shows up.
+        detector.update(1, ["line B (new activity)"], dims=(240, 70))
+        # Activity detected — timer resets.
+        time.sleep(0.05)
+        detector.update(1, ["line B (new activity)"], dims=(240, 70))
+        assert detector.is_idle(1) is False, (
+            "Activity at the new size should reset the idle timer; "
+            "still well within the timeout window"
+        )
+
 
 class TestMonitorStates:
     def test_on_hold_not_in_active_states(self):

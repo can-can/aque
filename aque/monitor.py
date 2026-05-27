@@ -23,14 +23,48 @@ class IdleDetector:
         self._content_hash: dict[int, str] = {}
         self._stable_since: dict[int, float] = {}
         self._is_idle: dict[int, bool] = {}
+        # Pane (width, height) at the time the last hash was captured.
+        # A size change between polls reflows the buffer — capture bytes
+        # differ even though the agent didn't do anything. We treat
+        # size-change polls as silent baseline updates: refresh the stored
+        # hash + dims, keep the existing ``_stable_since`` timestamp, don't
+        # claim "activity". The next poll then evaluates against the new
+        # baseline at the new size.
+        self._dims: dict[int, tuple[int, int]] = {}
 
-    def update(self, agent_id: int, lines: list[str]) -> None:
+    def update(
+        self,
+        agent_id: int,
+        lines: list[str],
+        dims: tuple[int, int] | None = None,
+    ) -> None:
         now = time.monotonic()
 
         content = "\n".join(lines)
         content_hash = hashlib.md5(content.encode()).hexdigest()
         prev_hash = self._content_hash.get(agent_id)
+        prev_dims = self._dims.get(agent_id)
         self._content_hash[agent_id] = content_hash
+        if dims is not None:
+            self._dims[agent_id] = dims
+
+        # Reflow guard: a size change makes the bytes differ for reasons
+        # unrelated to agent activity (e.g. someone attached/detached an
+        # external client). Update the baseline silently — don't reset the
+        # idle timer, don't claim activity.
+        if (
+            dims is not None
+            and prev_dims is not None
+            and prev_dims != dims
+        ):
+            dbg(
+                "detector.reflow",
+                self.aque_dir,
+                agent_id=agent_id,
+                prev_dims=f"{prev_dims[0]}x{prev_dims[1]}",
+                new_dims=f"{dims[0]}x{dims[1]}",
+            )
+            return
 
         if content_hash != prev_hash:
             self._stable_since[agent_id] = now
@@ -67,6 +101,7 @@ class IdleDetector:
         self._content_hash.pop(agent_id, None)
         self._stable_since.pop(agent_id, None)
         self._is_idle.pop(agent_id, None)
+        self._dims.pop(agent_id, None)
 
     def tracked_ids(self) -> set[int]:
         return set(self._content_hash.keys())
@@ -112,6 +147,23 @@ def capture_pane_content(server: libtmux.Server, session_name: str) -> str | Non
         pane = session.active_pane
         lines = pane.capture_pane()
         return "\n".join(lines)
+    except Exception:
+        return None
+
+
+def capture_pane_dims(
+    server: libtmux.Server, session_name: str
+) -> tuple[int, int] | None:
+    """Return the current ``(width, height)`` of ``session_name``'s active
+    pane, or None if the session is gone / unreadable. Used alongside
+    ``capture_pane_content`` so the IdleDetector can recognise reflow
+    events (size change ⇒ ignore the hash delta, not real activity)."""
+    try:
+        session = server.sessions.get(session_name=session_name)
+        if session is None:
+            return None
+        pane = session.active_pane
+        return int(pane.pane_width), int(pane.pane_height)
     except Exception:
         return None
 
@@ -355,7 +407,8 @@ def _poll_once(
 
         content = capture_pane_content(server, agent.tmux_session)
         if content is not None:
-            detector.update(agent.id, content.split("\n"))
+            dims = capture_pane_dims(server, agent.tmux_session)
+            detector.update(agent.id, content.split("\n"), dims=dims)
 
         if _has_attached_client(server, agent.tmux_session):
             # User is driving the pane — never auto-flip to WAITING, and
