@@ -193,9 +193,10 @@ async def test_triage_only_surfaces_when_list_has_focus(tmp_aque_dir, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_modal_has_no_snooze_pill(tmp_aque_dir):
-    # The "snooze 5m / s" pill was removed; only attach + peek are
-    # advertised. Esc still dismisses (silently snoozing) but isn't a pill.
+async def test_modal_has_only_attach_pill(tmp_aque_dir):
+    """After the triage strip the modal advertises a single action: attach.
+    Peek is gone (no preview surface), snooze was never a pill, dismissal
+    is via the silent Esc binding."""
     mgr = StateManager(tmp_aque_dir)
     _add_waiting(mgr, "fixer")
     app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
@@ -204,17 +205,18 @@ async def test_modal_has_no_snooze_pill(tmp_aque_dir):
         await pilot.pause()
         assert isinstance(app.screen, TriageModal)
         pills = [str(w.render()) for w in app.screen.query(".act")]
-        joined = " ".join(pills).lower()
+        assert len(pills) == 1, f"Expected single pill, got: {pills}"
+        joined = pills[0].lower()
+        assert "attach" in joined
+        assert "peek" not in joined
         assert "snooze" not in joined
-        assert any("attach" in p.lower() for p in pills)
-        assert any("peek" in p.lower() for p in pills)
 
 
 @pytest.mark.asyncio
 async def test_escape_still_dismisses_with_snooze(tmp_aque_dir):
-    # Esc is no longer an advertised action but must still close the modal
-    # AND mark the agent as snoozed (so it doesn't immediately re-pop on
-    # the next refresh).
+    """Esc is no longer an advertised action but must still close the modal
+    AND mark the agent as snoozed (so it doesn't immediately re-pop on the
+    next refresh)."""
     mgr = StateManager(tmp_aque_dir)
     aid = _add_waiting(mgr, "fixer")
     app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
@@ -226,37 +228,3 @@ async def test_escape_still_dismisses_with_snooze(tmp_aque_dir):
         await pilot.pause()
         assert not isinstance(app.screen, TriageModal)
         assert aid in app.dash.snoozed
-
-
-@pytest.mark.asyncio
-async def test_modal_adapts_to_narrow_screen(tmp_aque_dir):
-    # On a narrow terminal the dir suffix is hidden and the action row
-    # stacks vertically — so the pills never overflow the modal box.
-    mgr = StateManager(tmp_aque_dir)
-    _add_waiting(mgr, "fixer")
-    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
-    async with app.run_test(size=(30, 30)) as pilot:
-        app._show_dashboard()
-        await pilot.pause()
-        assert isinstance(app.screen, TriageModal)
-        actions = app.screen.query_one(".triage-actions")
-        assert "narrow" in actions.classes
-        dir_widget = app.screen.query_one("#triage-dir")
-        assert "hidden" in dir_widget.classes
-
-
-@pytest.mark.asyncio
-async def test_modal_keeps_horizontal_layout_on_wide_screen(tmp_aque_dir):
-    # The narrow mode must NOT fire on comfortable widths — the pills row
-    # stays horizontal and the dir suffix stays visible.
-    mgr = StateManager(tmp_aque_dir)
-    _add_waiting(mgr, "fixer")
-    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
-    async with app.run_test(size=(120, 30)) as pilot:
-        app._show_dashboard()
-        await pilot.pause()
-        assert isinstance(app.screen, TriageModal)
-        actions = app.screen.query_one(".triage-actions")
-        assert "narrow" not in actions.classes
-        dir_widget = app.screen.query_one("#triage-dir")
-        assert "hidden" not in dir_widget.classes

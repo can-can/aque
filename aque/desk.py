@@ -46,7 +46,7 @@ from aque.widgets.confirm_modal import ConfirmModal
 from aque.widgets.dir_picker import DirectoryPicker, key_hint
 from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
-from aque.widgets.triage_modal import ATTACH, PEEK, SNOOZE, TriageModal
+from aque.widgets.triage_modal import ATTACH, SNOOZE, TriageModal
 from aque.widgets.undo_bar import UndoBar
 from aque.terminal.widget import TerminalView
 
@@ -649,7 +649,6 @@ class DeskApp(App):
             ("n", "new"),
             ("r", "relaunch"),
             ("↵", "attach"),
-            ("Space", "peek"),
             ("/", "filter"),
             ("⌘K", "command"),
             ("?", "help"),
@@ -1272,8 +1271,6 @@ class DeskApp(App):
         dbg(f"desk.triage.{result}", self.aque_dir, agent_id=agent.id)
         if result == ATTACH:
             self._attach_to_agent(agent)
-        elif result == PEEK:
-            self._select_agent_in_list(agent.id)
         if self._mode == "dashboard" and len(self.screen_stack) == 1:
             self._focus_dashboard()
 
@@ -1891,15 +1888,12 @@ class DeskApp(App):
     def _on_command_picked(self, item: CommandItem | None) -> None:
         if item is None:
             return
-        if item.kind in ("attach", "peek"):
+        if item.kind == "attach":
             state = self.state_mgr.load()
             agent = state.get_agent(item.payload)
             if agent is None:
                 return
-            if item.kind == "attach":
-                self._attach_to_agent(agent)
-            else:
-                self._select_agent_in_list(agent.id)
+            self._attach_to_agent(agent)
             return
         # action items
         action = item.payload

@@ -1,7 +1,7 @@
 Feature: Triage pill for waiting agents
   As a user managing an agent queue
   I want a calm, non-blocking notification when an agent needs me
-  So that I can peek, attach, or snooze without losing the list context
+  So that I can attach or snooze without losing the list context
 
   Background:
     Given the aque desk is open
@@ -34,13 +34,6 @@ Feature: Triage pill for waiting agents
     When the user presses Enter
     Then the user should be attached to agent "fixer"
 
-  Scenario: Pressing Space peeks the triaged agent without attaching
-    Given the triage pill is showing for agent "fixer"
-    When the user presses Space
-    Then the triage pill should be dismissed
-    And agent "fixer" should still be in "waiting" state
-    And the highlighted agent should be "fixer"
-
   Scenario: Pressing Escape snoozes the triaged agent
     Given the triage pill is showing for agent "fixer"
     When the user presses Escape
@@ -48,7 +41,7 @@ Feature: Triage pill for waiting agents
     And the periodic refresh runs
     And no triage pill should appear
 
-  # ── Selection / queue ───────────────────────────────────────────
+  # ── Selection ───────────────────────────────────────────────────
 
   Scenario: Triage targets the top-priority waiting agent
     Given the following agents exist:
@@ -75,33 +68,10 @@ Feature: Triage pill for waiting agents
     Then a triage pill should appear
     And the triage pill should mention "fixer"
 
-  # ── Queue indicator ────────────────────────────────────────────
-
-  Scenario: Pill shows the queue length when more than one agent is waiting
-    Given the following agents exist:
-      | label   | state   | last_change_at          |
-      | first   | waiting | 2026-03-29T04:00:00+00  |
-      | second  | waiting | 2026-03-29T05:00:00+00  |
-      | third   | waiting | 2026-03-29T06:00:00+00  |
-    When the user returns to the dashboard
-    Then the triage pill should mention "more waiting"
-
   # ── Modal layout ───────────────────────────────────────────────
 
-  Scenario: Triage modal advertises only attach and peek pills
+  Scenario: Triage modal advertises only the attach pill
     Given the triage pill is showing for agent "fixer"
     Then the modal action pills should include "attach"
-    And the modal action pills should include "peek"
+    And the modal action pills should not include "peek"
     And the modal action pills should not include "snooze"
-
-  Scenario: Triage modal stacks pills vertically on narrow terminals
-    Given the desk is opened with a narrow terminal
-    And agent "fixer" is in "waiting" state
-    When the user returns to the dashboard
-    Then the triage modal action row should be marked narrow
-    And the triage modal dir suffix should be hidden
-
-  Scenario: Triage modal keeps horizontal layout on wide terminals
-    Given the triage pill is showing for agent "fixer"
-    Then the triage modal action row should not be marked narrow
-    And the triage modal dir suffix should not be hidden

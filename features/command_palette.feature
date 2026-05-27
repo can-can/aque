@@ -16,11 +16,12 @@ Feature: Command palette
     And the user presses "ctrl+k"
     Then the command palette should be visible
 
-  Scenario: Palette lists each agent as both attach and peek items
+  Scenario: Palette lists each agent as an attach item
     When the dashboard loads
     And the user presses "ctrl+k"
     Then the palette should contain an item labelled "Attach alpha"
-    And the palette should contain an item labelled "Peek bravo"
+    And the palette should contain an item labelled "Attach bravo"
+    And the palette should not contain an item labelled "Peek bravo"
 
   Scenario: Typing filters the palette
     When the dashboard loads

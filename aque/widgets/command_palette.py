@@ -5,8 +5,8 @@ types into a small input; the list updates live. Enter triggers the
 selected item, Esc closes. Returns the chosen ``CommandItem`` to the
 caller via ``dismiss(result)``.
 
-Each item carries a ``kind`` ('attach' / 'peek' / 'action') and a
-``payload`` (the agent id for attach/peek, or an action string for
+Each item carries a ``kind`` ('attach' / 'action') and a
+``payload`` (the agent id for attach, or an action string for
 actions like ``new``, ``help``, ``attach_responder``, ``filter:waiting``).
 """
 from dataclasses import dataclass
@@ -24,7 +24,7 @@ from aque.state import AgentInfo
 @dataclass(frozen=True)
 class CommandItem:
     label: str           # what the user sees
-    kind: str            # "attach" | "peek" | "action"
+    kind: str            # "attach" | "action"
     payload: object      # int agent_id or str action key
 
 
@@ -89,10 +89,6 @@ class CommandPalette(ModalScreen[CommandItem | None]):
                 label=f"Attach {a.label}  [{a.state.value}]",
                 kind="attach", payload=a.id,
             ))
-            items.append(CommandItem(
-                label=f"Peek {a.label}",
-                kind="peek", payload=a.id,
-            ))
         items.extend([
             CommandItem("New agent…", "action", "new"),
             CommandItem("Quick launch from history…", "action", "quick_launch"),
@@ -117,7 +113,7 @@ class CommandPalette(ModalScreen[CommandItem | None]):
 
     @staticmethod
     def _group_of(item: CommandItem) -> str:
-        return "agents" if item.kind in ("attach", "peek") else "actions"
+        return "agents" if item.kind == "attach" else "actions"
 
     def _rebuild_items(self, query: str) -> None:
         q = query.lower().strip()

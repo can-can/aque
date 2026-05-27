@@ -43,11 +43,6 @@ def test_enter_attaches():
     pass
 
 
-@scenario(FEATURE, "Pressing Space peeks the triaged agent without attaching")
-def test_space_peeks():
-    pass
-
-
 @scenario(FEATURE, "Pressing Escape snoozes the triaged agent")
 def test_escape_snoozes():
     pass
@@ -68,23 +63,8 @@ def test_snooze_decays():
     pass
 
 
-@scenario(FEATURE, "Pill shows the queue length when more than one agent is waiting")
-def test_pill_queue_indicator():
-    pass
-
-
-@scenario(FEATURE, "Triage modal advertises only attach and peek pills")
-def test_modal_advertises_attach_and_peek():
-    pass
-
-
-@scenario(FEATURE, "Triage modal stacks pills vertically on narrow terminals")
-def test_modal_stacks_pills_narrow():
-    pass
-
-
-@scenario(FEATURE, "Triage modal keeps horizontal layout on wide terminals")
-def test_modal_horizontal_on_wide():
+@scenario(FEATURE, "Triage modal advertises only the attach pill")
+def test_modal_advertises_attach_only():
     pass
 
 
@@ -97,9 +77,6 @@ class Ctx:
         self.state_mgr = StateManager(tmp_aque_dir)
         self.history_mgr = HistoryManager(tmp_aque_dir)
         self._skip_attach = skip_attach
-        # Pilot terminal size; narrow scenarios override to (30, 30) before
-        # mount so the triage modal lands in its narrow layout.
-        self._size = (120, 30)
         self.app = None
         self.pilot = None
         self._run_test_cm = None
@@ -136,7 +113,7 @@ class Ctx:
         # The synthetic agents have no real tmux sessions, so the startup orphan
         # scan would push an OrphanModal over the dashboard and block triage.
         self.app._scan_for_orphans = lambda: None
-        self._run_test_cm = self.app.run_test(size=self._size)
+        self._run_test_cm = self.app.run_test()
         self.pilot = await self._run_test_cm.__aenter__()
         await self.pilot.pause()
 
@@ -338,15 +315,6 @@ def when_user_presses_enter(ctx):
     ctx.run(_press())
 
 
-@when("the user presses Space")
-def when_user_presses_space(ctx):
-    async def _press():
-        await ctx.pilot.press("space")
-        await ctx.pilot.pause()
-
-    ctx.run(_press())
-
-
 @when("the user presses Escape")
 def when_user_presses_escape(ctx):
     async def _press():
@@ -410,25 +378,7 @@ def then_attached_to_agent(ctx, label):
     )
 
 
-@then(parsers.parse('the highlighted agent should be "{label}"'))
-def then_highlighted_agent(ctx, label):
-    from textual.widgets import OptionList
-    ol = ctx.app.query_one("#agent-option-list", OptionList)
-    assert ol.highlighted is not None, "No agent highlighted"
-    opt = ol.get_option_at_index(ol.highlighted)
-    assert label in str(opt.prompt), (
-        f"Expected '{label}' highlighted, got: {str(opt.prompt)}"
-    )
-
-
-# ── Modal layout scenarios ─────────────────────────────────────────────
-
-
-@given("the desk is opened with a narrow terminal")
-def given_desk_narrow(ctx):
-    """Force the pilot terminal size to fall below TriageModal's narrow
-    threshold (40 cells). Must run BEFORE any step that triggers ensure_mounted."""
-    ctx._size = (30, 30)
+# ── Modal layout ───────────────────────────────────────────────────────
 
 
 def _pill_texts(ctx) -> list[str]:
@@ -452,36 +402,4 @@ def then_pills_exclude(ctx, substr):
     joined = " ".join(pills).lower()
     assert substr.lower() not in joined, (
         f"Expected pills to NOT include {substr!r}; got: {pills}"
-    )
-
-
-@then("the triage modal action row should be marked narrow")
-def then_actions_narrow(ctx):
-    actions = ctx.app.screen.query_one(".triage-actions")
-    assert "narrow" in actions.classes, (
-        f"Expected .triage-actions to have 'narrow' class; classes={list(actions.classes)}"
-    )
-
-
-@then("the triage modal action row should not be marked narrow")
-def then_actions_not_narrow(ctx):
-    actions = ctx.app.screen.query_one(".triage-actions")
-    assert "narrow" not in actions.classes, (
-        f"Expected .triage-actions to NOT have 'narrow' class; classes={list(actions.classes)}"
-    )
-
-
-@then("the triage modal dir suffix should be hidden")
-def then_dir_hidden(ctx):
-    dir_widget = ctx.app.screen.query_one("#triage-dir")
-    assert "hidden" in dir_widget.classes, (
-        f"Expected #triage-dir to have 'hidden' class; classes={list(dir_widget.classes)}"
-    )
-
-
-@then("the triage modal dir suffix should not be hidden")
-def then_dir_not_hidden(ctx):
-    dir_widget = ctx.app.screen.query_one("#triage-dir")
-    assert "hidden" not in dir_widget.classes, (
-        f"Expected #triage-dir to NOT have 'hidden' class; classes={list(dir_widget.classes)}"
     )

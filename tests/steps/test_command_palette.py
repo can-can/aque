@@ -18,7 +18,7 @@ def test_palette_opens():
     pass
 
 
-@scenario(FEATURE, "Palette lists each agent as both attach and peek items")
+@scenario(FEATURE, "Palette lists each agent as an attach item")
 def test_palette_lists_agents():
     pass
 
