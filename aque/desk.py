@@ -48,7 +48,6 @@ from aque.widgets.help_modal import HelpModal
 from aque.widgets.orphan_modal import OrphanModal
 from aque.widgets.triage_modal import ATTACH, SNOOZE, TriageModal
 from aque.widgets.undo_bar import UndoBar
-from aque.terminal.widget import TerminalView
 
 NARROW_BREAKPOINT = 80  # columns; below this, auto layout stacks and labels compact
 
@@ -532,7 +531,7 @@ class DeskApp(App):
         ("a", "toggle_auto_respond", "Auto"),
         ("ctrl+k", "command_palette", "⌘K"),
         ("question_mark", "show_help", "?"),
-        Binding("ctrl+enter", "attach_responder_embed", "Responder embed", show=False),
+        Binding("ctrl+enter", "attach_responder", "Responder", show=False),
         Binding("r", "quick_launch", "Relaunch", show=False),
         Binding("1", "filter_state('running')", "Filter running", show=False),
         Binding("2", "filter_state('waiting')", "Filter waiting", show=False),
@@ -572,10 +571,6 @@ class DeskApp(App):
         self._refresh_timer: Timer | None = None
         self._tmux_server: libtmux.Server | None = None
         self._post_detach_debounce_until: float = 0.0
-        self._preview_debounce_timer: Timer | None = None
-        # (session, cols, rows) the embed last pinned the tmux window to, so we
-        # skip redundant resize-window calls during rapid resizes.
-        self._embed_pinned: tuple[str, int, int] | None = None
         self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
         # Arrangement override, independent of _narrow (width). Session-only:
         # not persisted, resets to "auto" each launch. "auto" | "wide" | "stacked".
@@ -674,7 +669,7 @@ class DeskApp(App):
         # cycles focus from it into the embedded terminal.
         agent_panel._add_child(OptionList(id="agent-option-list"))
 
-        preview_panel._add_child(TerminalView(id="embedded-terminal"))
+        preview_panel._add_child(Static(id="agent-info"))
         dashboard._add_child(agent_panel)
         dashboard._add_child(preview_panel)
         return dashboard
@@ -721,16 +716,8 @@ class DeskApp(App):
         self._refresh_footer()
         self._start_refresh()
         self._scan_for_orphans()
-        # After layout: preview the highlighted agent in the embed (no focus
-        # steal), then focus the list. Focusing after the refresh cycle ensures
-        # the list wins over Textual's initial auto-focus (which would otherwise
-        # land on the embed and gate the plain-letter shortcuts).
-        self.call_after_refresh(self._attach_highlighted_terminal)
+        self.call_after_refresh(self._refresh_agent_info)
         self.call_after_refresh(self._focus_dashboard)
-        # Only the priority chords are bound here — they must work even while
-        # the embedded terminal is focused. The plain-letter desk actions
-        # (n/k/h/a/r/1-4/// etc.) live in BINDINGS and are gated by check_action
-        # when the embed has focus, so they reach the agent instead.
         sc = self.config["shortcuts"]
         self.bind(sc["quit"], "quit_app", description="Quit")
         self.bind(sc["attach_fullscreen"], "attach_fullscreen", description="Full-screen")
@@ -748,47 +735,10 @@ class DeskApp(App):
             self._refresh_timer.stop()
             self._refresh_timer = None
 
-    # Plain-letter desk actions that must reach the agent (not fire) while the
-    # embedded terminal is focused. Priority Ctrl+Shift chords and the command
-    # palette are never gated.
-    _EMBED_GATED_ACTIONS = frozenset({
-        "new_agent", "kill_agent", "hold_agent", "toggle_auto_respond",
-        "quick_launch", "filter_state", "focus_search",
-        "undo", "show_help",
-    })
-
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
-        """Disable plain-letter desk shortcuts while the embed has focus so the
-        keystrokes are typed into the agent instead of triggering desk actions."""
-        if action in self._EMBED_GATED_ACTIONS:
-            try:
-                term = self.query_one("#embedded-terminal", TerminalView)
-            except Exception:
-                return True
-            if self.focused is term:
-                return False
-        return True
-
-    def on_descendant_blur(self, event) -> None:
-        """When focus leaves the embedded terminal, a triage notification that
-        was deferred (suppressed while the embed had focus) can surface now,
-        without waiting for the next 2s poll. ``_try_show_triage`` itself
-        verifies the list now holds focus before surfacing, so a blur into
-        the search box (or any other non-list focus) still leaves the queue
-        quiet."""
-        try:
-            term = self.query_one("#embedded-terminal", TerminalView)
-        except Exception:
-            return
-        if event.widget is term and self._mode == "dashboard":
-            self.call_after_refresh(self._try_show_triage)
-
     def _focus_dashboard(self) -> None:
         """Give keyboard focus to the agent list (the default dashboard surface).
 
-        Highlighting an agent hover-attaches it in the embed (list keeps focus);
-        Enter or Tab moves focus into the embed to type. Ensures a default
-        highlight so there is an agent to preview.
+        Ensures a default highlight so the preview panel has something to render.
         """
         try:
             ol = self.query_one("#agent-option-list", OptionList)
@@ -1127,7 +1077,6 @@ class DeskApp(App):
             agent_panel=_sz("#agent-panel"),
             option_list=_sz("#agent-option-list"),
             preview=_sz("#preview-panel"),
-            embed=_sz("#embedded-terminal"),
             list_state=ol_info,
             triage=str(self._triage_agent.id if self._triage_agent else None),
             screen_children=children,
@@ -1146,7 +1095,7 @@ class DeskApp(App):
             pass
         self._refresh_agent_list(reset_highlight=True)
         self._refresh_status_bar()
-        self._attach_highlighted_terminal()
+        self._refresh_agent_info()
         self._start_refresh()
         self._focus_dashboard()
         self._ensure_monitor_running()
@@ -1171,10 +1120,8 @@ class DeskApp(App):
         """True when the dashboard agent list currently holds focus.
 
         Triage notifications only fire while the list is the focused widget —
-        typing in the embedded terminal, the search box, or any other non-list
-        focus must suppress the modal so a notification can't steal keystrokes
-        mid-task. When focus leaves the embed (see ``on_descendant_blur``) the
-        queue re-evaluates immediately rather than waiting for the 2s poll.
+        typing in the search box or any other non-list focus must suppress
+        the modal so a notification can't steal keystrokes mid-task.
         """
         try:
             return self.focused is self.query_one("#agent-option-list", OptionList)
@@ -1273,19 +1220,6 @@ class DeskApp(App):
             self._attach_to_agent(agent)
         if self._mode == "dashboard" and len(self.screen_stack) == 1:
             self._focus_dashboard()
-
-    def _select_agent_in_list(self, agent_id: int) -> None:
-        """Highlight the given agent in the option list without attaching."""
-        try:
-            ol = self.query_one("#agent-option-list", OptionList)
-            for i in range(ol.option_count):
-                opt = ol.get_option_at_index(i)
-                if opt.id == str(agent_id):
-                    ol.highlighted = i
-                    break
-            self._attach_highlighted_terminal()
-        except Exception:
-            pass
 
     def _show_action_menu(self, agent: AgentInfo, was_exited: bool) -> None:
         self._dismiss_triage_modal()
@@ -1413,25 +1347,6 @@ class DeskApp(App):
         self._dismiss_triage_modal()
         self._triage_agent = None
         self._stop_refresh()
-
-        # The embed pins the window to its small size (and hides the status
-        # line); undo that so the full-screen client gets the full terminal and
-        # its status bar back. The embed re-pins when it re-attaches on return
-        # (via _show_dashboard).
-        self._unpin_embed_window()
-
-        # Tear down the embed's own tmux client before suspending. The embed is
-        # a background ``tmux attach-session`` whose fd reader keeps firing on
-        # the asyncio loop during ``suspend()``; left attached it becomes a
-        # second client on the session and size-fights the full-screen client,
-        # leaving the pyte screen blank/garbled on return. Detaching means only
-        # the full-screen client is attached, and the return path
-        # (_show_dashboard → _attach_highlighted_terminal) re-spawns a fresh PTY
-        # for a clean full redraw instead of no-op'ing on the still-live session.
-        try:
-            self.query_one("#embedded-terminal", TerminalView).detach()
-        except Exception:
-            pass
 
         # Marker file the monitor uses to distinguish OUR attach from any
         # external tmux client (ghostty window, the desk running inside an
@@ -1656,107 +1571,52 @@ class DeskApp(App):
             return
         if self._skip_attach:
             return
-        # Enter "pops into" the embedded terminal for the highlighted agent:
-        # attach (if not already) and move keyboard focus into the embed so the
-        # user types to the agent. Full-screen attach is the Ctrl+Shift+F action.
-        try:
-            term = self.query_one("#embedded-terminal", TerminalView)
-        except Exception:
-            return
-        term.attach(
-            ["tmux", "attach-session", "-t", agent.tmux_session],
-            size_sync=self._embed_size_sync(agent.tmux_session),
-        )
-        term.focus()
+        # Enter on a row full-screen attaches to that agent's tmux session
+        # (the embedded terminal is gone — there's no in-list preview).
+        self._attach_to_agent(agent)
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if self._mode != "dashboard":
             return
-        if self._preview_debounce_timer is not None:
-            self._preview_debounce_timer.stop()
-        self._preview_debounce_timer = self.set_timer(0.15, self._attach_highlighted_terminal)
+        self._refresh_agent_info()
 
-    def _attach_highlighted_terminal(self) -> None:
-        self._preview_debounce_timer = None
-        if self._skip_attach:
-            return  # tests / headless: never spawn a real tmux client
+    def _refresh_agent_info(self) -> None:
+        """Render the highlighted agent's metadata into the preview panel.
+
+        Replaces the live embedded terminal: a small static block (label,
+        state, agent type, dir, session, age) tells the user what's selected
+        without spawning a tmux client. Full-screen attach is the way to
+        actually see/drive the agent (Enter or Ctrl+Shift+F).
+        """
         try:
+            info = self.query_one("#agent-info", Static)
             ol = self.query_one("#agent-option-list", OptionList)
-            term = self.query_one("#embedded-terminal", TerminalView)
         except Exception:
             return
         if ol.highlighted is None or ol.option_count == 0:
-            term.detach()
-            self._unpin_embed_window()
+            info.update("")
             return
-        option = ol.get_option_at_index(ol.highlighted)
-        agent_id = int(option.id)
-        agent = self.state_mgr.load().get_agent(agent_id)
-        if agent is None:
-            term.detach()
-            self._unpin_embed_window()
-            return
-        if self._triage_agent is not None:
-            # A triage pill owns input right now; don't steal focus back.
-            return
-        # Hover-attach: preview the highlighted agent without stealing focus
-        # from the list. If the embed already had focus (e.g. switching agents
-        # via Ctrl+Shift+J/K from inside it), keep focus there across the swap.
-        was_focused = self.focused is term
-        term.attach(
-            ["tmux", "attach-session", "-t", agent.tmux_session],
-            size_sync=self._embed_size_sync(agent.tmux_session),
-        )
-        if was_focused:
-            term.focus()
-
-    @staticmethod
-    def _tmux(*args: str) -> None:
         try:
-            subprocess.run(["tmux", *args], check=False, capture_output=True)
+            opt = ol.get_option_at_index(ol.highlighted)
+            agent = self.state_mgr.load().get_agent(int(opt.id))
         except Exception:
-            pass
-
-    def _embed_size_sync(self, session: str):
-        """Return a (cols, rows) callback that pins ``session``'s tmux window to
-        the embed's size. The embed renders a pyte screen sized to the widget;
-        if the tmux window is a different size (another client, or a transient
-        resize when a notification mounts), tmux feeds wrong-sized frames into
-        the pyte screen and the embed shows duplicated/garbled rows.
-
-        Status is left enabled so the embed shows tmux's status line on its
-        bottom row. The window is pinned one row shorter than the embed
-        (``rows - 1``) so pane + status equals the client/pyte height; otherwise
-        the status row would overflow the pyte screen and offset every line by
-        one. Larger external clients letterbox; that's the accepted trade-off
-        for a clean embed. The pin is reverted in ``_unpin_embed_window`` when
-        we switch away, go full-screen, or quit.
-        """
-        def _sync(cols: int, rows: int) -> None:
-            if self._skip_attach:
-                return
-            prev = self._embed_pinned
-            if prev is not None and prev[0] != session:
-                self._unpin_embed_window()  # restore the agent we left
-            if self._embed_pinned == (session, cols, rows):
-                return
-            self._embed_pinned = (session, cols, rows)
-            window_rows = max(rows - 1, 1)
-            self._tmux("set-option", "-t", session, "status", "on")
-            self._tmux("set-option", "-t", session, "window-size", "manual")
-            self._tmux("resize-window", "-t", session, "-x", str(cols), "-y", str(window_rows))
-        return _sync
-
-    def _unpin_embed_window(self) -> None:
-        """Undo the embed's window pin: revert status and window-size to the
-        session's inherited (global) values so the agent sizes normally again
-        for a full-screen or external attach."""
-        if self._embed_pinned is None:
+            info.update("")
             return
-        session = self._embed_pinned[0]
-        self._embed_pinned = None
-        self._tmux("set-option", "-u", "-t", session, "window-size")
-        self._tmux("set-option", "-u", "-t", session, "status")
+        if agent is None:
+            info.update("")
+            return
+        state_color = STATE_COLORS.get(agent.state, "white")
+        lines = [
+            f"[bold]{agent.label}[/bold]",
+            f"[{state_color}]●[/{state_color}] {agent.state.value}",
+        ]
+        if agent.agent_type:
+            lines.append(f"[dim]type:[/dim] {agent.agent_type}")
+        lines.append(f"[dim]dir:[/dim]  {agent.dir}")
+        lines.append(f"[dim]session:[/dim] {agent.tmux_session}")
+        if agent.is_responder:
+            lines.append(f"[dim]paired-with:[/dim] #{agent.partner_id}")
+        info.update("\n".join(lines))
 
     def on_directory_picker_directory_selected(self, event) -> None:
         """Handle directory selection from the picker."""
@@ -1914,7 +1774,7 @@ class DeskApp(App):
         elif action == "undo":
             self.action_undo()
         elif action == "attach_responder":
-            self.action_attach_responder_embed()
+            self.action_attach_responder()
         elif action == "help":
             self.action_show_help()
         elif action == "filter:none":
@@ -1959,15 +1819,13 @@ class DeskApp(App):
         agent_panel.mount(search, before="#agent-option-list")
         search.focus()
 
-    def action_attach_responder_embed(self) -> None:
-        """Swap the embedded terminal between the highlighted partner's tmux
-        session and the paired responder's session.
+    def action_attach_responder(self) -> None:
+        """Full-screen attach to the highlighted agent's paired responder.
 
-        Responders no longer have their own list row — Ctrl+Enter is the way
-        to peek at one. If the embed is already showing the responder, pressing
-        again returns to the partner. No-op when the highlighted agent has no
-        paired responder (or the highlighted row is itself a responder, which
-        shouldn't happen now that responders aren't listed)."""
+        Responders never appear as their own row, so Ctrl+Enter on a partner
+        row is the way to reach the responder. No-op when the highlighted
+        agent has no paired responder (or is itself a responder, which can't
+        happen via the visible list)."""
         if self._mode != "dashboard":
             return
         agent_id = self._get_highlighted_agent_id()
@@ -1983,23 +1841,7 @@ class DeskApp(App):
             return
         if self._skip_attach:
             return
-        try:
-            term = self.query_one("#embedded-terminal", TerminalView)
-        except Exception:
-            return
-        # Decide which session to swap to. _embed_pinned is the session the
-        # embed last attached to; if it's already the responder, flip back to
-        # the partner so the toggle is reversible.
-        currently_on_responder = (
-            self._embed_pinned is not None
-            and self._embed_pinned[0] == responder.tmux_session
-        )
-        target = agent if currently_on_responder else responder
-        term.attach(
-            ["tmux", "attach-session", "-t", target.tmux_session],
-            size_sync=self._embed_size_sync(target.tmux_session),
-        )
-        term.focus()
+        self._attach_to_agent(responder)
 
     def action_toggle_auto_respond(self) -> None:
         if self._mode != "dashboard":
@@ -2023,7 +1865,6 @@ class DeskApp(App):
         self._refresh_agent_list()
 
     def action_quit_app(self) -> None:
-        self._unpin_embed_window()  # don't leave the agent's window stuck at embed size
         stop_monitor(self.aque_dir)
         self.exit()
 

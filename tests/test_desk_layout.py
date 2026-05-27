@@ -56,34 +56,30 @@ async def test_apply_layout_sets_narrow_flag_from_width(tmp_aque_dir):
 
 
 @pytest.mark.asyncio
-async def test_narrow_previews_terminal_instead_of_skipping(tmp_aque_dir, monkeypatch):
-    # In stacked (narrow) the terminal is visible at the bottom, so the
-    # highlighted-agent preview MUST attach — regression guard against the
-    # old "if self._narrow: return" that left the bottom panel empty.
-    from aque.terminal.widget import TerminalView
+async def test_narrow_renders_info_panel_instead_of_skipping(tmp_aque_dir):
+    """In stacked (narrow) the preview panel is visible at the bottom and
+    must render the highlighted agent's info — regression guard against
+    the old "if self._narrow: return" that left the bottom panel empty."""
     from aque.state import StateManager, AgentInfo, AgentState
-
-    calls = []
-    # attach() also takes a size_sync pin callback (embed-window pinning); accept
-    # and ignore any extra kwargs so the mock matches the real signature.
-    monkeypatch.setattr(TerminalView, "attach",
-                        lambda self, argv, **kwargs: calls.append(argv))
 
     mgr = StateManager(tmp_aque_dir)
     mgr.add_agent(AgentInfo(
         id=1, tmux_session="s-1", label="alpha", dir="/tmp",
         command=["claude"], state=AgentState.RUNNING, pid=100,
     ))
-    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=False)
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
     async with app.run_test(size=(45, 24)) as pilot:
         await pilot.pause()
-        app._apply_layout(width=45)          # narrow -> stacked
+        app._apply_layout(width=45)  # narrow -> stacked
         ol = app.query_one("#agent-option-list")
         ol.highlighted = 0
-        calls.clear()                        # ignore any mount-time attach
-        app._attach_highlighted_terminal()
+        app._refresh_agent_info()
         await pilot.pause()
-        assert calls, "terminal should attach (preview) in stacked/narrow layout"
+        info = app.query_one("#agent-info")
+        rendered = str(info.render())
+        assert "alpha" in rendered, (
+            f"Expected agent label in info panel, got: {rendered!r}"
+        )
 
 
 @pytest.mark.asyncio

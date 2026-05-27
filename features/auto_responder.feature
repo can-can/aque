@@ -115,18 +115,11 @@ Feature: Auto-responder
     When "resp(builder)" transitions to "waiting"
     Then the dashboard fingerprint should be marked as changed
 
-  Scenario: Ctrl+Enter on a partner with a responder swaps the embed to the responder
+  Scenario: Ctrl+Enter on a partner with a responder full-screen attaches to the responder
     Given agent "builder" has a paired responder "resp(builder)"
     And agent "builder" is highlighted on the dashboard
     When the user presses "ctrl+enter"
-    Then the embedded terminal should be attached to "resp(builder)"'s tmux session
-
-  Scenario: Ctrl+Enter pressed twice swaps the embed back to the partner
-    Given agent "builder" has a paired responder "resp(builder)"
-    And agent "builder" is highlighted on the dashboard
-    When the user presses "ctrl+enter"
-    And the user presses "ctrl+enter"
-    Then the embedded terminal should be attached to "builder"'s tmux session
+    Then the desk should full-screen attach to "resp(builder)"'s tmux session
 
   Scenario: Ctrl+Enter on a partner with no responder shows a notification
     Given agent "solo" is highlighted on the dashboard

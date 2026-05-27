@@ -7,7 +7,7 @@ Owns the "what should be on screen right now" question:
 * sort order, fingerprint dedup, and row state-change cue accounting
 
 Responders are never their own row — they surface as a badge on the partner's
-row and are reachable via the partner-side ``attach_responder_embed`` action.
+row and are reachable via the partner-side ``attach_responder`` action (Ctrl+Enter).
 
 The controller never touches widgets — it accepts ``AppState`` snapshots and
 returns plain Python values so it can be unit-tested without spinning a

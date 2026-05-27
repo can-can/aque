@@ -354,12 +354,11 @@ class TestResponderBadge:
         assert "●r" not in without
 
 
-class TestResponderEmbedToggle:
+class TestResponderAttach:
     @pytest.mark.asyncio
-    async def test_ctrl_enter_swaps_embed_between_partner_and_responder(self, tmp_aque_dir):
+    async def test_ctrl_enter_full_screen_attaches_to_responder(self, tmp_aque_dir):
         from aque.desk import DeskApp
         from aque.state import AgentInfo, AgentState, StateManager
-        from aque.terminal.widget import TerminalView
 
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
@@ -373,31 +372,18 @@ class TestResponderEmbedToggle:
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
-            attached: list[str] = []
-            # Stub TerminalView.attach to capture which session we'd swap to,
-            # and pretend the embed isn't headless so the action proceeds.
-            term = app.query_one("#embedded-terminal", TerminalView)
-            term.attach = lambda argv, size_sync=None: attached.append(argv[-1])
-            term.focus = lambda: None
+            captured: list[int] = []
+            app._attach_to_agent = lambda agent: captured.append(agent.id)
             app._skip_attach = False
             app.query_one("#agent-option-list").highlighted = 0
 
-            # First press: partner highlighted, embed currently on partner →
-            # swap to responder.
-            app._embed_pinned = ("aque-partner", 80, 24)
-            app.action_attach_responder_embed()
-            assert attached == ["aque-resp"]
-
-            # Second press: embed now on responder → swap back to partner.
-            app._embed_pinned = ("aque-resp", 80, 24)
-            app.action_attach_responder_embed()
-            assert attached == ["aque-resp", "aque-partner"]
+            app.action_attach_responder()
+            assert captured == [2], "Should have attached to the responder (id=2)"
 
     @pytest.mark.asyncio
     async def test_ctrl_enter_noop_when_no_responder_paired(self, tmp_aque_dir):
         from aque.desk import DeskApp
         from aque.state import AgentInfo, AgentState, StateManager
-        from aque.terminal.widget import TerminalView
 
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
@@ -406,15 +392,13 @@ class TestResponderEmbedToggle:
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
-            attached: list[str] = []
-            term = app.query_one("#embedded-terminal", TerminalView)
-            term.attach = lambda argv, size_sync=None: attached.append(argv[-1])
-            term.focus = lambda: None
+            captured: list[int] = []
+            app._attach_to_agent = lambda agent: captured.append(agent.id)
             app._skip_attach = False
             app.query_one("#agent-option-list").highlighted = 0
 
-            app.action_attach_responder_embed()
-            assert attached == []
+            app.action_attach_responder()
+            assert captured == []
 
 
 class TestAutoRespondToggle:
@@ -722,7 +706,7 @@ class TestAgentSwitching:
             assert ol.highlighted == ol.option_count - 1
 
 
-class TestTerminalFocus:
+class TestDashboardFocus:
     @pytest.mark.asyncio
     async def test_agent_list_focusable_and_focused_on_mount(self, tmp_aque_dir):
         mgr = StateManager(tmp_aque_dir)
@@ -734,12 +718,11 @@ class TestTerminalFocus:
         async with app.run_test() as pilot:
             await pilot.pause()
             ol = app.query_one("#agent-option-list", OptionList)
-            assert ol.can_focus is True       # focusable (Tab cycles into embed)
-            assert app.focused is ol          # list is the default surface
+            assert ol.can_focus is True
+            assert app.focused is ol  # list is the default (and only) dashboard surface
 
     @pytest.mark.asyncio
-    async def test_highlight_previews_without_stealing_focus(self, tmp_aque_dir, monkeypatch):
-        from aque.terminal.widget import TerminalView
+    async def test_enter_on_row_full_screen_attaches(self, tmp_aque_dir, monkeypatch):
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="s-1", label="a", dir="/tmp",
@@ -748,59 +731,20 @@ class TestTerminalFocus:
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             await pilot.pause()
-            term = app.query_one("#embedded-terminal", TerminalView)
-            monkeypatch.setattr(term, "attach", lambda argv, size_sync=None: None)  # no focus steal
+            captured: list[int] = []
+            app._attach_to_agent = lambda agent: captured.append(agent.id)
             app._skip_attach = False
             ol = app.query_one("#agent-option-list", OptionList)
             ol.focus()
             ol.highlighted = 0
-            app._attach_highlighted_terminal()
+            await pilot.press("enter")
             await pilot.pause()
-            assert app.focused is ol          # hover preview kept list focus
+            assert captured == [1], "Enter on a row should full-screen attach"
 
-    @pytest.mark.asyncio
-    async def test_enter_focuses_terminal(self, tmp_aque_dir, monkeypatch):
-        from aque.terminal.widget import TerminalView
-        mgr = StateManager(tmp_aque_dir)
-        mgr.add_agent(AgentInfo(
-            id=1, tmux_session="s-1", label="a", dir="/tmp",
-            command=["a"], state=AgentState.RUNNING, pid=100,
-        ))
-        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            term = app.query_one("#embedded-terminal", TerminalView)
-            monkeypatch.setattr(term, "attach", lambda argv, size_sync=None: None)
-            app._skip_attach = False
-            ol = app.query_one("#agent-option-list", OptionList)
-            ol.focus()
-            ol.highlighted = 0
-            await pilot.press("enter")        # Enter pops into the embed
-            await pilot.pause()
-            assert app.focused is term
-
-    @pytest.mark.asyncio
-    async def test_check_action_gates_plain_letters_when_embed_focused(self, tmp_aque_dir):
-        from aque.terminal.widget import TerminalView
-        mgr = StateManager(tmp_aque_dir)
-        mgr.add_agent(AgentInfo(
-            id=1, tmux_session="s-1", label="a", dir="/tmp",
-            command=["a"], state=AgentState.RUNNING, pid=100,
-        ))
-        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            term = app.query_one("#embedded-terminal", TerminalView)
-            assert app.check_action("new_agent", ()) is True   # list focused
-            term.focus()
-            await pilot.pause()
-            assert app.check_action("new_agent", ()) is False  # gated in embed
-            assert app.check_action("next_agent", ()) is True  # priority never gated
 
 class TestTriageCoexistence:
     @pytest.mark.asyncio
-    async def test_triage_suppressed_while_terminal_focused(self, tmp_aque_dir):
-        from aque.terminal.widget import TerminalView
+    async def test_triage_suppressed_while_search_focused(self, tmp_aque_dir):
         from aque.widgets.triage_modal import TriageModal
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
@@ -810,19 +754,19 @@ class TestTriageCoexistence:
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         app._scan_for_orphans = lambda: None
         async with app.run_test() as pilot:
-            await pilot.pause()            # let mount focus settle on the list
-            term = app.query_one("#embedded-terminal", TerminalView)
-            term.focus()
             await pilot.pause()
-            assert app.focused is term
-            app._skip_attach = False       # allow triage to surface
-            app._try_show_triage()         # ...but the embed has focus
+            # Open the search input and let it take focus — triage must not
+            # pop while a non-list widget owns the keyboard.
+            app.action_focus_search()
             await pilot.pause()
-            # Suppressed: no modal pops and the terminal keeps focus, so a
-            # notification can't steal keystrokes mid-command.
+            search = app.query_one("#search-input")
+            assert app.focused is search
+            app._skip_attach = False
+            app._try_show_triage()
+            await pilot.pause()
             assert not isinstance(app.screen, TriageModal)
             assert app._triage_agent is None
-            assert app.focused is term
+            assert app.focused is search
 
 
 class TestAttachDoesNotChangeState:
@@ -860,10 +804,9 @@ class TestAttachDoesNotChangeState:
         assert app.state_mgr.load().agents[0].state == AgentState.RUNNING
 
 
-class TestEmbedShortcuts:
+class TestPalette:
     @pytest.mark.asyncio
-    async def test_back_to_list_focuses_list(self, tmp_aque_dir):
-        from aque.terminal.widget import TerminalView
+    async def test_back_to_list_focuses_list_from_search(self, tmp_aque_dir):
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="s-1", label="a", dir="/tmp",
@@ -872,10 +815,9 @@ class TestEmbedShortcuts:
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test() as pilot:
             await pilot.pause()
-            term = app.query_one("#embedded-terminal", TerminalView)
-            term.focus()
+            app.action_focus_search()
             await pilot.pause()
-            assert app.focused is term
+            assert app.focused.id == "search-input"
             app.action_back_to_list()
             await pilot.pause()
             assert app.focused is app.query_one("#agent-option-list", OptionList)

@@ -118,13 +118,8 @@ def test_responder_state_invalidates_fingerprint():
     pass
 
 
-@scenario(FEATURE, "Ctrl+Enter on a partner with a responder swaps the embed to the responder")
-def test_ctrl_enter_swaps_to_responder():
-    pass
-
-
-@scenario(FEATURE, "Ctrl+Enter pressed twice swaps the embed back to the partner")
-def test_ctrl_enter_swaps_back_to_partner():
+@scenario(FEATURE, "Ctrl+Enter on a partner with a responder full-screen attaches to the responder")
+def test_ctrl_enter_attaches_to_responder():
     pass
 
 
@@ -635,28 +630,20 @@ def _highlight_agent_id(app_ctx: _AppCtx, agent_id: int) -> None:
 
 @given(parsers.parse('agent "{name}" is highlighted on the dashboard'))
 def given_agent_highlighted(ctx, app_ctx, name):
-    """Ensure the named agent exists, mount the app, install embed/notify
-    capture hooks (idempotent so chained Givens compose cleanly), highlight
-    its row, and drain any debounce-driven preview attach that fires from
-    the highlight change so the embed_attach_log starts clean for the
-    scenario's ctrl+enter assertions.
+    """Ensure the named agent exists, mount the app, install
+    _attach_to_agent + notify capture hooks (idempotent so chained Givens
+    compose cleanly), and highlight its row.
     """
     if name not in ctx["agents_by_name"]:
         _add_partner(ctx, name)
     app_ctx.ensure_mounted()
-    if "embed_attach_log" not in ctx:
-        ctx["embed_attach_log"] = _patch_term_attach(app_ctx)
+    if "attach_log" not in ctx:
+        ctx["attach_log"] = _patch_attach_to_agent(app_ctx)
     if "notifications" not in ctx:
         notes: list[str] = []
         ctx["notifications"] = notes
         app_ctx.app.notify = lambda msg, **kw: notes.append(msg)
     _highlight_agent_id(app_ctx, ctx["agents_by_name"][name])
-    # Let the 150ms debounce fire so its preview-attach lands in the log,
-    # then wipe the log: only ctrl+enter-driven attaches should be observed.
-    async def _settle():
-        await app_ctx.pilot.pause(0.2)
-    app_ctx.run(_settle())
-    ctx["embed_attach_log"].clear()
 
 
 @when(parsers.parse('the user presses "{key}"'))
@@ -1011,49 +998,30 @@ def then_fingerprint_changed(ctx, app_ctx):
     )
 
 
-def _patch_term_attach(app_ctx) -> list[str]:
-    """Stub the embedded terminal so action_attach_responder_embed can run
-    without spawning a real tmux client. Returns a list that records the
-    session name from each captured attach call.
-
-    The stub invokes ``size_sync`` with dummy dimensions when provided so
-    ``_embed_pinned`` updates the way it does in production. Without this,
-    every Ctrl+Enter press sees ``_embed_pinned=None`` and the toggle logic
-    can't distinguish "currently on responder" from "currently on partner".
+def _patch_attach_to_agent(app_ctx) -> list[int]:
+    """Stub the desk's _attach_to_agent so the responder Ctrl+Enter action
+    can run without actually suspending into tmux. Returns a list that
+    records the agent id passed to each capture call (the test asserts on
+    the id, which uniquely identifies the agent).
     """
-    from aque.terminal.widget import TerminalView
+    captured: list[int] = []
 
-    captured: list[str] = []
-    term = app_ctx.app.query_one("#embedded-terminal", TerminalView)
+    def _stub_attach(agent):
+        captured.append(agent.id)
 
-    def _stub_attach(argv, size_sync=None):
-        captured.append(argv[-1])
-        if size_sync is not None:
-            try:
-                size_sync(80, 24)
-            except Exception:
-                pass
-
-    term.attach = _stub_attach
-    term.focus = lambda: None
+    app_ctx.app._attach_to_agent = _stub_attach
     app_ctx.app._skip_attach = False
-    # Suppress the preview hover-attach so it doesn't slip in between
-    # Ctrl+Enter presses and pollute the captured-session log.
-    app_ctx.app._attach_highlighted_terminal = lambda: None
     return captured
 
 
-@then(parsers.parse('the embedded terminal should be attached to "{name}"\'s tmux session'))
-def then_embed_attached_to(ctx, app_ctx, name):
-    captured = ctx.get("embed_attach_log") or []
-    assert captured, "Embed attach was never called"
+@then(parsers.parse('the desk should full-screen attach to "{name}"\'s tmux session'))
+def then_desk_attached_to(ctx, app_ctx, name):
+    captured = ctx.get("attach_log") or []
+    assert captured, "_attach_to_agent was never called"
     aid = ctx["agents_by_name"][name]
-    expected = next(
-        a.tmux_session for a in ctx["mgr"].load().agents if a.id == aid
-    )
-    assert captured[-1] == expected, (
-        f'Expected embed attached to "{name}" session {expected!r}, '
-        f'got {captured[-1]!r} (full log: {captured})'
+    assert captured[-1] == aid, (
+        f'Expected last attach to be "{name}" (id={aid}), '
+        f'got id={captured[-1]} (full log: {captured})'
     )
 
 
