@@ -15,6 +15,29 @@ from aque.state import AgentInfo, AgentState, StateManager
 SHELL_PROMPT_RE = re.compile(r"[\$#%>➜❯→⟩›]\s*$")
 _background_threads: list[threading.Thread] = []
 
+# Fixed agent-session dimensions. We pin every session to this size so
+# external attaches (a ghostty window, a manual ``tmux attach`` from another
+# terminal, etc.) **letterbox** instead of resizing the window. Without the
+# pin, an external client at a different size makes the window reflow, which
+# changes ``capture_pane`` output and makes the idle detector think the agent
+# did something. 200x50 is wide/tall enough for TUI agents (Claude Code,
+# etc.) without overflowing most laptop terminals.
+_PINNED_COLS = 200
+_PINNED_ROWS = 50
+
+
+def _pin_session_size(session: "libtmux.session.Session") -> None:
+    """Lock ``session`` to a fixed window size. See ``_PINNED_COLS/_ROWS``.
+
+    Best-effort: tmux option syntax has shifted across versions, so we
+    swallow exceptions — a session that fails to pin still works, it just
+    risks reflow during external attaches."""
+    try:
+        session.set_option("window-size", "manual")
+        session.cmd("resize-window", "-x", str(_PINNED_COLS), "-y", str(_PINNED_ROWS))
+    except Exception:
+        pass
+
 
 def _sanitize_session_name(name: str) -> str:
     """Make a string safe for use as a tmux session name."""
@@ -74,6 +97,7 @@ def launch_agent(
     )
 
     session.set_option("remain-on-exit", "on")
+    _pin_session_size(session)
 
     pane = session.active_pane
 
@@ -158,6 +182,7 @@ def relaunch_agent(
         detach=True,
     )
     session.set_option("remain-on-exit", "on")
+    _pin_session_size(session)
     pane = session.active_pane
 
     # Persist the new tmux state before sending keys so other readers see it.
