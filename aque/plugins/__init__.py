@@ -67,11 +67,17 @@ def _load_module_from_path(name: str, path: Path) -> ModuleType | None:
     return module
 
 
-def _is_valid_plugin(module: ModuleType) -> bool:
-    """Check that a module exposes the required plugin interface."""
-    return callable(getattr(module, "is_installed", None)) and callable(
-        getattr(module, "install_hook", None)
+def _has_hook_bundle(module: ModuleType) -> bool:
+    return all(
+        callable(getattr(module, name, None)) for name in _HOOK_CAPABILITY
     )
+
+
+def _is_valid_plugin(module: ModuleType) -> bool:
+    """A plugin is valid if it exposes EITHER the hook bundle OR the session
+    capture bundle. Pre-built-in-claude rewrites required hooks; now the
+    built-in claude plugin is capture-only, so the gate has to accept that."""
+    return _has_hook_bundle(module) or has_session_capture(module)
 
 
 def _warn_unknown_capabilities(module: ModuleType, source: str) -> None:

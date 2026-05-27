@@ -7,7 +7,6 @@ import yaml
 _projects_dir = Path.home() / "Projects"
 DEFAULT_CONFIG = {
     "idle_timeout": 15,
-    "stall_timeout": 600,
     "snapshot_interval": 2,
     "action_keys": {
         "dismiss": "d",

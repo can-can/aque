@@ -42,6 +42,12 @@ Feature: Filter and search the agent list
     Then the search input should be visible
     And the search input should have focus
 
+  Scenario: Pressing Escape closes the open search input even when empty
+    When the dashboard loads
+    And the user presses "/"
+    And the user presses Escape
+    Then the search input should not be visible
+
   Scenario: Typing in the search input filters the list
     When the dashboard loads
     And the user opens search and types "brav"

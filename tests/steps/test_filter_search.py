@@ -40,6 +40,11 @@ def test_slash_opens_search():
     pass
 
 
+@scenario(FEATURE, "Pressing Escape closes the open search input even when empty")
+def test_escape_closes_empty_search_input():
+    pass
+
+
 @scenario(FEATURE, "Typing in the search input filters the list")
 def test_search_input_filters():
     pass
@@ -230,6 +235,14 @@ def then_search_visible(ctx):
     inputs = ctx.app.query("#search-input")
     assert len(inputs) == 1, "Search input not mounted"
     assert inputs.first().display is True
+
+
+@then("the search input should not be visible")
+def then_search_not_visible(ctx):
+    inputs = ctx.app.query("#search-input")
+    assert len(inputs) == 0, (
+        f"Expected #search-input to be unmounted, but {len(inputs)} found"
+    )
 
 
 @then("the search input should have focus")

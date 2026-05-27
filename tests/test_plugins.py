@@ -1,10 +1,4 @@
-import importlib
-import json
-from pathlib import Path
-from unittest.mock import patch
-
 from aque.plugins import discover_plugins, get_plugin, has_session_capture
-from aque.plugins.claude import is_installed, install_hook
 
 
 class TestDiscoverPlugins:
@@ -12,47 +6,57 @@ class TestDiscoverPlugins:
         plugins = discover_plugins()
         assert "claude" in plugins
 
-    def test_plugin_has_required_interface(self):
-        plugins = discover_plugins()
-        claude = plugins["claude"]
-        assert hasattr(claude, "is_installed")
-        assert hasattr(claude, "install_hook")
-        assert callable(claude.is_installed)
-        assert callable(claude.install_hook)
-
     def test_get_plugin_returns_module(self):
         plugin = get_plugin("claude")
         assert plugin is not None
-        assert hasattr(plugin, "is_installed")
+        # Claude is capture-only after the hook removal — no is_installed.
+        assert hasattr(plugin, "preassign")
+        assert hasattr(plugin, "summarize")
+        assert hasattr(plugin, "resume_command")
 
     def test_get_plugin_returns_none_for_unknown(self):
         plugin = get_plugin("nonexistent_agent_xyz")
         assert plugin is None
 
-    def test_discovers_user_plugins(self, tmp_path):
+    def test_discovers_hook_only_user_plugin(self, tmp_path):
+        """A user plugin exposing the hook bundle (no capture) is still valid."""
         user_plugins_dir = tmp_path / "plugins"
         user_plugins_dir.mkdir()
-        (user_plugins_dir / "custom_agent.py").write_text(
+        (user_plugins_dir / "hookplugin.py").write_text(
             "def is_installed():\n    return False\n"
             "def install_hook():\n    pass\n"
         )
         plugins = discover_plugins(user_plugin_dir=user_plugins_dir)
-        assert "custom_agent" in plugins
+        assert "hookplugin" in plugins
+
+    def test_discovers_capture_only_user_plugin(self, tmp_path):
+        """A user plugin exposing only the capture bundle (no hook) is valid —
+        this is the shape the built-in claude now takes after hook removal."""
+        user_plugins_dir = tmp_path / "plugins"
+        user_plugins_dir.mkdir()
+        (user_plugins_dir / "captureonly.py").write_text(
+            "def preassign(cmd): return (cmd, 'sid')\n"
+            "def summarize(cwd): return []\n"
+            "def resume_command(cmd, sid): return cmd\n"
+        )
+        plugins = discover_plugins(user_plugin_dir=user_plugins_dir)
+        assert "captureonly" in plugins
 
     def test_user_plugin_overrides_builtin(self, tmp_path):
         user_plugins_dir = tmp_path / "plugins"
         user_plugins_dir.mkdir()
         (user_plugins_dir / "claude.py").write_text(
-            "def is_installed():\n    return True\n"
-            "def install_hook():\n    pass\n"
+            "def preassign(cmd): return (cmd, 'sid')\n"
+            "def summarize(cwd): return []\n"
+            "def resume_command(cmd, sid): return cmd\n"
+            "def custom_marker(): return 'override'\n"
         )
         plugins = discover_plugins(user_plugin_dir=user_plugins_dir)
-        assert plugins["claude"].is_installed() is True
+        assert plugins["claude"].custom_marker() == "override"
 
     def test_unknown_capability_warns(self, tmp_path, caplog):
         """A user plugin function whose name isn't in KNOWN_CAPABILITIES gets a
-        warn-log — catches typos like ``presign`` vs ``preassign`` without
-        making the user maintain an explicit capability list."""
+        warn-log — catches typos like ``presign`` vs ``preassign``."""
         import logging
         user_plugins_dir = tmp_path / "plugins"
         user_plugins_dir.mkdir()
@@ -64,20 +68,6 @@ class TestDiscoverPlugins:
         with caplog.at_level(logging.WARNING, logger="aque.plugins"):
             discover_plugins(user_plugin_dir=user_plugins_dir)
         assert any("presign" in r.message for r in caplog.records)
-
-    def test_known_capability_does_not_warn(self, tmp_path, caplog):
-        import logging
-        user_plugins_dir = tmp_path / "plugins"
-        user_plugins_dir.mkdir()
-        (user_plugins_dir / "clean_plugin.py").write_text(
-            "def is_installed():\n    return False\n"
-            "def install_hook():\n    pass\n"
-        )
-        with caplog.at_level(logging.WARNING, logger="aque.plugins"):
-            discover_plugins(user_plugin_dir=user_plugins_dir)
-        assert not any(
-            "unknown capability" in r.message for r in caplog.records
-        )
 
     def test_builtin_claude_plugin_does_not_warn(self, caplog):
         """The shipped claude plugin must not trip the typo check itself —
@@ -121,8 +111,6 @@ class TestHasSessionCapture:
         user_plugins_dir = tmp_path / "plugins"
         user_plugins_dir.mkdir()
         (user_plugins_dir / "fake.py").write_text(
-            "def is_installed(): return False\n"
-            "def install_hook(): pass\n"
             "def preassign(cmd): return (cmd, 'sid')\n"
             "def summarize(cwd): return []\n"
             "def resume_command(cmd, sid): return cmd\n"
@@ -138,16 +126,9 @@ class TestDispatchAgreement:
     is a divergence bug."""
 
     def test_predicate_is_stable_across_call_sites(self, tmp_path):
-        """Build a registry containing one capture-capable plugin and one
-        non-capture plugin, then query each through the same predicate the
-        coordinator uses. If we ever introduced a second predicate (e.g.
-        ``agent_type in CAPTURERS``) for the same question, this test would
-        catch the drift."""
         user_plugins_dir = tmp_path / "plugins"
         user_plugins_dir.mkdir()
         (user_plugins_dir / "withcapture.py").write_text(
-            "def is_installed(): return False\n"
-            "def install_hook(): pass\n"
             "def preassign(cmd): return (cmd, 'sid')\n"
             "def summarize(cwd): return []\n"
             "def resume_command(cmd, sid): return cmd\n"
@@ -157,9 +138,6 @@ class TestDispatchAgreement:
             "def install_hook(): pass\n"
         )
         plugins = discover_plugins(user_plugin_dir=user_plugins_dir)
-        # Every plugin agrees with itself on every repeated query — the test
-        # would catch a future refactor that accidentally introduced a
-        # parallel registry/predicate.
         for name, plugin in plugins.items():
             answers = {has_session_capture(plugin) for _ in range(3)}
             assert len(answers) == 1, f"{name}: predicate is non-deterministic"
@@ -167,150 +145,29 @@ class TestDispatchAgreement:
         assert has_session_capture(plugins["hookonly"]) is False
 
 
-class TestClaudePlugin:
-    def test_not_installed_when_no_settings_file(self, tmp_path):
-        assert is_installed(config_path=tmp_path / "settings.json") is False
+class TestClaudePluginCapture:
+    """Capture-bundle contract for the built-in claude plugin."""
 
-    def test_not_installed_when_no_hook_entry(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({"hooks": {}}))
-        assert is_installed(config_path=settings_path) is False
+    def test_preassign_appends_session_id_flag(self):
+        from aque.plugins.claude import preassign
+        cmd, sid = preassign(["claude"])
+        assert "--session-id" in cmd
+        assert sid in cmd
+        # New uuid each call.
+        _, sid2 = preassign(["claude"])
+        assert sid != sid2
 
-    def test_not_installed_when_only_stop_hook_present(self, tmp_path):
-        # Legacy install had only Stop; now all three hooks are required.
-        settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {"Stop": [{"hooks": [{"type": "command",
-                "command": "echo x > ~/.aque/signals/$AQUE_AGENT_ID.json"}]}]}
-        }))
-        assert is_installed(config_path=settings_path) is False
+    def test_resume_command_appends_resume_flag_when_not_preassigned(self):
+        from aque.plugins.claude import resume_command
+        result = resume_command(["claude"], "abc-123")
+        assert result == ["claude", "--resume", "abc-123"]
 
-    def test_install_creates_all_three_hooks(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        install_hook(config_path=settings_path)
-        data = json.loads(settings_path.read_text())
-        hooks = data["hooks"]
-        assert {"Stop", "Notification", "UserPromptSubmit"} <= set(hooks)
-        assert is_installed(config_path=settings_path) is True
-        def cmd(event):
-            return data["hooks"][event][0]["hooks"][0]["command"]
-        assert '"event":"start"' in cmd("UserPromptSubmit")
-        assert '"event":"stop"' in cmd("Stop")
-        assert '"event":"stop"' in cmd("Notification")
+    def test_resume_command_is_no_op_when_command_already_preassigned(self):
+        from aque.plugins.claude import resume_command
+        original = ["claude", "--session-id", "xxx"]
+        assert resume_command(original, "abc-123") == original
 
-    def test_install_upgrades_stop_only_without_duplicating(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {"Stop": [{"hooks": [{"type": "command",
-                "command": "echo '{\"event\":\"stop\"}' > ~/.aque/signals/$AQUE_AGENT_ID.json"}]}]}
-        }))
-        install_hook(config_path=settings_path)
-        data = json.loads(settings_path.read_text())
-        assert len(data["hooks"]["Stop"]) == 1  # not duplicated
-        assert is_installed(config_path=settings_path) is True
-
-    def test_install_is_idempotent(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        install_hook(config_path=settings_path)
-        first = settings_path.read_text()
-        install_hook(config_path=settings_path)
-        assert settings_path.read_text() == first
-
-    def test_hook_commands_exit_zero_when_agent_id_unset(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        install_hook(config_path=settings_path)
-        data = json.loads(settings_path.read_text())
-        for event in ("Stop", "Notification", "UserPromptSubmit"):
-            cmd = data["hooks"][event][0]["hooks"][0]["command"]
-            assert cmd.startswith('if [ -n "$AQUE_AGENT_ID" ]')
-
-    def test_install_hook_creates_settings_file(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        install_hook(config_path=settings_path)
-        assert settings_path.exists()
-        data = json.loads(settings_path.read_text())
-        assert "hooks" in data
-        assert "Stop" in data["hooks"]
-        # Verify the hook command references aque signals
-        hook_cmd = data["hooks"]["Stop"][0]["hooks"][0]["command"]
-        assert "~/.aque/signals/$AQUE_AGENT_ID.json" in hook_cmd
-
-    def test_install_hook_preserves_existing_settings(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "permissions": {"allow": ["Bash"]},
-            "hooks": {
-                "PreToolUse": [{"hooks": [{"type": "command", "command": "echo pre"}]}]
-            }
-        }))
-        install_hook(config_path=settings_path)
-        data = json.loads(settings_path.read_text())
-        assert data["permissions"] == {"allow": ["Bash"]}
-        assert "PreToolUse" in data["hooks"]
-        assert "Stop" in data["hooks"]
-
-    def test_install_hook_appends_to_existing_stop_hooks(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        settings_path.write_text(json.dumps({
-            "hooks": {
-                "Stop": [{"hooks": [{"type": "command", "command": "echo user-hook"}]}]
-            }
-        }))
-        install_hook(config_path=settings_path)
-        data = json.loads(settings_path.read_text())
-        # Should have both the user's hook and aque's hook
-        assert len(data["hooks"]["Stop"]) == 2
-
-    def test_install_hook_idempotent(self, tmp_path):
-        settings_path = tmp_path / "settings.json"
-        install_hook(config_path=settings_path)
-        install_hook(config_path=settings_path)
-        data = json.loads(settings_path.read_text())
-        # Should still have exactly one aque hook entry
-        aque_hooks = [
-            h for h in data["hooks"]["Stop"]
-            if any("aque/signals" in hh.get("command", "") for hh in h.get("hooks", []))
-        ]
-        assert len(aque_hooks) == 1
-
-
-class TestClaudeHookCommandExitCode:
-    """The Stop hook must always exit 0 — otherwise Claude Code reports a
-    'Stop hook error' even when the hook correctly does nothing (no AQUE_AGENT_ID)."""
-
-    def _run(self, env):
-        import subprocess
-        from aque.plugins.claude import AQUE_HOOK_COMMAND
-        return subprocess.run(["bash", "-c", AQUE_HOOK_COMMAND], env=env)
-
-    def test_exits_zero_when_agent_id_unset(self):
-        import os
-        env = {k: v for k, v in os.environ.items() if k != "AQUE_AGENT_ID"}
-        assert self._run(env).returncode == 0
-
-    def test_writes_signal_and_exits_zero_when_agent_id_set(self, tmp_path, monkeypatch):
-        import os
-        monkeypatch.setenv("HOME", str(tmp_path))      # ~ -> tmp_path
-        (tmp_path / ".aque" / "signals").mkdir(parents=True)
-        env = dict(os.environ, AQUE_AGENT_ID="42", HOME=str(tmp_path))
-        assert self._run(env).returncode == 0
-        signal = tmp_path / ".aque" / "signals" / "42.json"
-        assert signal.exists()
-        assert '"stop"' in signal.read_text()
-
-
-class TestInstallHookUpgrade:
-    def test_install_hook_upgrades_stale_command(self, tmp_path):
-        from aque.plugins.claude import install_hook, AQUE_HOOK_COMMAND
-        cfg = tmp_path / "settings.json"
-        stale = ('[ -n "$AQUE_AGENT_ID" ] && '
-                 'echo \'{"event":"stop"}\' > ~/.aque/signals/$AQUE_AGENT_ID.json')
-        cfg.write_text(json.dumps(
-            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": stale}]}]}}
-        ))
-        install_hook(config_path=cfg)
-        data = json.loads(cfg.read_text())
-        cmds = [h["command"] for e in data["hooks"]["Stop"] for h in e["hooks"]]
-        assert stale not in cmds                 # old command replaced
-        assert AQUE_HOOK_COMMAND in cmds         # with the current one
-        assert sum("aque/signals" in c for c in cmds) == 1  # not duplicated
+    def test_existing_uuids_empty_for_missing_dir(self, tmp_path, monkeypatch):
+        from aque.plugins.claude import existing_uuids
+        monkeypatch.setattr("aque.plugins.claude.Path.home", lambda: tmp_path)
+        assert existing_uuids("/nonexistent/dir") == set()

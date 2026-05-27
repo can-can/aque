@@ -114,8 +114,11 @@ class LaunchCoordinator:
         if session_id is not None and has_session_capture(plugin):
             command = plugin.resume_command(command, session_id)
 
-        if plugin is not None and not plugin.is_installed():
-            plugin.install_hook()
+        # Hook-bundle plugins install their settings.json hooks on first
+        # launch; capture-only plugins (the built-in claude) skip this branch.
+        if plugin is not None and callable(getattr(plugin, "is_installed", None)):
+            if not plugin.is_installed():
+                plugin.install_hook()
 
         agent_id = launch_agent(
             command=command,

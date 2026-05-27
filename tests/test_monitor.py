@@ -355,8 +355,8 @@ def test_attached_running_agent_skips_idle(monkeypatch, tmp_path):
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "stable")
     monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.RUNNING
 
 
@@ -368,8 +368,8 @@ def test_idle_flips_when_not_attached(monkeypatch, tmp_path):
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "stable")
     monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: False)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
 
 
@@ -388,10 +388,10 @@ def test_waiting_becomes_running_on_content_change_while_attached(monkeypatch, t
     _mark_attached(tmp_path, agent.id)
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "before")
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "after")
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.RUNNING
 
 
@@ -403,8 +403,8 @@ def test_waiting_unchanged_content_does_not_flip(monkeypatch, tmp_path):
     _mark_attached(tmp_path, agent.id)
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "same")
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
 
 
@@ -427,10 +427,10 @@ def test_waiting_not_repromoted_without_desk_marker(monkeypatch, tmp_path):
     monkeypatch.setattr(monitor, "session_exists", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: True)
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "before")
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
     monkeypatch.setattr(monitor, "capture_pane_content", lambda *a, **k: "after")
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING, (
         "Content changed but no desk marker — must NOT re-promote"
     )
@@ -459,8 +459,8 @@ def test_demoted_agent_does_not_repromote_on_attach_via_stale_hash(monkeypatch, 
 
     # Phase 1: not attached + stable content → RUNNING idles to WAITING.
     monkeypatch.setattr(monitor, "_has_attached_client", lambda *a, **k: False)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
 
     # Phase 2: user attaches via the desk; pane text is unchanged. Must NOT
@@ -468,7 +468,7 @@ def test_demoted_agent_does_not_repromote_on_attach_via_stale_hash(monkeypatch, 
     # survive. Mark the desk attach so the marker-file gate doesn't trivially
     # skip the re-promotion path (which would hide the stale-hash regression).
     _mark_attached(tmp_path, agent.id)
-    _poll_once(mgr, object(), detector, cfg, signals, 600, tmp_path, waiting_hashes)
+    _poll_once(mgr, object(), detector, cfg, signals, tmp_path, waiting_hashes)
     assert mgr.load().agents[0].state == AgentState.WAITING
 
 
@@ -540,7 +540,7 @@ def _poll(mgr, monkeypatch, *, attached=False, content="x", waiting_hashes=None)
     detector = monitor.IdleDetector(idle_timeout=0.01, aque_dir=mgr.aque_dir)
     monitor._poll_once(
         mgr, server=None, detector=detector, config={},
-        signals_dir=mgr.aque_dir / "signals", stall_timeout=600.0,
+        signals_dir=mgr.aque_dir / "signals",
         aque_dir=mgr.aque_dir,
         waiting_hashes=waiting_hashes if waiting_hashes is not None else {},
     )
@@ -565,27 +565,24 @@ class TestEventDrivenSignals:
         _poll(mgr, monkeypatch)
         assert mgr.load().agents[0].state == AgentState.RUNNING
 
-    def test_waiting_claude_not_repromoted_by_content_change(self, tmp_path, monkeypatch):
-        # The flicker case: a previewed (attached) waiting claude whose pane
-        # content changes must STAY waiting (only a 'start' signal resumes it).
+    def test_waiting_repromoted_by_content_change_regardless_of_type(self, tmp_path, monkeypatch):
+        """Detection unified on content polling: claude and untyped both
+        re-promote when the desk is attached and pane content changes.
+        Previously claude was excluded via EVENT_DRIVEN_TYPES (waiting only
+        resumed via a 'start' signal); the hook-based start signal proved
+        too eager and was removed in favour of pure content polling."""
         from aque.state import StateManager, AgentState
-        mgr = StateManager(tmp_path)
-        _add(mgr, 1, AgentState.WAITING, "claude")
-        (tmp_path / "signals").mkdir()
-        wh = {}
-        _poll(mgr, monkeypatch, attached=True, content="frame-A", waiting_hashes=wh)
-        _poll(mgr, monkeypatch, attached=True, content="frame-B", waiting_hashes=wh)
-        assert mgr.load().agents[0].state == AgentState.WAITING
-
-    def test_waiting_typeless_still_repromoted_by_content_change(self, tmp_path, monkeypatch):
-        from aque.state import StateManager, AgentState
-        mgr = StateManager(tmp_path)
-        _add(mgr, 1, AgentState.WAITING, None)
-        (tmp_path / "signals").mkdir()
-        wh = {}
-        _poll(mgr, monkeypatch, attached=True, content="frame-A", waiting_hashes=wh)
-        _poll(mgr, monkeypatch, attached=True, content="frame-B", waiting_hashes=wh)
-        assert mgr.load().agents[0].state == AgentState.RUNNING
+        for agent_type in (None, "claude"):
+            mgr = StateManager(tmp_path / agent_type if agent_type else tmp_path / "none")
+            (mgr.aque_dir).mkdir(parents=True, exist_ok=True)
+            _add(mgr, 1, AgentState.WAITING, agent_type)
+            (mgr.aque_dir / "signals").mkdir(exist_ok=True)
+            wh = {}
+            _poll(mgr, monkeypatch, attached=True, content="frame-A", waiting_hashes=wh)
+            _poll(mgr, monkeypatch, attached=True, content="frame-B", waiting_hashes=wh)
+            assert mgr.load().agents[0].state == AgentState.RUNNING, (
+                f"agent_type={agent_type!r} should re-promote on content change"
+            )
 
 
 def test_run_monitor_refreshes_pid_heartbeat(tmp_aque_dir, monkeypatch):
