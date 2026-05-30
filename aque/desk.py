@@ -955,6 +955,16 @@ class DeskApp(App):
         self._refresh_agent_list()
         self._refresh_status_bar()
 
+    @staticmethod
+    def _short_dir(path: str) -> str:
+        """Home-relative directory for compact row display ($HOME → ~)."""
+        home = str(Path.home())
+        if path == home:
+            return "~"
+        if path.startswith(home + "/"):
+            return "~" + path[len(home):]
+        return path
+
     def _build_row_label(
         self,
         agent: AgentInfo,
@@ -986,6 +996,38 @@ class DeskApp(App):
         # row reorder.
         recent = self.dash.should_show_change_cue(agent.id, time.monotonic())
         cue = f"[{state_color}]▴[/{state_color}]" if recent else " "
+
+        if self._stacked:
+            # Phone/stacked: a 3-cell tap target. Line 1 = dot + bold name;
+            # line 2 = dim "dir · state · ●r · auto"; line 3 = blank spacer.
+            # The row carries its own metadata because the info panel is hidden
+            # in this arrangement. str(prompt) still contains the name, so
+            # substring-matching callers/tests keep working.
+            auto_word = "auto" if agent.auto_respond else "manual"
+            meta_cells = [agent.state.value]
+            badge = ""
+            if responder is not None:
+                resp_color = STATE_COLORS.get(responder.state, "white")
+                badge = f" [dim]·[/dim] [{resp_color}]●r[/{resp_color}]"
+                meta_cells.append("●r")
+            meta_cells.append(auto_word)
+            # Plain width of the meta tail (incl. its separators) tells us how
+            # much room the dir gets; the extra 3 is the " · " joining dir→state.
+            meta_plain = " · ".join(meta_cells)
+            content_w = width or 36
+            indent = "   "
+            dir_budget = max(4, content_w - len(indent) - len(meta_plain) - 3)
+            short = self._short_dir(agent.dir)
+            if len(short) > dir_budget:
+                # Keep the tail — the meaningful end of a path.
+                short = "…" + short[-(dir_budget - 1):]
+            line1 = f"{cue} {state_dot}  [bold]{agent.label}[/bold]"
+            line2 = (
+                f"{indent}[dim]{short}[/dim] [dim]·[/dim] "
+                f"[{state_color}]{agent.state.value}[/{state_color}]"
+                f"{badge} [dim]·[/dim] [dim]{auto_word}[/dim]"
+            )
+            return Text.from_markup(f"{line1}\n{line2}\n")
 
         chip_markup = auto_chip_markup(agent.auto_respond)
         chip_w = len(" auto " if agent.auto_respond else " manual ")

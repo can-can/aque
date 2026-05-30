@@ -195,7 +195,7 @@ class TestNarrowMode:
             assert app.query_one("#preview-panel").display is True
 
     @pytest.mark.asyncio
-    async def test_narrow_agent_label_compact(self, tmp_aque_dir):
+    async def test_stacked_agent_label_shows_dir_and_state(self, tmp_aque_dir):
         mgr = StateManager(tmp_aque_dir)
         mgr.add_agent(AgentInfo(
             id=1, tmux_session="s-1", label="claude . my-project",
@@ -203,14 +203,35 @@ class TestNarrowMode:
         ))
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test(size=(45, 24)) as pilot:
+            app._apply_layout(width=45)
+            app._refresh_agent_list(reset_highlight=True)
+            await pilot.pause()
             ol = app.query_one("#agent-option-list", OptionList)
-            opt = ol.get_option_at_index(0)
-            label = str(opt.prompt)
-            # Should NOT contain dir path or state word
+            label = str(ol.get_option_at_index(0).prompt)
+            # Stacked rows are list-first tap targets: dir tail + state on line 2.
+            assert "my-project" in label
+            assert "running" in label.lower()
+            # Multi-line (name on line 1, meta on line 2, blank spacer).
+            assert "\n" in label
+
+    @pytest.mark.asyncio
+    async def test_wide_agent_label_omits_dir_and_state(self, tmp_aque_dir):
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . my-project",
+            dir="/tmp/my-project", command=["claude"], state=AgentState.RUNNING, pid=100,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            app._apply_layout(width=120)
+            app._refresh_agent_list(reset_highlight=True)
+            await pilot.pause()
+            ol = app.query_one("#agent-option-list", OptionList)
+            label = str(ol.get_option_at_index(0).prompt)
+            # Wide rows stay dense single-line: no dir path, no state word.
             assert "/tmp" not in label
             assert "running" not in label.lower()
-            # Should contain the agent label
-            assert "claude . my-project" in label
+            assert "\n" not in label
 
     @pytest.mark.asyncio
     async def test_wide_agent_label_full(self, tmp_aque_dir):
@@ -286,7 +307,8 @@ class TestNarrowMode:
             await pilot.resize_terminal(45, 24)
             await pilot.pause()
             narrow_label = str(ol.get_option_at_index(0).prompt)
-            assert "running" not in narrow_label.lower()
+            # Stacked rows now show state on line 2 (tap-target design).
+            assert "running" in narrow_label.lower()
             assert "claude . proj" in narrow_label
             # Resize rebuilds the row — the mode chip re-aligns to the new
             # column width — so the rendered label differs between layouts.
