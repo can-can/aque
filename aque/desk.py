@@ -714,15 +714,14 @@ class DeskApp(App):
         return dashboard
 
     def _apply_layout(self, width: int | None = None) -> None:
-        """Apply the effective arrangement (wide two-column or stacked
-        single-column (agent list over the terminal; the notification banner,
-        when present, sits above)).
+        """Apply the effective arrangement: wide two-column (agent list beside
+        the info panel) or stacked single-column. Stacked is list-first — the
+        info panel is hidden so the agent list fills the height (the notification
+        banner, when present, still sits above).
 
         ``_narrow`` (width < NARROW_BREAKPOINT) governs text compaction and is
         computed here; the arrangement comes from ``_effective_layout`` so a
-        forced layout can differ from what the width implies. The embedded
-        terminal is shown in both arrangements now — stacked puts it at the
-        bottom rather than hiding and detaching it.
+        forced layout can differ from what the width implies.
         """
         w = width if width is not None else self.size.width
         self._narrow = w < NARROW_BREAKPOINT
@@ -736,8 +735,6 @@ class DeskApp(App):
             self.query_one("#preview-panel").display = not stacked
         except Exception:
             pass
-        # No unpin-on-narrow: the embed is shown in stacked too, so it pins the
-        # tmux window to its (bottom-region) size via the normal attach path.
         for selector in ("#action-menu", "#new-agent-form", "#quick-launch-form"):
             try:
                 self.query_one(selector).set_class(self._narrow, "narrow")
