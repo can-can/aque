@@ -104,6 +104,11 @@ def test_row_change_cue():
     pass
 
 
+@scenario(FEATURE, "On a small screen rows show dir and state and the info panel is hidden")
+def test_small_screen_list_first():
+    pass
+
+
 @scenario(FEATURE, 'Status bar shows "No agents" when state is empty')
 def test_status_bar_empty():
     pass
@@ -459,6 +464,50 @@ def then_highlighted_agent_still_is(ctx, label):
     assert label in label_text, (
         f"Expected highlighted agent still '{label}', got prompt text: '{label_text}'"
     )
+
+
+@when("the dashboard is shown on a small screen")
+def when_dashboard_small_screen(ctx):
+    ctx.ensure_mounted()
+
+    async def _small():
+        # Switch to the stacked arrangement, then PAUSE so the agent panel
+        # reflows to full width before we rebuild rows — otherwise the row is
+        # built against the stale (narrow two-column) content width and the dir
+        # is over-truncated. reset_highlight bypasses the fingerprint cache so
+        # rows re-render in stacked form.
+        ctx.app._apply_layout(width=45)
+        await ctx.pilot.pause()
+        ctx.app._refresh_agent_list(reset_highlight=True)
+        await ctx.pilot.pause()
+
+    ctx.run(_small())
+
+
+@then(parsers.parse('the agent row for "{label}" should show its directory and state'))
+def then_row_shows_dir_and_state(ctx, label):
+    state = ctx.state_mgr.load()
+    agent = next((a for a in state.agents if a.label == label), None)
+    assert agent is not None, f"Agent '{label}' not found"
+    option_list = ctx.app.query_one("#agent-option-list")
+    for i in range(option_list.option_count):
+        text = str(option_list.get_option_at_index(i).prompt)
+        if label in text:
+            dir_tail = agent.dir.rsplit("/", 1)[-1]  # e.g. "alpha"
+            assert dir_tail in text, (
+                f"Expected dir '{dir_tail}' on row for '{label}', got: {text!r}"
+            )
+            assert agent.state.value in text, (
+                f"Expected state '{agent.state.value}' on row for '{label}', got: {text!r}"
+            )
+            return
+    pytest.fail(f"Agent '{label}' not found in option list")
+
+
+@then("the info panel should be hidden")
+def then_info_panel_hidden(ctx):
+    preview = ctx.app.query_one("#preview-panel")
+    assert preview.display is False, "Info panel should be hidden on a small screen"
 
 
 # ── Status bar steps ───────────────────────────────────────────────────────────

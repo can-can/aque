@@ -158,3 +158,14 @@ Feature: Dashboard
     When the user presses "h"
     Then agent "builder" should be in "running" state
 
+  # ── Small-screen (stacked) layout ──────────────────────────────
+  # On a phone-sized terminal the list fills the screen and each row carries its
+  # own dir + state (the info panel is hidden), so rows are big tap targets.
+  Scenario: On a small screen rows show dir and state and the info panel is hidden
+    Given the following agents exist:
+      | label   | state   | dir              |
+      | builder | running | /home/work/alpha |
+    When the dashboard is shown on a small screen
+    Then the agent row for "builder" should show its directory and state
+    And the info panel should be hidden
+
