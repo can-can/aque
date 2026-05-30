@@ -69,6 +69,18 @@ Feature: Dashboard
     When the periodic refresh runs
     Then the highlighted agent should still be "builder"
 
+  # Distinct from "resets to top": the list sorts by label, so "zebra" sits
+  # below "alpha". A reset-to-top would land on "alpha" — detaching must instead
+  # leave the highlight on the agent the user was just inside.
+  Scenario: Detaching from an agent keeps it highlighted
+    Given the following agents exist:
+      | label | state   |
+      | alpha | running |
+      | zebra | running |
+    And the user has "zebra" highlighted on the dashboard
+    When the user detaches from "zebra"
+    Then the highlighted agent should be "zebra"
+
   # ── Status bar ─────────────────────────────────────────────────
 
   Scenario: Status bar shows agent counts by state

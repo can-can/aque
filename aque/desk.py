@@ -1008,7 +1008,12 @@ class DeskApp(App):
             f"{' ' * pad}{badge_markup}{chip_markup}"
         )
 
-    def _refresh_agent_list(self, reset_highlight: bool = False, state: AppState | None = None) -> None:
+    def _refresh_agent_list(
+        self,
+        reset_highlight: bool = False,
+        state: AppState | None = None,
+        highlight_agent_id: int | None = None,
+    ) -> None:
         try:
             option_list = self.query_one("#agent-option-list", OptionList)
         except Exception:
@@ -1037,11 +1042,17 @@ class DeskApp(App):
         # the change cue can highlight rows that just moved positions.
         self.dash.record_state_transitions(agents, time.monotonic())
 
-        current_highlighted_id = None
-        if not reset_highlight and option_list.highlighted is not None:
+        # The row to re-select after the rebuild. An explicit
+        # ``highlight_agent_id`` (e.g. the agent we just detached from) wins and
+        # is matched by id, so it survives a reorder — even when a reset was
+        # requested. Otherwise preserve the current selection unless a reset
+        # was asked for. Either way the match is by id, not position.
+        target_id: str | None = None
+        if highlight_agent_id is not None:
+            target_id = str(highlight_agent_id)
+        elif not reset_highlight and option_list.highlighted is not None:
             try:
-                current_option = option_list.get_option_at_index(option_list.highlighted)
-                current_highlighted_id = current_option.id
+                target_id = option_list.get_option_at_index(option_list.highlighted).id
             except Exception:
                 pass
 
@@ -1052,10 +1063,10 @@ class DeskApp(App):
             label = self._build_row_label(agent, width=row_width, responder=responder)
             option_list.add_option(Option(label, id=str(agent.id)))
 
-        if current_highlighted_id is not None:
+        if target_id is not None:
             for i in range(option_list.option_count):
                 opt = option_list.get_option_at_index(i)
-                if opt.id == current_highlighted_id:
+                if opt.id == target_id:
                     option_list.highlighted = i
                     break
 
@@ -1128,7 +1139,14 @@ class DeskApp(App):
             screen_children=children,
         )
 
-    def _show_dashboard(self) -> None:
+    def _show_dashboard(self, highlight_agent_id: int | None = None) -> None:
+        """Return to the dashboard surface.
+
+        ``highlight_agent_id`` re-selects a specific agent row after the rebuild
+        (matched by id, so it survives the list reorder) — used by the detach
+        path to keep the just-left agent highlighted. When ``None`` the highlight
+        resets to the top row, the default for form/Esc returns.
+        """
         self._dismiss_triage_modal()
         self._triage_agent = None
         self._mode = "dashboard"
@@ -1139,7 +1157,7 @@ class DeskApp(App):
             self.query_one("#status-bar").display = True
         except Exception:
             pass
-        self._refresh_agent_list(reset_highlight=True)
+        self._refresh_agent_list(reset_highlight=True, highlight_agent_id=highlight_agent_id)
         self._refresh_status_bar()
         self._refresh_agent_info()
         self._start_refresh()
@@ -1435,7 +1453,10 @@ class DeskApp(App):
         if updated_agent.state == AgentState.EXITED:
             self._kill_agent(updated_agent.id)
         self._diag_geometry("attach.post-suspend")
-        self._show_dashboard()
+        # Keep the agent we just detached from highlighted (matched by id, so a
+        # post-detach reorder doesn't matter). If it exited and was just killed,
+        # its id is gone from the list and the highlight falls back to the top.
+        self._show_dashboard(highlight_agent_id=agent.id)
         self.call_after_refresh(lambda: self._diag_geometry("attach.after-refresh"))
 
     def _kill_agent(self, agent_id: int) -> None:

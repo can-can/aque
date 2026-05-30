@@ -836,7 +836,7 @@ class TestAttachDoesNotChangeState:
         # Stub screen-side-effect methods that need a live Textual app
         monkeypatch.setattr(app, "_dismiss_triage_modal", lambda: None)
         monkeypatch.setattr(app, "_stop_refresh", lambda: None)
-        monkeypatch.setattr(app, "_show_dashboard", lambda: None)
+        monkeypatch.setattr(app, "_show_dashboard", lambda *a, **k: None)
 
         app._attach_to_agent(agent)
 

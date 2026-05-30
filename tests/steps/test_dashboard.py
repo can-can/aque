@@ -53,6 +53,11 @@ def test_highlight_preserved_during_refresh():
     pass
 
 
+@scenario(FEATURE, "Detaching from an agent keeps it highlighted")
+def test_detach_keeps_highlight():
+    pass
+
+
 @scenario(FEATURE, "Status bar shows agent counts by state")
 def test_status_bar_counts():
     pass
@@ -388,6 +393,30 @@ def given_user_has_highlighted(ctx, label, agents_created):
         await ctx.pilot.pause()
 
     ctx.run(_set_highlight())
+
+
+@when(parsers.parse('the user detaches from "{label}"'))
+def when_user_detaches_from(ctx, label):
+    """Drive the real attach→detach path with tmux interaction stubbed out.
+
+    Only ``suspend()`` and the ``tmux attach-session`` subprocess are mocked;
+    everything after the detach (the dashboard rebuild + re-highlight) runs for
+    real — that post-detach highlight is the behavior under test.
+    """
+    import contextlib
+    from unittest.mock import patch
+
+    state = ctx.state_mgr.load()
+    agent = next((a for a in state.agents if a.label == label), None)
+    assert agent is not None, f"Agent '{label}' not found"
+
+    async def _detach():
+        ctx.app.suspend = lambda: contextlib.nullcontext()
+        with patch("aque.desk.subprocess.run"):
+            ctx.app._attach_to_agent(agent)
+        await ctx.pilot.pause()
+
+    ctx.run(_detach())
 
 
 @when("the periodic refresh runs")
