@@ -31,8 +31,8 @@ async def test_auto_stacks_when_narrow(tmp_aque_dir):
         app._apply_layout(width=70)
         await pilot.pause()
         assert app.query_one("#dashboard").has_class("stacked")
-        # Terminal is shown at the bottom in stacked, not hidden.
-        assert app.query_one("#preview-panel").display is True
+        # List-first on phones: the info panel is hidden so the list fills.
+        assert app.query_one("#preview-panel").display is False
 
 
 @pytest.mark.asyncio
@@ -56,10 +56,9 @@ async def test_apply_layout_sets_narrow_flag_from_width(tmp_aque_dir):
 
 
 @pytest.mark.asyncio
-async def test_narrow_renders_info_panel_instead_of_skipping(tmp_aque_dir):
-    """In stacked (narrow) the preview panel is visible at the bottom and
-    must render the highlighted agent's info — regression guard against
-    the old "if self._narrow: return" that left the bottom panel empty."""
+async def test_narrow_hides_info_panel(tmp_aque_dir):
+    """Stacked (phone) hides the static info panel so the list fills the
+    screen — the per-row metadata now lives on the row itself."""
     from aque.state import StateManager, AgentInfo, AgentState
 
     mgr = StateManager(tmp_aque_dir)
@@ -71,15 +70,8 @@ async def test_narrow_renders_info_panel_instead_of_skipping(tmp_aque_dir):
     async with app.run_test(size=(45, 24)) as pilot:
         await pilot.pause()
         app._apply_layout(width=45)  # narrow -> stacked
-        ol = app.query_one("#agent-option-list")
-        ol.highlighted = 0
-        app._refresh_agent_info()
         await pilot.pause()
-        info = app.query_one("#agent-info")
-        rendered = str(info.render())
-        assert "alpha" in rendered, (
-            f"Expected agent label in info panel, got: {rendered!r}"
-        )
+        assert app.query_one("#preview-panel").display is False
 
 
 @pytest.mark.asyncio

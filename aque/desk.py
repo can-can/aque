@@ -473,25 +473,21 @@ class DeskApp(App):
         width: 25%;
         border-right: solid $surface-lighten-1;
     }
-    /* Stacked (narrow/forced): #dashboard flips to vertical; list takes the
-       height it needs up to a 30% cap, terminal fills the rest. */
+    /* Stacked (narrow/forced): #dashboard flips to vertical and is list-first —
+       the agent list fills the height; the (static) info panel is hidden. */
     #dashboard.stacked {
         layout: vertical;
     }
     #dashboard.stacked #agent-panel {
         width: 100%;
-        height: auto;
-        max-height: 30%;
+        height: 1fr;
         border-right: none;
-        border-bottom: solid $surface-lighten-1;
     }
     #dashboard.stacked #agent-option-list {
-        height: auto;
-        max-height: 100%;
+        height: 1fr;
     }
     #dashboard.stacked #preview-panel {
-        width: 100%;
-        height: 1fr;
+        display: none;
     }
     #preview-panel {
         width: 60%;
@@ -611,6 +607,10 @@ class DeskApp(App):
         self._tmux_server: libtmux.Server | None = None
         self._post_detach_debounce_until: float = 0.0
         self._narrow: bool = False  # Cached narrow state, updated by _apply_layout
+        # Cached stacked-arrangement flag, updated by _apply_layout. Drives the
+        # list-first phone layout: the list fills the screen and the info panel
+        # is hidden.
+        self._stacked: bool = False
         # Arrangement override, independent of _narrow (width). Session-only:
         # not persisted, resets to "auto" each launch. "auto" | "wide" | "stacked".
         self._layout_mode: str = "auto"
@@ -727,9 +727,13 @@ class DeskApp(App):
         w = width if width is not None else self.size.width
         self._narrow = w < NARROW_BREAKPOINT
         stacked = self._effective_layout(w) == "stacked"
+        self._stacked = stacked
         try:
             self.query_one("#dashboard").set_class(stacked, "stacked")
-            self.query_one("#preview-panel").display = True
+            # Stacked is list-first: hide the (static) info panel so the list
+            # fills the screen. display is an inline style that overrides the
+            # CSS rule, so it must be set explicitly here, not left to .stacked.
+            self.query_one("#preview-panel").display = not stacked
         except Exception:
             pass
         # No unpin-on-narrow: the embed is shown in stacked too, so it pins the

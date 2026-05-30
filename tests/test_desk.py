@@ -162,13 +162,13 @@ class TestNarrowMode:
             assert app._is_narrow is False
 
     @pytest.mark.asyncio
-    async def test_narrow_stacks_and_keeps_preview(self, tmp_aque_dir):
+    async def test_narrow_stacks_and_hides_preview(self, tmp_aque_dir):
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test(size=(45, 24)) as pilot:
-            # Narrow now STACKS (list over terminal) instead of hiding the
-            # preview — the terminal stays visible at the bottom.
+            # Narrow STACKS and is list-first: the info panel is hidden so the
+            # list fills the screen (rows carry their own dir/state now).
             assert app.query_one("#dashboard").has_class("stacked")
-            assert app.query_one("#preview-panel").display is True
+            assert app.query_one("#preview-panel").display is False
 
     @pytest.mark.asyncio
     async def test_wide_shows_preview_panel(self, tmp_aque_dir):
@@ -181,15 +181,17 @@ class TestNarrowMode:
     async def test_resize_toggles_layout(self, tmp_aque_dir):
         app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
         async with app.run_test(size=(120, 24)) as pilot:
-            # Wide: two columns, not stacked.
+            # Wide: two columns, not stacked, preview shown.
             assert not app.query_one("#dashboard").has_class("stacked")
+            assert app.query_one("#preview-panel").display is True
             await pilot.resize_terminal(45, 24)
             await pilot.pause()
             assert app.query_one("#dashboard").has_class("stacked")
+            # Stacked hides the preview so the list fills the screen.
+            assert app.query_one("#preview-panel").display is False
             await pilot.resize_terminal(120, 24)
             await pilot.pause()
             assert not app.query_one("#dashboard").has_class("stacked")
-            # Preview stays displayed throughout (terminal is never hidden now).
             assert app.query_one("#preview-panel").display is True
 
     @pytest.mark.asyncio
