@@ -3,11 +3,17 @@ import pytest
 from aque.desk import DeskApp
 
 
-def test_effective_layout_auto_uses_width_breakpoint(tmp_aque_dir):
+def test_effective_layout_auto_stacks_only_below_stack_breakpoint(tmp_aque_dir):
+    """Auto switches to the single-column phone layout only on phone-width
+    terminals. A vertical PC / split pane (50-79 cols) stays two-column — only
+    its text compacts. Regression for the phone UI on a vertical PC screen.
+    """
     app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
     app._layout_mode = "auto"
-    assert app._effective_layout(79) == "stacked"
-    assert app._effective_layout(80) == "wide"
+    assert app._effective_layout(49) == "stacked"   # phone width
+    assert app._effective_layout(50) == "wide"
+    assert app._effective_layout(70) == "wide"      # the vertical-PC case
+    assert app._effective_layout(79) == "wide"
     assert app._effective_layout(120) == "wide"
 
 
@@ -25,14 +31,28 @@ def test_layout_mode_defaults_to_auto(tmp_aque_dir):
 
 
 @pytest.mark.asyncio
-async def test_auto_stacks_when_narrow(tmp_aque_dir):
+async def test_auto_stacks_when_phone_width(tmp_aque_dir):
     app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
     async with app.run_test() as pilot:
-        app._apply_layout(width=70)
+        app._apply_layout(width=45)
         await pilot.pause()
         assert app.query_one("#dashboard").has_class("stacked")
         # List-first on phones: the info panel is hidden so the list fills.
         assert app.query_one("#preview-panel").display is False
+
+
+@pytest.mark.asyncio
+async def test_vertical_pc_width_stays_two_column(tmp_aque_dir):
+    """A portrait-monitor / split-pane terminal (~70 cols) keeps the two-column
+    layout and its info panel — only the text compacts. Regression for the phone
+    UI wrongly appearing on a vertical PC screen."""
+    app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+    async with app.run_test() as pilot:
+        app._apply_layout(width=70)
+        await pilot.pause()
+        assert not app.query_one("#dashboard").has_class("stacked")
+        assert app.query_one("#preview-panel").display is True
+        assert app._narrow is True  # text still compacts below 80
 
 
 @pytest.mark.asyncio

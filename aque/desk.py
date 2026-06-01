@@ -49,7 +49,13 @@ from aque.widgets.orphan_modal import OrphanModal
 from aque.widgets.triage_modal import ATTACH, SNOOZE, TriageModal
 from aque.widgets.undo_bar import UndoBar
 
-NARROW_BREAKPOINT = 80  # columns; below this, auto layout stacks and labels compact
+NARROW_BREAKPOINT = 80  # columns; below this, auto layout compacts labels/text
+# Below this much-lower width the auto layout switches to the single-column
+# "phone" arrangement (list-first, info panel hidden). Kept well under
+# NARROW_BREAKPOINT so a vertical/portrait PC monitor or a split pane (which
+# lands in the ~50-79 column band) keeps the two-column layout and only compacts
+# its text — the phone layout is reserved for genuinely phone-width terminals.
+STACK_BREAKPOINT = 50
 
 
 # ── Widgets ──────────────────────────────────────────────────────────
@@ -643,15 +649,17 @@ class DeskApp(App):
     def _effective_layout(self, width: int) -> str:
         """Return the arrangement to apply: "wide" or "stacked".
 
-        Forced modes ignore width; "auto" stacks below the 80-col breakpoint.
-        This is the single seam that decides arrangement; _narrow stays width-
-        based and only governs text compaction.
+        Forced modes ignore width; "auto" stacks only below STACK_BREAKPOINT
+        (phone width) — deliberately lower than NARROW_BREAKPOINT so a vertical
+        PC / split pane in the ~50-79 col band stays two-column and merely
+        compacts its text. This is the single seam that decides arrangement;
+        _narrow stays NARROW_BREAKPOINT-based and only governs text compaction.
         """
         if self._layout_mode == "wide":
             return "wide"
         if self._layout_mode == "stacked":
             return "stacked"
-        return "stacked" if width < NARROW_BREAKPOINT else "wide"
+        return "stacked" if width < STACK_BREAKPOINT else "wide"
 
     def compose(self) -> ComposeResult:
         yield Header()
