@@ -246,15 +246,85 @@ class TestNarrowMode:
             ol = app.query_one("#agent-option-list", OptionList)
             opt = ol.get_option_at_index(0)
             label = str(opt.prompt)
-            # Project layout: dot (colour only), name, mode chip. The state
-            # word, dir, and agent type live in the preview pane, not the row.
+            # Project layout: dot (colour only) and name. The state word, dir,
+            # agent type, and auto/manual mode live in the preview pane, not the
+            # row.
             assert "running" not in label.lower()
             # The agent type is no longer shown on the row, so "claude" appears
             # only once — as part of the name.
             assert label.count("claude") == 1
             assert "claude . my-project" in label
-            assert "auto" in label  # mode chip present in the full layout
+            # The auto/manual chip moved to the description panel — it is no
+            # longer on the row.
+            assert "auto" not in label.lower()
+            assert "manual" not in label.lower()
 
+    @pytest.mark.asyncio
+    async def test_wide_info_panel_shows_responder_mode(self, tmp_aque_dir):
+        """The responder badge + auto/manual mode live in the description panel.
+
+        Neither the ``●r`` badge nor the chip belongs on the row; both surface
+        in the preview panel for a partner that has a paired responder, with the
+        responder's own state shown alongside its auto/manual mode.
+        """
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . proj",
+            dir="/tmp/proj", command=["claude"], state=AgentState.RUNNING,
+            pid=100, agent_type="claude", auto_respond=True,
+        ))
+        # Responder in a distinct state so "waiting" in the panel can only be
+        # the responder's state, not the partner's.
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="s-2", label="responder",
+            dir="/tmp/proj", command=["claude"], state=AgentState.WAITING,
+            pid=101, is_responder=True, partner_id=1, auto_respond=True,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            ol = app.query_one("#agent-option-list", OptionList)
+            # Responders never get their own row, so index 0 is the partner.
+            label = str(ol.get_option_at_index(0).prompt)
+            assert "auto" not in label.lower()
+            assert "●r" not in label  # responder badge moved off the row too
+            # The description panel carries the responder badge state + mode.
+            info = str(app.query_one("#agent-info").content)
+            assert "auto" in info.lower()
+            assert "waiting" in info.lower()  # the responder's state
+
+    @pytest.mark.asyncio
+    async def test_wide_info_panel_shows_manual_mode(self, tmp_aque_dir):
+        """Manual mode (auto_respond off) reads as ``manual`` in the panel."""
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . proj",
+            dir="/tmp/proj", command=["claude"], state=AgentState.RUNNING,
+            pid=100, agent_type="claude", auto_respond=False,
+        ))
+        mgr.add_agent(AgentInfo(
+            id=2, tmux_session="s-2", label="responder",
+            dir="/tmp/proj", command=["claude"], state=AgentState.RUNNING,
+            pid=101, is_responder=True, partner_id=1, auto_respond=False,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            info = str(app.query_one("#agent-info").content)
+            assert "manual" in info.lower()
+
+    @pytest.mark.asyncio
+    async def test_wide_info_panel_omits_mode_without_responder(self, tmp_aque_dir):
+        """A lone agent with no paired responder shows no auto/manual line."""
+        mgr = StateManager(tmp_aque_dir)
+        mgr.add_agent(AgentInfo(
+            id=1, tmux_session="s-1", label="claude . proj",
+            dir="/tmp/proj", command=["claude"], state=AgentState.RUNNING,
+            pid=100, agent_type="claude", auto_respond=True,
+        ))
+        app = DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test(size=(120, 24)) as pilot:
+            info = str(app.query_one("#agent-info").content)
+            assert "auto" not in info.lower()
+            assert "manual" not in info.lower()
 
     @pytest.mark.asyncio
     async def test_narrow_status_bar_compact(self, tmp_aque_dir):
@@ -357,7 +427,9 @@ class TestResponderVisibility:
 
 
 class TestResponderBadge:
-    def test_row_label_includes_badge_when_responder_paired(self, tmp_aque_dir):
+    def test_wide_row_label_omits_badge_regardless_of_pairing(self, tmp_aque_dir):
+        """The ``●r`` badge moved to the preview panel — the wide row never
+        carries it, whether or not a responder is paired."""
         from aque.desk import DeskApp
         from aque.state import AgentInfo, AgentState
 
@@ -371,10 +443,9 @@ class TestResponderBadge:
             dir="/tmp", command=["claude"], state=AgentState.WAITING, pid=101,
             is_responder=True, partner_id=1,
         )
-        with_badge = str(app._build_row_label(partner, width=60, responder=responder))
+        with_responder = str(app._build_row_label(partner, width=60, responder=responder))
         without = str(app._build_row_label(partner, width=60, responder=None))
-        # The badge contributes a "●r" pair to the rendered row.
-        assert "●r" in with_badge
+        assert "●r" not in with_responder
         assert "●r" not in without
 
 

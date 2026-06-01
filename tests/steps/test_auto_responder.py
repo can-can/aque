@@ -103,8 +103,8 @@ def test_responder_exits_unexpectedly():
     pass
 
 
-@scenario(FEATURE, "Partner row shows a responder badge when a responder is paired")
-def test_partner_row_shows_badge():
+@scenario(FEATURE, "Partner's preview panel shows the responder badge when a responder is paired")
+def test_partner_preview_shows_badge():
     pass
 
 
@@ -946,11 +946,25 @@ def when_dashboard_renders_list(ctx, app_ctx):
     return True
 
 
-@then(parsers.parse('the row for "{label}" should contain a responder badge'))
-def then_row_has_badge(app_ctx, label):
-    text = _rendered_row_for(app_ctx, label)
-    assert "●r" in text, (
-        f'Expected row for "{label}" to contain "●r" badge, got: {text!r}'
+def _preview_panel_text(app_ctx) -> str:
+    """Return the description/preview panel's rendered content as a string.
+
+    The responder badge and auto/manual chip moved off the row into this panel,
+    so badge assertions read it here. ``_refresh_agent_info`` is invoked first
+    so the content reflects the currently-highlighted agent deterministically.
+    """
+    async def _do():
+        app_ctx.app._refresh_agent_info()
+        return str(app_ctx.app.query_one("#agent-info").content)
+
+    return app_ctx.run(_do())
+
+
+@then(parsers.parse('the preview panel should show the responder badge'))
+def then_preview_shows_badge(app_ctx):
+    text = _preview_panel_text(app_ctx)
+    assert "responder:" in text, (
+        f'Expected preview panel to show the responder badge line, got: {text!r}'
     )
 
 

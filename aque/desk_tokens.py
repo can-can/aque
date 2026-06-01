@@ -2,8 +2,8 @@
 
 Maps the web prototype's light-background palette onto Rich truecolor hex so the
 desk reads with the same visual hierarchy in a terminal: a colored state dot, a
-filled vendor "pill", a bold name, and a soft "auto/manual" chip on the right.
-All colours are tuned for legibility on the cream Screen background set in
+filled vendor "pill", a bold name, and a soft "auto/manual" chip in the preview
+panel. All colours are tuned for legibility on the cream Screen background set in
 ``DeskApp.CSS``.
 """
 from aque.state import AgentState
@@ -56,9 +56,11 @@ def type_chip_markup(agent_type: str | None) -> str:
 
 
 def auto_chip_markup(auto_respond: bool) -> str:
-    """Rich markup for the auto/manual chip at the right edge of every row.
+    """Rich markup for the auto/manual chip shown in the preview panel.
 
-    Renders as a soft ``auto`` (green) or ``manual`` (gray) filled block.
+    Renders as a soft ``auto`` (green) or ``manual`` (gray) filled block. It
+    reflects a paired responder's behaviour mode, so the panel only shows it
+    when the selected agent actually has a responder.
     """
     fg, bg = AUTO_CHIP if auto_respond else MANUAL_CHIP
     label = "auto" if auto_respond else "manual"

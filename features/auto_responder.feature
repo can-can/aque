@@ -99,10 +99,11 @@ Feature: Auto-responder
 
   # ── Badge & embed swap ────────────────────────────────────────────
 
-  Scenario: Partner row shows a responder badge when a responder is paired
+  Scenario: Partner's preview panel shows the responder badge when a responder is paired
     Given agent "builder" has a paired responder "resp(builder)"
     When the dashboard renders the agent list
-    Then the row for "builder" should contain a responder badge
+    Then the row for "builder" should not contain a responder badge
+    And the preview panel should show the responder badge
 
   Scenario: Partner row has no responder badge when no responder is paired
     Given agent "solo" exists without a paired responder

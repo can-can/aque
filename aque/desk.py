@@ -978,18 +978,14 @@ class DeskApp(App):
     ) -> Text:
         """Render an agent row in the locked Project layout.
 
-            ●  name                                    ●r  auto
+            ●  name
 
-        The layout encodes four cells — state dot, bold name, optional
-        responder badge (``●r`` coloured by responder state), soft auto/manual
-        chip. State is carried by the dot's colour alone (the design dropped
-        the state word from the row; it lives in the preview header).
-        Responders never get their own row — they appear as the ``●r`` badge
-        on their partner's row and are reachable via Ctrl+Enter.
-
-        The auto chip is right-aligned to ``width`` (the list's content width);
-        when a name would push it past the edge it is truncated rather than
-        wrapping.
+        The row encodes just two cells — state dot and bold name. State is
+        carried by the dot's colour alone (the design dropped the state word
+        from the row; it lives in the preview header). The responder badge and
+        the auto/manual mode both live in the preview panel, not on the row.
+        Responders never get their own row — they surface in their partner's
+        preview panel and are reachable via Ctrl+Enter.
 
         Returns a ``rich.text.Text`` so ``str(prompt)`` yields the plain row
         without markup tags — callers can still substring-search for labels.
@@ -1034,29 +1030,12 @@ class DeskApp(App):
             )
             return Text.from_markup(f"{line1}\n{line2}\n")
 
-        chip_markup = auto_chip_markup(agent.auto_respond)
-        chip_w = len(" auto " if agent.auto_respond else " manual ")
-
-        if responder is not None:
-            resp_color = STATE_COLORS.get(responder.state, "white")
-            # Leading space groups the badge with the chip; "●r" is 2 cells.
-            badge_markup = f" [{resp_color}]●r[/{resp_color}]"
-            badge_w = 3
-        else:
-            badge_markup = ""
-            badge_w = 0
-
-        # Fixed glyphs before the name: "cue space dot 2sp".
-        prefix_w = 1 + 1 + 1 + 2
-        # Pad so the badge + chip land at the right edge. The name is never
-        # truncated (so callers can still match on it); a name long enough to
-        # crowd the chip simply collapses the gap to a single space.
-        avail = (width or 36) - 1
-        pad = max(1, avail - prefix_w - len(agent.label) - badge_w - chip_w)
-
+        # Wide rows are intentionally minimal — just the state dot and name.
+        # The responder badge and auto/manual mode both live in the preview
+        # panel now, so there is nothing to right-align against and ``width``
+        # (still used by the stacked branch above) is unused here.
         return Text.from_markup(
             f"{cue} {state_dot}  [bold]{agent.label}[/bold]"
-            f"{' ' * pad}{badge_markup}{chip_markup}"
         )
 
     def _refresh_agent_list(
@@ -1740,7 +1719,8 @@ class DeskApp(App):
             return
         try:
             opt = ol.get_option_at_index(ol.highlighted)
-            agent = self.state_mgr.load().get_agent(int(opt.id))
+            app_state = self.state_mgr.load()
+            agent = app_state.get_agent(int(opt.id))
         except Exception:
             info.update("")
             return
@@ -1758,6 +1738,18 @@ class DeskApp(App):
         lines.append(f"[dim]session:[/dim] {agent.tmux_session}")
         if agent.is_responder:
             lines.append(f"[dim]paired-with:[/dim] #{agent.partner_id}")
+        else:
+            # The responder badge and auto/manual chip live here rather than on
+            # the row. Shown only when a responder is paired — the badge's
+            # colour carries the responder's state, the chip its auto/manual
+            # mode. ``●`` stands in for the row's old ``●r`` badge.
+            resp = app_state.get_responder_for(agent.id)
+            if resp is not None:
+                resp_color = STATE_COLORS.get(resp.state, "white")
+                lines.append(
+                    f"[dim]responder:[/dim] [{resp_color}]●[/{resp_color}] "
+                    f"{resp.state.value} [dim]·[/dim] {auto_chip_markup(agent.auto_respond)}"
+                )
         info.update("\n".join(lines))
 
     def on_directory_picker_directory_selected(self, event) -> None:
