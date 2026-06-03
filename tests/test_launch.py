@@ -242,9 +242,14 @@ class TestResume:
     def test_calls_relaunch_with_capturer_rewritten_command(
         self, coordinator, tmp_aque_dir
     ):
+        # A captured agent's stored command carries the preassigned
+        # ``--session-id`` (that's what was launched). Resuming must rewrite it
+        # to ``--resume`` — ``claude --session-id`` re-creates a session, only
+        # ``--resume`` reopens the existing one.
         agent = AgentInfo(
             id=7, tmux_session="aque-7", label="x", dir="/tmp",
-            command=["claude"], state=AgentState.RUNNING, pid=1,
+            command=["claude", "--session-id", "uuid-1"],
+            state=AgentState.RUNNING, pid=1,
             agent_type="claude", session_id="uuid-1",
         )
         coordinator.state_mgr.add_agent(agent)
@@ -259,4 +264,7 @@ class TestResume:
         assert relaunch_args["agent_id"] == 7
         assert "--resume" in relaunch_args["command"]
         assert "uuid-1" in relaunch_args["command"]
+        # The preassigned launch flag must be gone — otherwise claude refuses
+        # the relaunch ("session id already in use").
+        assert "--session-id" not in relaunch_args["command"]
         assert relaunch_args["preserve_session_id"] is True

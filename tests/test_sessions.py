@@ -45,14 +45,24 @@ def test_claude_resume_command_appends_flag():
     assert cmd == ["claude", "--model", "opus"]
 
 
-def test_claude_resume_command_is_idempotent_when_preassigned():
-    """If the command already carries --session-id (preassigned at launch
-    time), resume_command must return it unchanged — the coordinator trusts
-    this so it doesn't need to know about claude-specific flag names."""
+def test_claude_resume_command_rewrites_preassigned_session_id():
+    """The stored launch command carries the preassigned --session-id. To
+    resume, claude needs --resume <uuid> instead (--session-id re-creates the
+    session and errors when it already exists), so resume_command drops the
+    preassigned flag and appends --resume."""
     cmd = ["claude", "--session-id", "preassigned-uuid"]
-    out = claude.resume_command(cmd, "new-uuid")
-    assert out == cmd
-    assert "--resume" not in out
+    out = claude.resume_command(cmd, "preassigned-uuid")
+    assert out == ["claude", "--resume", "preassigned-uuid"]
+    assert "--session-id" not in out
+    # input not mutated
+    assert cmd == ["claude", "--session-id", "preassigned-uuid"]
+
+
+def test_claude_resume_command_is_idempotent_across_repeats():
+    """Resuming an already-resumed command must not stack duplicate flags."""
+    cmd = ["claude", "--resume", "uuid-1"]
+    out = claude.resume_command(cmd, "uuid-1")
+    assert out == ["claude", "--resume", "uuid-1"]
 
 
 class TestReadLastLine:

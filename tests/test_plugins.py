@@ -162,10 +162,14 @@ class TestClaudePluginCapture:
         result = resume_command(["claude"], "abc-123")
         assert result == ["claude", "--resume", "abc-123"]
 
-    def test_resume_command_is_no_op_when_command_already_preassigned(self):
+    def test_resume_command_rewrites_preassigned_session_id_to_resume(self):
+        # The stored launch command carries the preassigned ``--session-id``;
+        # resuming must swap it for ``--resume`` (claude refuses to re-create a
+        # session that already exists).
         from aque.plugins.claude import resume_command
-        original = ["claude", "--session-id", "xxx"]
-        assert resume_command(original, "abc-123") == original
+        out = resume_command(["claude", "--session-id", "xxx"], "xxx")
+        assert out == ["claude", "--resume", "xxx"]
+        assert "--session-id" not in out
 
     def test_existing_uuids_empty_for_missing_dir(self, tmp_path, monkeypatch):
         from aque.plugins.claude import existing_uuids

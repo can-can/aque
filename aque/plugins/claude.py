@@ -49,14 +49,28 @@ def preassign(command: list[str]) -> tuple[list[str], str]:
 def resume_command(command: list[str], session_id: str) -> list[str]:
     """Return a command that resumes claude session ``session_id``.
 
-    Idempotent: if ``command`` already carries ``--session-id`` (preassigned
-    at launch time) the command is already resumable in-place and is returned
-    unchanged. Owning idempotency here keeps the launch coordinator free of
+    A captured agent's stored command carries the ``--session-id <uuid>`` that
+    ``preassign`` wrote at launch. That flag *creates* a session with the given
+    id — re-running it makes claude refuse ("session id already in use"). To
+    reopen the conversation claude needs ``--resume <uuid>`` instead, so we drop
+    any preassigned ``--session-id`` here and append ``--resume``.
+
+    Idempotent across repeated resumes: a stale ``--resume <uuid>`` (left by a
+    prior resume) is stripped too, so the result never accumulates duplicate
+    flags. Owning this rewrite keeps the launch coordinator free of
     claude-specific flag knowledge.
     """
-    if "--session-id" in command:
-        return command
-    return [*command, "--resume", session_id]
+    out: list[str] = []
+    skip_next = False
+    for arg in command:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("--session-id", "--resume"):
+            skip_next = True  # drop the flag and its value
+            continue
+        out.append(arg)
+    return [*out, "--resume", session_id]
 
 
 def summarize(cwd: str) -> list[SessionSummary]:

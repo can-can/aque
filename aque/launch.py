@@ -91,6 +91,7 @@ class LaunchCoordinator:
                     self._finish(
                         cmd, working_dir, label, agent_type, sid,
                         on_launched, include_responder,
+                        resume=result.action != "fresh",
                     )
                 self.push_modal(
                     ResumePickerScreen(summaries, working_dir, agent_type),
@@ -118,15 +119,19 @@ class LaunchCoordinator:
         session_id: str | None,
         on_launched: OnLaunched,
         include_responder: bool = False,
+        resume: bool = False,
     ) -> None:
         """Deterministic tail of ``launch``: command rewrite, hook install,
         ``launch_agent`` call, responder pairing (only when
         ``include_responder``), dir-history record, monitor ensure, then
-        hand the new agent to ``on_launched``."""
+        hand the new agent to ``on_launched``.
+
+        ``resume`` is True only when reopening a picked prior session — that's
+        the one case the command must be rewritten to ``--resume``. Fresh
+        launches keep the preassigned ``--session-id`` untouched.
+        """
         plugin = get_plugin(agent_type) if agent_type else None
-        # ``resume_command`` is idempotent — calling it when the command was
-        # already preassigned (carries ``--session-id``) is a no-op.
-        if session_id is not None and has_session_capture(plugin):
+        if resume and session_id is not None and has_session_capture(plugin):
             command = plugin.resume_command(command, session_id)
 
         # Hook-bundle plugins install their settings.json hooks on first
