@@ -106,6 +106,11 @@ def create_app(
         finally:
             out_task.cancel()
             in_task.cancel()
+            # Retrieve exceptions from already-finished tasks so a disconnect
+            # doesn't log "Task exception was never retrieved".
+            for t in (out_task, in_task):
+                if t.done() and not t.cancelled():
+                    t.exception()
             proc.close()
 
     @app.get("/", response_class=HTMLResponse)
