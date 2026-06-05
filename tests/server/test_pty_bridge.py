@@ -31,3 +31,23 @@ async def test_pty_resize_does_not_raise():
         proc.resize(cols=100, rows=40)  # should not raise
     finally:
         proc.close()
+
+
+@pytest.mark.asyncio
+async def test_pty_close_reaps_child():
+    import os
+    proc = PtyProcess(["cat"])
+    proc.start()
+    pid = proc.pid
+    proc.close()
+    # close() must have reaped the child, so waitpid raises (no such child)
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, 0)
+
+
+@pytest.mark.asyncio
+async def test_pty_close_is_idempotent():
+    proc = PtyProcess(["cat"])
+    proc.start()
+    proc.close()
+    proc.close()  # second close must not raise

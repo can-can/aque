@@ -5,6 +5,7 @@ import pty
 import signal
 import struct
 import termios
+import time
 
 
 class PtyProcess:
@@ -41,6 +42,8 @@ class PtyProcess:
         fd = self.master_fd
 
         def _readable() -> None:
+            if fd != self.master_fd:  # fd was closed (and may be recycled)
+                return
             try:
                 data = os.read(fd, 65536)
             except (BlockingIOError, InterruptedError):
@@ -60,14 +63,28 @@ class PtyProcess:
             loop.remove_reader(fd)
 
     def close(self) -> None:
-        if self.pid:
+        if self.pid is not None:
             try:
                 os.kill(self.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
         if self.master_fd is not None:
             try:
-                os.close(self.master_fd)
+                os.close(self.master_fd)  # closing the master also SIGHUPs the child
             except OSError:
                 pass
             self.master_fd = None
+        if self.pid is not None:
+            self._reap(self.pid)
+            self.pid = None
+
+    def _reap(self, pid: int) -> None:
+        """Reap the child so it doesn't linger as a zombie (bounded ~100ms)."""
+        for _ in range(20):
+            try:
+                reaped, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                return  # already reaped
+            if reaped == pid:
+                return
+            time.sleep(0.005)

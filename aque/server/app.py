@@ -88,9 +88,15 @@ def create_app(
                 if msg.get("bytes") is not None:
                     proc.write(msg["bytes"])
                 elif msg.get("text") is not None:
-                    data = json.loads(msg["text"])
+                    try:
+                        data = json.loads(msg["text"])
+                    except (ValueError, TypeError):
+                        continue
                     if data.get("type") == "resize":
-                        proc.resize(int(data["cols"]), int(data["rows"]))
+                        try:
+                            proc.resize(int(data["cols"]), int(data["rows"]))
+                        except (KeyError, ValueError, TypeError):
+                            continue
 
         out_task = asyncio.create_task(pump_out())
         in_task = asyncio.create_task(pump_in())
