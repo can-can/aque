@@ -1294,6 +1294,59 @@ class TestQuickLaunchNameStep:
             # The task list is torn down while the name field is up.
             assert not app.query("#quick-launch-list")
 
+    @pytest.mark.asyncio
+    async def test_selecting_typed_task_shows_name_step_not_launch(
+        self, tmp_aque_dir, monkeypatch
+    ):
+        from aque import desk as desk_mod
+        from aque.desk import QuickLaunchForm
+
+        launched: list = []
+        monkeypatch.setattr("aque.launch.launch_agent",
+                            lambda **kw: launched.append(kw) or 1)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_quick_launch_form()
+            await pilot.pause()
+            app._quick_launch_task(
+                {"command": ["claude"], "dir": "/tmp/api",
+                 "label": "claude . api", "agent_type": "claude",
+                 "type_known": True}
+            )
+            await pilot.pause()
+            assert app.query("#quick-launch-name-input")  # name step up
+            assert launched == []                          # nothing launched yet
+
+    @pytest.mark.asyncio
+    async def test_picking_type_routes_to_name_step(self, tmp_aque_dir, monkeypatch):
+        from aque import desk as desk_mod
+        from aque.desk import QuickLaunchForm
+
+        launched: list = []
+        monkeypatch.setattr("aque.launch.launch_agent",
+                            lambda **kw: launched.append(kw) or 1)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_quick_launch_form()
+            await pilot.pause()
+            form = app.query_one(QuickLaunchForm)
+            form.show_type_step(
+                {"command": ["mystery"], "dir": "/tmp/old",
+                 "label": "mystery . old", "agent_type": None, "type_known": False}
+            )
+            await pilot.pause()
+            # Pick "none (polling only)" then Enter routes to the name step.
+            ol = app.query_one("#quick-launch-type-list")
+            ol.highlighted = 0
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.query("#quick-launch-name-input")
+            assert launched == []
+
 
 class TestFormCompletionResetsMode:
     """Both NewAgentForm and QuickLaunchForm submission paths must reset

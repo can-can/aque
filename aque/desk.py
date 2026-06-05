@@ -1438,11 +1438,12 @@ class DeskApp(App):
         self._apply_layout()
 
     def _quick_launch_task(self, task: dict) -> None:
-        """Launch a recent task. Prompt for a type first when it's unknown."""
+        """Relaunch a recent task. Prompt for a type first when it's unknown,
+        then always show the name step before launching."""
         if not task["type_known"]:
             self.query_one(QuickLaunchForm).show_type_step(task)
             return
-        self._launch_quick_task_with_type(task, task["agent_type"])
+        self.query_one(QuickLaunchForm).show_name_step(task, task["agent_type"])
 
     def _launch_quick_task_with_type(self, task: dict, agent_type: str | None) -> None:
         for w in self.query("QuickLaunchForm"):
@@ -1732,7 +1733,7 @@ class DeskApp(App):
             elif event.option_list.id == "quick-launch-type-list":
                 task = form._pending_task
                 if task is not None:
-                    self._launch_quick_task_with_type(task, form.selected_type())
+                    form.show_name_step(task, form.selected_type())
             return
         if self._mode != "dashboard":
             return
