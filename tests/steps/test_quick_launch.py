@@ -171,8 +171,13 @@ def then_dashboard_visible(ctx):
     assert ctx.app.query_one("#dashboard").display is True
 
 
-@scenario(FEATURE, "Selecting a typed recent task launches a new agent")
+@scenario(FEATURE, "Selecting a typed recent task launches a new agent under a typed name")
 def test_select_typed_task_launches():
+    pass
+
+
+@scenario(FEATURE, "Selecting a recent task shows an empty name field")
+def test_select_shows_name_field():
     pass
 
 
@@ -188,6 +193,38 @@ def when_select_first_task(ctx):
         await ctx.pilot.pause()
 
     ctx.run(_select())
+
+
+@when(parsers.parse('the user enters the name "{name}"'))
+def when_enter_name(ctx, name):
+    if ctx.data.get("mock_launch") is None:
+        _install_fake_launch(ctx)
+
+    async def _enter():
+        inp = ctx.app.query_one("#quick-launch-name-input")
+        inp.value = name
+        await ctx.pilot.pause()
+        await ctx.pilot.press("enter")
+        await ctx.pilot.pause()
+
+    ctx.run(_enter())
+
+
+@then("the quick launch name field should be visible")
+def then_name_field_visible(ctx):
+    inputs = ctx.app.query("#quick-launch-name-input")
+    assert len(inputs) > 0, "Expected the name field to be visible"
+    assert str(inputs.first().value) == "", "Name field should start empty"
+
+
+@then(parsers.parse('the launched agent should be labeled "{label}"'))
+def then_launched_label(ctx, label):
+    mock = ctx.data.get("mock_launch")
+    assert mock is not None and mock.called, "launch_agent was not called"
+    _, kwargs = mock.call_args
+    assert kwargs["label"] == label, (
+        f'Expected label="{label}", got: {kwargs.get("label")!r}'
+    )
 
 
 @then(parsers.parse('a new agent should be launched with command "{command}" in "{dir}"'))
@@ -208,7 +245,7 @@ def test_untyped_prompts_for_type():
     pass
 
 
-@scenario(FEATURE, "Picking a type after the prompt launches the agent")
+@scenario(FEATURE, "Picking a type then entering a name launches the agent")
 def test_pick_type_launches():
     pass
 

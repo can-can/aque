@@ -24,11 +24,19 @@ Feature: Quick Launch
     And the user presses Escape
     Then the dashboard should be visible
 
-  Scenario: Selecting a typed recent task launches a new agent
+  Scenario: Selecting a typed recent task launches a new agent under a typed name
     Given the history has a recent "claude" task in "/tmp/api" labeled "claude . api"
     When the user presses "r"
     And the user selects the first recent task
+    And the user enters the name "renamed"
     Then a new agent should be launched with command "claude" in "/tmp/api"
+    And the launched agent should be labeled "renamed"
+
+  Scenario: Selecting a recent task shows an empty name field
+    Given the history has a recent "claude" task in "/tmp/api" labeled "claude . api"
+    When the user presses "r"
+    And the user selects the first recent task
+    Then the quick launch name field should be visible
 
   Scenario: Selecting an untyped task prompts for a type
     Given the history has a legacy task in "/tmp/old" labeled "mystery . old"
@@ -36,11 +44,12 @@ Feature: Quick Launch
     And the user selects the first recent task
     Then the quick launch type picker should be visible
 
-  Scenario: Picking a type after the prompt launches the agent
+  Scenario: Picking a type then entering a name launches the agent
     Given the history has a legacy task in "/tmp/old" labeled "mystery . old"
     When the user presses "r"
     And the user selects the first recent task
     And the user picks type "none (polling only)"
+    And the user enters the name "renamed"
     Then a new agent should be launched with command "mystery" in "/tmp/old"
 
   # ── Ordering and type preservation ──────────────────────────────
@@ -55,4 +64,5 @@ Feature: Quick Launch
     Given the history has a recent "claude" task in "/tmp/api" labeled "claude . api"
     When the user presses "r"
     And the user selects the first recent task
+    And the user enters the name "renamed"
     Then the launched agent's agent_type should be "claude"
