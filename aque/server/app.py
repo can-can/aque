@@ -1,3 +1,5 @@
+import asyncio
+import json
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -6,6 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from aque.server.agents import agents_payload
 from aque.server.auth import make_http_auth, token_ok
+from aque.server.pty_bridge import PtyProcess
 from aque.server.terminal import default_terminal_command
 from aque.server.watcher import StateWatcher
 from aque.state import StateManager
@@ -56,5 +59,46 @@ def create_app(
                 )
         except WebSocketDisconnect:
             pass
+
+    @app.websocket("/agents/{agent_id}/terminal")
+    async def terminal(ws: WebSocket, agent_id: int) -> None:
+        if not token_ok(
+            ws.headers.get("authorization"), ws.query_params.get("token"), token
+        ):
+            await ws.close(code=1008)
+            return
+        agent = state_manager.load().get_agent(agent_id)
+        if agent is None or agent.is_responder:
+            await ws.close(code=1011)
+            return
+
+        proc = PtyProcess(app.state.command_for_agent(agent.to_dict()))
+        proc.start()
+        await ws.accept()
+
+        async def pump_out() -> None:
+            async for chunk in proc.output():
+                await ws.send_bytes(chunk)
+
+        async def pump_in() -> None:
+            while True:
+                msg = await ws.receive()
+                if msg["type"] == "websocket.disconnect":
+                    return
+                if msg.get("bytes") is not None:
+                    proc.write(msg["bytes"])
+                elif msg.get("text") is not None:
+                    data = json.loads(msg["text"])
+                    if data.get("type") == "resize":
+                        proc.resize(int(data["cols"]), int(data["rows"]))
+
+        out_task = asyncio.create_task(pump_out())
+        in_task = asyncio.create_task(pump_in())
+        try:
+            await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            out_task.cancel()
+            in_task.cancel()
+            proc.close()
 
     return app
