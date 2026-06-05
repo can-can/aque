@@ -1264,6 +1264,37 @@ class TestQuickLaunchPickerRouting:
         assert app._mode != "quick_launch_form"
 
 
+class TestQuickLaunchNameStep:
+    @pytest.mark.asyncio
+    async def test_show_name_step_mounts_empty_input_with_prev_label_hint(
+        self, tmp_aque_dir
+    ):
+        from aque import desk as desk_mod
+        from aque.desk import QuickLaunchForm
+        from textual.widgets import Input
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_quick_launch_form()          # mounts the form (empty history OK)
+            await pilot.pause()
+            form = app.query_one(QuickLaunchForm)
+            form.show_name_step(
+                {"command": ["claude"], "dir": "/tmp/api",
+                 "label": "claude . api", "agent_type": "claude"},
+                "claude",
+            )
+            await pilot.pause()
+
+            inp = app.query_one("#quick-launch-name-input", Input)
+            assert inp.value == ""
+            assert "claude . api" in inp.placeholder
+            assert form._step == "name"
+            assert form._pending_type == "claude"
+            # The task list is torn down while the name field is up.
+            assert not app.query("#quick-launch-list")
+
+
 class TestFormCompletionResetsMode:
     """Both NewAgentForm and QuickLaunchForm submission paths must reset
     _mode away from the form mode before _perform_launch can push a modal.

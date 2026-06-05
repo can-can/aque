@@ -387,8 +387,9 @@ class QuickLaunchForm(Vertical):
         super().__init__(id="quick-launch-form")
         self._tasks = tasks
         self._plugin_names = plugin_names or []
-        self._step = "tasks"  # "tasks" | "type"
+        self._step = "tasks"  # "tasks" | "type" | "name"
         self._pending_task: dict | None = None
+        self._pending_type: str | None = None
 
     def _task_options(self) -> list:
         opts = []
@@ -446,14 +447,45 @@ class QuickLaunchForm(Vertical):
         )
         self.query_one("#quick-launch-type-list", OptionList).focus()
 
+    def show_name_step(self, task: dict, agent_type: str | None) -> None:
+        """Prompt for the new agent's name before launching a recent task.
+
+        The field starts empty so renaming is the default action; the previous
+        label is shown only as a placeholder hint. An empty submit auto-derives
+        a fresh ``<dir>-####`` name downstream (see ``_derive_quick_label``).
+        """
+        self._step = "name"
+        self._pending_task = task
+        self._pending_type = agent_type
+        for selector in ("#quick-launch-list", "#quick-launch-type-list"):
+            try:
+                self.query_one(selector).remove()
+            except Exception:
+                pass
+        prev = task["label"] or "—"
+        self.mount(
+            Input(
+                value="",
+                placeholder=f"New name (was: {prev})",
+                id="quick-launch-name-input",
+            ),
+            after=self.query_one("#quick-launch-title"),
+        )
+        self.query_one("#quick-launch-hint").update(
+            "   ".join([key_hint("Enter", "launch"), key_hint("Esc", "back")])
+        )
+        self.query_one("#quick-launch-name-input").focus()
+
     def show_tasks_step(self) -> None:
-        """Restore the recent-task list (used when stepping back from type)."""
+        """Restore the recent-task list (used when stepping back from type or name)."""
         self._step = "tasks"
         self._pending_task = None
-        try:
-            self.query_one("#quick-launch-type-list").remove()
-        except Exception:
-            pass
+        self._pending_type = None
+        for selector in ("#quick-launch-type-list", "#quick-launch-name-input"):
+            try:
+                self.query_one(selector).remove()
+            except Exception:
+                pass
         self.mount(
             OptionList(*self._task_options(), id="quick-launch-list"),
             after=self.query_one("#quick-launch-title"),
