@@ -22,3 +22,18 @@ def write_state(server_aque_dir):
             json.dumps({"agents": agents, "monitor_pid": None})
         )
     return _write
+
+
+from fastapi.testclient import TestClient
+
+from aque.server.app import create_app
+
+
+@pytest.fixture
+def make_client(server_aque_dir, write_state):
+    """Build a TestClient for the server over a seeded state file."""
+    def _make(agents=None, **kwargs):
+        write_state(agents or [])
+        app = create_app(server_aque_dir, TOKEN, watch_interval=0.05, **kwargs)
+        return TestClient(app)
+    return _make
