@@ -180,3 +180,19 @@ action_keys:
 ## License
 
 [MIT](LICENSE)
+
+## Remote control (`aque serve`)
+
+Control your agents from the AqueIOS phone app over your LAN:
+
+```bash
+aque serve            # prints a QR code + token; advertises over Bonjour
+```
+
+Scan the QR code in the AqueIOS app to pair. To validate from a laptop/phone
+browser first, open `http://<your-mac-ip>:8722/?id=<agent-id>&token=<token>`.
+
+> ⚠️ **LAN-only / trusted-network only.** v1 traffic is unencrypted and a
+> terminal grants full command execution on your Mac. Anyone on your network
+> who has the token can drive your agents. Use it only on a network you trust;
+> Tailscale + TLS hardening is planned for a later phase.

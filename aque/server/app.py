@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from fastapi import Depends, FastAPI, WebSocket
+from fastapi.responses import HTMLResponse
 from starlette.websockets import WebSocketDisconnect
 
 from aque.server.agents import agents_payload
@@ -106,5 +107,10 @@ def create_app(
             out_task.cancel()
             in_task.cancel()
             proc.close()
+
+    @app.get("/", response_class=HTMLResponse)
+    async def root() -> str:
+        page = Path(__file__).parent / "static" / "terminal_test.html"
+        return page.read_text()
 
     return app

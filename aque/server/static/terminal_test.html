@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>aque terminal test</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <style>html,body,#term{height:100%;margin:0;background:#000}</style>
+</head>
+<body>
+  <div id="term"></div>
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const id = qs.get("id") || "1";
+    const token = qs.get("token") || "";
+    const term = new Terminal({ convertEol: false });
+    term.open(document.getElementById("term"));
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/agents/${id}/terminal?token=${token}`);
+    ws.binaryType = "arraybuffer";
+    ws.onmessage = (e) => term.write(new Uint8Array(e.data));
+    term.onData((d) => ws.send(new TextEncoder().encode(d)));
+    const sendSize = () => ws.readyState === 1 &&
+      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+    ws.onopen = sendSize;
+    window.addEventListener("resize", sendSize);
+  </script>
+</body>
+</html>
