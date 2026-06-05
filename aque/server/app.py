@@ -1,11 +1,13 @@
 from pathlib import Path
 from typing import Callable, Optional
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from aque.server.agents import agents_payload
-from aque.server.auth import make_http_auth
+from aque.server.auth import make_http_auth, token_ok
 from aque.server.terminal import default_terminal_command
+from aque.server.watcher import StateWatcher
 from aque.state import StateManager
 
 
@@ -36,5 +38,23 @@ def create_app(
     @app.get("/agents", dependencies=[Depends(require_token)])
     async def agents() -> dict:
         return {"agents": agents_payload(state_manager)}
+
+    @app.websocket("/events")
+    async def events(ws: WebSocket) -> None:
+        if not token_ok(
+            ws.headers.get("authorization"), ws.query_params.get("token"), token
+        ):
+            await ws.close(code=1008)
+            return
+        await ws.accept()
+        watcher = StateWatcher(app.state.aque_dir / "state.json", app.state.watch_interval)
+        try:
+            await ws.send_json({"type": "agents", "agents": agents_payload(state_manager)})
+            async for _ in watcher.watch():
+                await ws.send_json(
+                    {"type": "agents", "agents": agents_payload(state_manager)}
+                )
+        except WebSocketDisconnect:
+            pass
 
     return app
