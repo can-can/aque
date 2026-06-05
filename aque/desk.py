@@ -1,3 +1,4 @@
+import random
 import shlex
 import subprocess
 import sys
@@ -352,6 +353,27 @@ class NewAgentForm(Vertical):
             self.query_one("#dir-display").update(f"[bold]Selected:[/bold] {path}")
         except Exception:
             pass
+
+
+def _quick_name_suffix() -> str:
+    """A 4-digit string used to make an auto-derived quick-launch name
+    distinct per relaunch. Isolated so tests can stub the randomness."""
+    return str(random.randint(1000, 9999))
+
+
+def _derive_quick_label(dir_path: str, typed_name: str, suffix: str) -> str:
+    """Label for a quick-launched agent.
+
+    A non-blank typed name (after stripping) wins. An empty name auto-derives
+    ``<dir-basename>-<suffix>`` so a relaunch never silently copies the prior
+    label and stays distinct. ``suffix`` is injected (see ``_quick_name_suffix``)
+    to keep this pure and testable.
+    """
+    name = (typed_name or "").strip()
+    if name:
+        return name
+    base = Path(dir_path).name or "agent"
+    return f"{base}-{suffix}"
 
 
 class QuickLaunchForm(Vertical):

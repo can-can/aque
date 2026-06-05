@@ -1194,6 +1194,33 @@ class TestPerformLaunchClaudeRouting:
         assert "aaaa" in launched["command"]
 
 
+class TestDeriveQuickLabel:
+    def test_typed_name_used_verbatim(self):
+        from aque.desk import _derive_quick_label
+        assert _derive_quick_label("/tmp/api", "fix-auth", "9999") == "fix-auth"
+
+    def test_typed_name_is_stripped(self):
+        from aque.desk import _derive_quick_label
+        assert _derive_quick_label("/tmp/api", "  fix-auth  ", "9999") == "fix-auth"
+
+    def test_empty_name_derives_dir_and_suffix(self):
+        from aque.desk import _derive_quick_label
+        assert _derive_quick_label("/tmp/api", "", "7392") == "api-7392"
+
+    def test_whitespace_only_name_derives(self):
+        from aque.desk import _derive_quick_label
+        assert _derive_quick_label("/tmp/api", "   ", "7392") == "api-7392"
+
+    def test_root_dir_falls_back_to_agent(self):
+        from aque.desk import _derive_quick_label
+        assert _derive_quick_label("/", "", "1234") == "agent-1234"
+
+    def test_quick_name_suffix_is_four_digit_string(self):
+        from aque.desk import _quick_name_suffix
+        s = _quick_name_suffix()
+        assert s.isdigit() and len(s) == 4
+
+
 class TestQuickLaunchPickerRouting:
     @pytest.mark.asyncio
     async def test_quick_launch_claude_routes_through_picker(self, tmp_aque_dir, monkeypatch):
