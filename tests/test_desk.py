@@ -1405,6 +1405,38 @@ class TestQuickLaunchNameStep:
 
         assert launched["label"] == "api-7392"
 
+    @pytest.mark.asyncio
+    async def test_escape_from_name_step_returns_to_task_list(
+        self, tmp_aque_dir, monkeypatch
+    ):
+        from aque import desk as desk_mod
+        from aque.desk import QuickLaunchForm
+
+        launched: list = []
+        monkeypatch.setattr("aque.launch.launch_agent",
+                            lambda **kw: launched.append(kw) or 1)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_quick_launch_form()
+            await pilot.pause()
+            form = app.query_one(QuickLaunchForm)
+            form.show_name_step(
+                {"command": ["echo"], "dir": "/tmp/api",
+                 "label": "old", "agent_type": None},
+                None,
+            )
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert form._step == "tasks"
+            assert not app.query("#quick-launch-name-input")
+            assert app.query("#quick-launch-list")   # task list restored
+            assert launched == []
+            assert app._mode == "quick_launch_form"   # form still open
+
 
 class TestFormCompletionResetsMode:
     """Both NewAgentForm and QuickLaunchForm submission paths must reset

@@ -2158,7 +2158,7 @@ class DeskApp(App):
         if self._mode == "quick_launch_form":
             if event.key == "escape":
                 form = self.query_one(QuickLaunchForm)
-                if form._step == "type":
+                if form._step in ("type", "name"):
                     form.show_tasks_step()
                     return
                 for w in self.query("QuickLaunchForm"):
