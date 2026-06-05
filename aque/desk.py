@@ -1445,17 +1445,26 @@ class DeskApp(App):
             return
         self.query_one(QuickLaunchForm).show_name_step(task, task["agent_type"])
 
-    def _launch_quick_task_with_type(self, task: dict, agent_type: str | None) -> None:
+    def _finish_quick_launch(
+        self, task: dict | None, agent_type: str | None, typed_name: str
+    ) -> None:
+        """Tear down the form and launch the recent task under a derived label.
+
+        ``typed_name`` is the raw value from the name field — non-blank wins,
+        blank auto-derives ``<dir>-####`` (see ``_derive_quick_label``)."""
+        if task is None:
+            return
         for w in self.query("QuickLaunchForm"):
             w.remove()
         # Reset mode now that the form widget is gone — the launch coordinator
         # may push the resume-picker modal and we don't want the on_key
         # handler trying to query a QuickLaunchForm that no longer exists.
         self._mode = "dashboard"
+        label = _derive_quick_label(task["dir"], typed_name, _quick_name_suffix())
         self._start_launch(
             command=list(task["command"]),
             working_dir=task["dir"],
-            label=task["label"] or None,
+            label=label,
             agent_type=agent_type,
         )
 
@@ -1842,6 +1851,14 @@ class DeskApp(App):
             # Enter on search returns focus to the agent list so the user
             # can immediately ↑↓ through the filtered results.
             self._focus_dashboard()
+            return
+        if event.input.id == "quick-launch-name-input":
+            if self._mode != "quick_launch_form":
+                return
+            form = self.query_one(QuickLaunchForm)
+            self._finish_quick_launch(
+                form._pending_task, form._pending_type, event.value
+            )
             return
         if self._mode != "new_agent_form":
             return

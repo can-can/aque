@@ -1224,9 +1224,9 @@ class TestDeriveQuickLabel:
 class TestQuickLaunchPickerRouting:
     @pytest.mark.asyncio
     async def test_quick_launch_claude_routes_through_picker(self, tmp_aque_dir, monkeypatch):
-        """_launch_quick_task_with_type for a claude task must delegate to
-        _perform_launch, which (after Task 9) pushes ResumePickerScreen when
-        prior sessions exist in the target directory."""
+        """_finish_quick_launch for a claude task must delegate to
+        _start_launch, which pushes ResumePickerScreen when prior sessions
+        exist in the target directory."""
         from datetime import datetime, timezone
         from aque import sessions, desk as desk_mod
         from aque.sessions import SessionSummary
@@ -1254,7 +1254,7 @@ class TestQuickLaunchPickerRouting:
                 "command": ["cc"], "dir": "/tmp/x",
                 "label": "quick", "agent_type": "claude",
             }
-            app._launch_quick_task_with_type(task, "claude")
+            app._finish_quick_launch(task, "claude", "quick")
             await pilot.pause()
 
         assert len(pushed) == 1
@@ -1347,6 +1347,64 @@ class TestQuickLaunchNameStep:
             assert app.query("#quick-launch-name-input")
             assert launched == []
 
+    @pytest.mark.asyncio
+    async def test_typed_name_becomes_label_on_launch(self, tmp_aque_dir, monkeypatch):
+        from aque import desk as desk_mod
+        from aque.desk import QuickLaunchForm
+        from textual.widgets import Input
+
+        launched: dict = {}
+        monkeypatch.setattr("aque.launch.launch_agent",
+                            lambda **kw: launched.update(kw) or 1)
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_quick_launch_form()
+            await pilot.pause()
+            form = app.query_one(QuickLaunchForm)
+            form.show_name_step(
+                {"command": ["echo", "hi"], "dir": "/tmp/api",
+                 "label": "old", "agent_type": None},
+                None,
+            )
+            await pilot.pause()
+            app.query_one("#quick-launch-name-input", Input).value = "renamed"
+            await pilot.press("enter")
+            await pilot.pause()
+
+        assert launched["label"] == "renamed"
+        assert launched["command"] == ["echo", "hi"]
+        assert launched["working_dir"] == "/tmp/api"
+        assert app._mode != "quick_launch_form"
+
+    @pytest.mark.asyncio
+    async def test_empty_name_autoderives_dir_suffix_label(self, tmp_aque_dir, monkeypatch):
+        from aque import desk as desk_mod
+        from aque.desk import QuickLaunchForm
+
+        launched: dict = {}
+        monkeypatch.setattr("aque.launch.launch_agent",
+                            lambda **kw: launched.update(kw) or 1)
+        monkeypatch.setattr("aque.desk._quick_name_suffix", lambda: "7392")
+
+        app = desk_mod.DeskApp(aque_dir=tmp_aque_dir, _skip_attach=True)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._show_quick_launch_form()
+            await pilot.pause()
+            form = app.query_one(QuickLaunchForm)
+            form.show_name_step(
+                {"command": ["echo"], "dir": "/tmp/api",
+                 "label": "old", "agent_type": None},
+                None,
+            )
+            await pilot.pause()
+            await pilot.press("enter")          # submit empty
+            await pilot.pause()
+
+        assert launched["label"] == "api-7392"
+
 
 class TestFormCompletionResetsMode:
     """Both NewAgentForm and QuickLaunchForm submission paths must reset
@@ -1375,9 +1433,10 @@ class TestFormCompletionResetsMode:
         async with app.run_test() as pilot:
             await pilot.pause()
             app._mode = "quick_launch_form"  # simulate mid-form state
-            app._launch_quick_task_with_type(
+            app._finish_quick_launch(
                 {"command": ["cc"], "dir": "/tmp/x", "label": "q", "agent_type": "claude"},
                 "claude",
+                "q",
             )
             await pilot.pause()
 
