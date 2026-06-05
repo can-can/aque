@@ -1,3 +1,4 @@
+import json
 import os
 import shlex
 import shutil
@@ -181,3 +182,35 @@ def desk() -> None:
     from aque.desk import DeskApp
     desk_app = DeskApp(aque_dir=AQUE_DIR)
     desk_app.run()
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind address"),
+    port: int = typer.Option(8722, "--port", help="Bind port"),
+    token: Optional[str] = typer.Option(None, "--token", help="Auth token (random if unset)"),
+    no_discovery: bool = typer.Option(False, "--no-discovery", help="Disable Bonjour advertising"),
+) -> None:
+    """Serve the agent queue + terminals to the AqueIOS app over the LAN."""
+    import uvicorn
+
+    from aque.server.app import create_app
+    from aque.server import discovery
+    from aque.server.pairing import generate_token, pairing_payload, render_qr
+
+    tok = token or generate_token()
+    lan_ip = discovery.detect_lan_ip()
+    application = create_app(AQUE_DIR, tok)
+
+    payload = json.dumps(pairing_payload(lan_ip, port, tok))
+    console.print(render_qr(payload))
+    console.print(f"[green]aque serve[/green] → http://{lan_ip}:{port}")
+    console.print(f"[yellow]token:[/yellow] {tok}")
+    console.print("[red]LAN-only: anyone with this token can run commands on this Mac.[/red]")
+
+    zc = None if no_discovery else discovery.register(lan_ip, port)
+    try:
+        uvicorn.run(application, host=host, port=port, log_level="warning")
+    finally:
+        if zc is not None:
+            zc.close()
