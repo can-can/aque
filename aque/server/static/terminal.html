@@ -136,12 +136,22 @@
       "swipe-right": { seq: "\x1b[C", label: "→" },
     };
 
+    // two-finger vertical pan → scroll the terminal's scrollback
+    let scrollAccum = 0;
+    const ROW_PX = 14; // approx CSS px per row at fontSize 12
+    function scrollByPx(dy) {
+      scrollAccum += dy;
+      const lines = (scrollAccum / ROW_PX) | 0; // truncate toward 0
+      if (lines !== 0) { term.scrollLines(-lines); scrollAccum -= lines * ROW_PX; }
+    }
+
     new GestureInput(document.getElementById("term"), {
       map: GESTURES,
       onAction: (a) => {
         if (a.panel) { openPanel(); return; }
         sendKeys(a.seq); flash(a.label);
       },
+      onScroll: scrollByPx,
     });
   </script>
 </body>

@@ -1,16 +1,17 @@
 // gestures.js — standalone, extensible touch-gesture recognizer.
 //
-// It only RECOGNIZES gestures and looks them up in a map; it does not know what
-// an action means (sending bytes, showing a hint, etc.) — the caller decides.
-// That keeps it reusable: floating buttons can drive the same action objects.
+// It RECOGNIZES gestures and looks them up in a map; it does not know what an
+// action means (sending bytes, scrolling, etc.) — the caller decides. That
+// keeps it reusable: floating buttons can drive the same action objects.
 //
 // Usage:
 //   const g = new GestureInput(el, {
-//     onAction: (action, gestureName) => { ... },   // do something with the action
+//     onAction: (action, gestureName) => { ... },   // discrete gestures
+//     onScroll: (dyPx) => { ... },                   // two-finger vertical pan
 //     map: {
 //       tap:           { seq: "\r",     label: "⏎" },
 //       doubletap:     { seq: "\x1b",   label: "Esc" },
-//       longpress:     { seq: "\x03",   label: "Ctrl-C" },
+//       longpress:     { panel: true },
 //       "swipe-up":    { seq: "\x1b[A", label: "↑" },
 //       "swipe-down":  { seq: "\x1b[B", label: "↓" },
 //       "swipe-left":  { seq: "\x1b[D", label: "←" },
@@ -18,19 +19,18 @@
 //     },
 //   });
 //
-// Recognized gesture names: tap, doubletap, longpress,
-//   swipe-up, swipe-down, swipe-left, swipe-right.
-// Extend by adding entries to the map, or remap live with g.on(name, action).
-// New gesture *types* (e.g. two-finger) can be added inside _bind without
-// touching callers.
+// Recognized: tap, doubletap, longpress, swipe-up/down/left/right (one finger);
+// plus a continuous two-finger vertical pan reported via onScroll(dyPx) where
+// dyPx is the incremental change in the two-finger midpoint (px, +down/-up).
+// Extend by adding map entries (gestures), or new gesture *types* in _bind().
 (function (global) {
   "use strict";
 
   const DEFAULTS = {
-    longPressMs: 550,   // hold this long → longpress
-    doubleTapMs: 300,   // two taps within this → doubletap
-    swipeMinPx: 28,     // travel this far → swipe (else it's a tap)
-    moveCancelPx: 12,   // moving this far cancels a pending longpress
+    longPressMs: 550,
+    doubleTapMs: 300,
+    swipeMinPx: 28,
+    moveCancelPx: 12,
   };
 
   class GestureInput {
@@ -39,16 +39,12 @@
       this.opts = Object.assign({}, DEFAULTS, opts);
       this.map = opts.map || {};
       this.onAction = opts.onAction || function () {};
+      this.onScroll = opts.onScroll || null;
       this._bind();
     }
 
-    /** Replace the whole gesture→action map. */
     setMap(map) { this.map = map || {}; }
-
-    /** Add or override a single gesture's action. */
     on(gesture, action) { this.map[gesture] = action; }
-
-    /** List the gestures that currently have an action. */
     gestures() { return Object.keys(this.map); }
 
     _fire(gesture) {
@@ -59,22 +55,44 @@
     _bind() {
       const o = this.opts;
       let sx = 0, sy = 0, lastTap = 0, longTimer = null, longFired = false;
+      let twoFinger = false, lastTwoY = null;
+
+      const cancelLong = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
+      const midY = (touches) => (touches[0].clientY + touches[1].clientY) / 2;
 
       this.el.addEventListener("touchstart", (e) => {
-        if (e.touches.length !== 1) { if (longTimer) { clearTimeout(longTimer); longTimer = null; } return; }
+        if (e.touches.length >= 2) {
+          twoFinger = true;          // two-finger scroll mode for this sequence
+          lastTwoY = midY(e.touches);
+          cancelLong();
+          return;
+        }
+        twoFinger = false;
         const t = e.touches[0];
         sx = t.clientX; sy = t.clientY; longFired = false;
         longTimer = setTimeout(() => { longTimer = null; longFired = true; this._fire("longpress"); }, o.longPressMs);
       }, { passive: true });
 
       this.el.addEventListener("touchmove", (e) => {
+        if (twoFinger) {
+          if (e.touches.length >= 2 && this.onScroll) {
+            const y = midY(e.touches);
+            const dy = y - lastTwoY;
+            lastTwoY = y;
+            if (dy !== 0) this.onScroll(dy);
+          }
+          return;
+        }
         if (!longTimer) return;
         const t = e.touches[0];
-        if (Math.hypot(t.clientX - sx, t.clientY - sy) > o.moveCancelPx) { clearTimeout(longTimer); longTimer = null; }
+        if (Math.hypot(t.clientX - sx, t.clientY - sy) > o.moveCancelPx) cancelLong();
       }, { passive: true });
 
       this.el.addEventListener("touchend", (e) => {
-        if (longTimer) { clearTimeout(longTimer); longTimer = null; }
+        // Ignore the finger-lifts that end a two-finger gesture (no taps fired).
+        if (twoFinger) { if (e.touches.length === 0) twoFinger = false; return; }
+
+        cancelLong();
         if (longFired) return;
         const t = e.changedTouches[0];
         const dx = t.clientX - sx, dy = t.clientY - sy;
@@ -88,7 +106,6 @@
           return;
         }
 
-        // tap vs double-tap (defer the single tap to see if a second arrives)
         const now = Date.now();
         if (now - lastTap < o.doubleTapMs) {
           lastTap = 0;
