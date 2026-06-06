@@ -129,9 +129,9 @@
 
     // ---- gestures ---------------------------------------------------------
     const GESTURES = {
-      tap:           { seq: "\r",     label: "⏎" },
+      tap:           { panel: true },                 // tap opens the panel
       doubletap:     { seq: "\x1b",   label: "Esc" },
-      longpress:     { panel: true },                 // long-press opens the panel
+      longpress:     { seq: "\r",     label: "⏎" },   // long-press sends Enter
       "swipe-up":    { seq: "\x1b[A", label: "↑" },
       "swipe-down":  { seq: "\x1b[B", label: "↓" },
       "swipe-left":  { seq: "\x1b[D", label: "←" },
