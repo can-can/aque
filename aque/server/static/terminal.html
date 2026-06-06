@@ -85,6 +85,7 @@
     const enc = new TextEncoder();
     function sendKeys(seq) { if (ws.readyState === 1) ws.send(enc.encode(seq)); }
     function navBack() { try { window.webkit.messageHandlers.nav.postMessage("back"); } catch (e) {} }
+    function haptic(kind) { try { window.webkit.messageHandlers.haptic.postMessage(kind || "light"); } catch (e) {} }
 
     const hintEl = document.getElementById("hint");
     let hintTimer;
@@ -114,6 +115,7 @@
       if (b.nav) btn.className = "nav";
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
+        haptic("light");
         closePanel();
         if (b.nav) { navBack(); return; }
         sendKeys(b.seq); flash(b.label);
@@ -136,6 +138,13 @@
       "swipe-right": { seq: "\x1b[C", label: "→" },
     };
 
+    // per-gesture haptic style (real device only; the simulator has no haptics)
+    const HAPTIC = {
+      tap: "medium", doubletap: "medium", longpress: "heavy",
+      "swipe-up": "selection", "swipe-down": "selection",
+      "swipe-left": "selection", "swipe-right": "selection",
+    };
+
     // two-finger vertical pan → scroll the terminal's scrollback
     let scrollAccum = 0;
     const ROW_PX = 14; // approx CSS px per row at fontSize 12
@@ -147,7 +156,8 @@
 
     new GestureInput(document.getElementById("term"), {
       map: GESTURES,
-      onAction: (a) => {
+      onAction: (a, name) => {
+        haptic(HAPTIC[name] || "light");
         if (a.panel) { openPanel(); return; }
         sendKeys(a.seq); flash(a.label);
       },
