@@ -51,3 +51,19 @@ async def test_pty_close_is_idempotent():
     proc.start()
     proc.close()
     proc.close()  # second close must not raise
+
+
+@pytest.mark.asyncio
+async def test_pty_starts_at_requested_size():
+    # stty reads its controlling tty's size and prints "rows cols".
+    proc = PtyProcess(["stty", "size"])
+    proc.start(cols=51, rows=33)
+    got = b""
+    gen = proc.output()
+    try:
+        while b"\n" not in got:
+            got += await asyncio.wait_for(gen.__anext__(), timeout=3.0)
+    finally:
+        await gen.aclose()
+        proc.close()
+    assert b"33 51" in got  # "rows cols"

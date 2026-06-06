@@ -16,14 +16,23 @@ class PtyProcess:
         self.pid: int | None = None
         self.master_fd: int | None = None
 
-    def start(self) -> None:
+    def start(self, cols: int = 80, rows: int = 24) -> None:
         pid, master_fd = pty.fork()
         if pid == 0:  # child: becomes the PTY session leader
+            try:
+                winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                fcntl.ioctl(0, termios.TIOCSWINSZ, winsize)  # fd 0 = controlling tty
+            except OSError:
+                pass
             os.execvp(self.argv[0], self.argv)
             os._exit(127)  # only reached if execvp fails
         self.pid = pid
         self.master_fd = master_fd
         os.set_blocking(master_fd, False)
+        try:
+            self.resize(cols, rows)  # keep the master side in sync
+        except OSError:
+            pass
 
     def write(self, data: bytes) -> None:
         if self.master_fd is not None:

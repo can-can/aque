@@ -73,9 +73,34 @@ def create_app(
             await ws.close(code=1011)
             return
 
-        proc = PtyProcess(app.state.command_for_agent(agent.to_dict()))
-        proc.start()
         await ws.accept()
+
+        # Wait for the client's initial size before spawning so the terminal is
+        # born at the right dimensions (a TUI's first paint must be at the final
+        # width, or stale wide cells leave residue on the client). Buffer any
+        # input that arrives before the resize.
+        init_cols, init_rows = 80, 24
+        pending_input = b""
+        try:
+            first = await asyncio.wait_for(ws.receive(), timeout=3.0)
+            if first["type"] == "websocket.disconnect":
+                return
+            if first.get("text") is not None:
+                try:
+                    data = json.loads(first["text"])
+                    if data.get("type") == "resize":
+                        init_cols, init_rows = int(data["cols"]), int(data["rows"])
+                except (ValueError, TypeError, KeyError):
+                    pass
+            elif first.get("bytes") is not None:
+                pending_input = first["bytes"]
+        except asyncio.TimeoutError:
+            pass
+
+        proc = PtyProcess(app.state.command_for_agent(agent.to_dict()))
+        proc.start(init_cols, init_rows)
+        if pending_input:
+            proc.write(pending_input)
 
         async def pump_out() -> None:
             async for chunk in proc.output():

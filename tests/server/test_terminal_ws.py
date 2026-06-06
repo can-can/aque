@@ -42,3 +42,16 @@ def test_terminal_ignores_malformed_resize(make_client):
         while b"ping" not in got:
             got += ws.receive_bytes()
         assert b"ping" in got
+
+
+def test_terminal_spawns_at_initial_resize(make_client):
+    # The server must wait for the client's resize, then spawn the terminal at
+    # that size (so a TUI's first paint isn't garbled by a later resize).
+    import json
+    client = make_client([AGENT], command_for_agent=lambda a: ["stty", "size"])
+    with client.websocket_connect(f"/agents/1/terminal?token={TOKEN}") as ws:
+        ws.send_text(json.dumps({"type": "resize", "cols": 51, "rows": 33}))
+        got = b""
+        while b"\n" not in got:
+            got += ws.receive_bytes()
+        assert b"33 51" in got  # the spawned `stty size` saw 33 rows x 51 cols
