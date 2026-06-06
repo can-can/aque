@@ -9,34 +9,24 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <style>
     html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
-    #app { display: flex; flex-direction: column; height: 100%; }
-    #term { flex: 1 1 auto; min-height: 0; padding: 4px; }
-    #keybar {
-      flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto;
-      padding: 8px; background: #111; -webkit-overflow-scrolling: touch;
-      padding-bottom: calc(8px + env(safe-area-inset-bottom));
-    }
-    #keybar button {
-      flex: 0 0 auto; font: 14px ui-monospace, Menlo, monospace; color: #ddd;
-      background: #2a2a2a; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; min-width: 40px;
-    }
-    #keybar button:active { background: #555; }
+    /* Maximized: the terminal fills the entire WebView. */
+    #term { position: fixed; inset: 0; padding: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
   </style>
 </head>
 <body>
-  <div id="app">
-    <div id="term"></div>
-    <div id="keybar"></div>
-  </div>
+  <div id="term"></div>
   <script>
     const qs = new URLSearchParams(location.search);
     const id = qs.get("id") || "1";
     const token = qs.get("token") || "";
 
+    // Read-only for now: no input, so the soft keyboard never appears and the
+    // terminal grid never changes from a keyboard-driven resize.
     const term = new Terminal({
       fontFamily: "ui-monospace, Menlo, monospace",
       fontSize: 12,
-      cursorBlink: true,
+      cursorBlink: false,
+      disableStdin: true,
       convertEol: false,
       theme: { background: "#000000" },
     });
@@ -45,36 +35,29 @@
     term.open(document.getElementById("term"));
     fit.fit();
 
+    // Belt-and-suspenders: a readonly textarea with inputmode=none will not
+    // summon the iOS keyboard even if the terminal gets focused by a tap.
+    const ta = document.querySelector(".xterm-helper-textarea");
+    if (ta) {
+      ta.setAttribute("readonly", "readonly");
+      ta.setAttribute("inputmode", "none");
+      ta.setAttribute("tabindex", "-1");
+      ta.blur();
+    }
+
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/agents/${id}/terminal?token=${encodeURIComponent(token)}`);
     ws.binaryType = "arraybuffer";
-    const enc = new TextEncoder();
-
     ws.onmessage = (e) => term.write(new Uint8Array(e.data));
-    term.onData((d) => { if (ws.readyState === 1) ws.send(enc.encode(d)); });
 
     function sendSize() {
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
     }
     ws.onopen = () => { fit.fit(); sendSize(); };
 
-    let resizeTimer;
-    const onResize = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { fit.fit(); sendSize(); }, 100); };
-    window.addEventListener("resize", onResize);
-    if (window.visualViewport) window.visualViewport.addEventListener("resize", onResize);
-
-    const KEYS = [
-      ["esc", "\x1b"], ["tab", "\t"], ["ctrl-c", "\x03"], ["ctrl-d", "\x04"],
-      ["↑", "\x1b[A"], ["↓", "\x1b[B"], ["←", "\x1b[D"], ["→", "\x1b[C"],
-      ["/", "/"], ["|", "|"], ["-", "-"],
-    ];
-    const bar = document.getElementById("keybar");
-    for (const [label, seq] of KEYS) {
-      const b = document.createElement("button");
-      b.textContent = label;
-      b.addEventListener("click", (ev) => { ev.preventDefault(); if (ws.readyState === 1) ws.send(enc.encode(seq)); term.focus(); });
-      bar.appendChild(b);
-    }
+    // Only refit on a real geometry change (rotation) — there is no keyboard.
+    let t;
+    window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { fit.fit(); sendSize(); }, 120); });
   </script>
 </body>
 </html>
