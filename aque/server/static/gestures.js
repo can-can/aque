@@ -39,9 +39,9 @@
     on(gesture, action) { this.map[gesture] = action; }
     gestures() { return Object.keys(this.map); }
 
-    _fire(gesture) {
+    _fire(gesture, repeat) {
       const action = this.map[gesture];
-      if (action) this.onAction(action, gesture);
+      if (action) this.onAction(action, gesture, !!repeat);
     }
 
     _bind() {
@@ -96,7 +96,7 @@
             curDir = dominant(dx, dy);
             this._fire(curDir);                                  // one arrow on the swipe
             repeatDelayTimer = setTimeout(() => {                // then sticky auto-repeat
-              repeatTimer = setInterval(() => { if (curDir) this._fire(curDir); }, o.repeatMs);
+              repeatTimer = setInterval(() => { if (curDir) this._fire(curDir, true); }, o.repeatMs);
             }, o.repeatDelayMs);
           } else if (longTimer && dist > o.moveCancelPx) {
             cancelLong();
@@ -136,6 +136,16 @@
           const at = now;
           setTimeout(() => { if (lastTap === at) { lastTap = 0; this._fire("tap"); } }, o.doubleTapMs);
         }
+      }, { passive: true });
+
+      // A finger dragged off the screen edge fires touchcancel, NOT touchend —
+      // make sure that still stops the sticky repeat and clears all state.
+      this.el.addEventListener("touchcancel", () => {
+        cancelLong();
+        stopRepeat();
+        maxTouches = 0;
+        dirFired = false;
+        curDir = null;
       }, { passive: true });
     }
   }

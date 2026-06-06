@@ -165,10 +165,11 @@
 
     new GestureInput(document.getElementById("term"), {
       map: GESTURES,
-      onAction: (a, name) => {
+      onAction: (a, name, repeat) => {
         haptic(HAPTIC[name] || "light");
         if (a.panel) { openPanel(); return; }
-        sendKeys(a.seq); flash(a.label);
+        sendKeys(a.seq);
+        if (!repeat) flash(a.label); // don't re-flash on every sticky-repeat tick
       },
       onScroll: scrollByPx,
     });
