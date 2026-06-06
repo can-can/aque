@@ -1,31 +1,25 @@
 // gestures.js — standalone, extensible touch-gesture recognizer.
 //
-// One-finger gestures: tap, doubletap, longpress, swipe-up/down/left/right.
-//   A swipe fires its direction once when you cross the threshold; if you then
-//   keep your finger down, that direction AUTO-REPEATS (sticky) and you can
-//   steer it by moving, until you lift.
+// One-finger gestures: tap, doubletap, longpress, and a DRAG.
+//   The drag emits one direction step per `stepPx` of finger movement (like a
+//   scroll wheel): it moves ONLY while your finger moves, so it stops the instant
+//   you stop or lift — no timer, no overshoot, and it can never run away (there
+//   is nothing running when the finger is still). A quick flick sends one step
+//   in its direction.
 // Two-finger: vertical pan reported via onScroll(dyPx).
 //
-// Stopping the sticky repeat is hard on iOS WebKit: a touch dragged off-screen
-// is "stolen" for a system gesture and delivers touchcancel — or NOTHING — to
-// the element. So the repeat is stopped three ways:
-//   (a) element + DOCUMENT-level touchend/touchcancel (document fires off-element),
-//   (b) a heartbeat: a pressed finger emits constant micro-touchmoves, so if no
-//       move has happened for repeatGraceMs we treat it as released,
-//   (c) a hard time cap (repeatMaxMs) as a last resort.
+// onAction(action, gestureName, isRepeat): isRepeat is true for the extra steps
+// emitted while dragging (so the page can skip the on-screen flash for those).
 (function (global) {
   "use strict";
 
   const DEFAULTS = {
     longPressMs: 550,
     doubleTapMs: 300,
-    swipeMinPx: 28,
+    swipeMinPx: 28,      // movement before a drag engages (also the flick threshold)
     moveCancelPx: 12,
+    stepPx: 24,          // finger pixels per direction step while dragging
     multiCooldownMs: 250,
-    repeatDelayMs: 400,  // hold a swipe this long before it starts auto-repeating
-    repeatMs: 120,       // interval between repeats while held
-    repeatGraceMs: 90,   // stop if the finger hasn't moved this long (covers a lost release)
-    repeatMaxMs: 5000,   // hard cap: a sticky repeat can never run longer than this
   };
 
   class GestureInput {
@@ -51,58 +45,31 @@
       const o = this.opts;
       let sx = 0, sy = 0, lastTap = 0, longTimer = null, longFired = false;
       let maxTouches = 0, suppressUntil = 0, lastTwoY = null;
-      let dirFired = false, curDir = null;
-      let repeatDelayTimer = null, repeatTimer = null, repeatMaxTimer = null, repeatWatchdog = null;
-      let lastMoveAt = 0;
+      let dragging = false, lastX = 0, lastY = 0, accV = 0, accH = 0;
 
-      const now = () => Date.now();
       const cancelLong = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
-      const stopRepeat = () => {
-        if (repeatDelayTimer) { clearTimeout(repeatDelayTimer); repeatDelayTimer = null; }
-        if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
-        if (repeatMaxTimer) { clearTimeout(repeatMaxTimer); repeatMaxTimer = null; }
-        if (repeatWatchdog) { clearInterval(repeatWatchdog); repeatWatchdog = null; }
-      };
       const midY = (t) => (t[0].clientY + t[1].clientY) / 2;
       const isMulti = () => maxTouches >= 2;
       const dominant = (dx, dy) => Math.abs(dx) > Math.abs(dy)
         ? (dx > 0 ? "swipe-right" : "swipe-left")
         : (dy > 0 ? "swipe-down" : "swipe-up");
 
-      const startRepeat = () => {
-        repeatDelayTimer = setTimeout(() => {
-          lastMoveAt = now();
-          repeatTimer = setInterval(() => {
-            if (now() - lastMoveAt > o.repeatGraceMs) { stopRepeat(); return; }  // (b) heartbeat
-            if (curDir) this._fire(curDir, true);
-          }, o.repeatMs);
-          // fast release watchdog: stop the instant the finger's micro-moves go
-          // silent (≈ when it lifts/leaves), without waiting for the next tick.
-          repeatWatchdog = setInterval(() => {
-            if (now() - lastMoveAt > o.repeatGraceMs) stopRepeat();
-          }, 33);
-          repeatMaxTimer = setTimeout(stopRepeat, o.repeatMaxMs);                 // (c) cap
-        }, o.repeatDelayMs);
-      };
-
       this.el.addEventListener("touchstart", (e) => {
-        lastMoveAt = now();
         maxTouches = Math.max(maxTouches, e.touches.length);
         if (e.touches.length >= 2) {
           lastTwoY = midY(e.touches);
-          cancelLong(); stopRepeat();
-          dirFired = false; curDir = null;
+          cancelLong();
+          dragging = false;
           return;
         }
         if (isMulti()) return;
         const t = e.touches[0];
-        sx = t.clientX; sy = t.clientY;
-        longFired = false; dirFired = false; curDir = null;
+        sx = lastX = t.clientX; sy = lastY = t.clientY;
+        longFired = false; dragging = false; accV = 0; accH = 0;
         longTimer = setTimeout(() => { longTimer = null; longFired = true; this._fire("longpress"); }, o.longPressMs);
       }, { passive: true });
 
       this.el.addEventListener("touchmove", (e) => {
-        lastMoveAt = now();
         if (isMulti()) {
           if (e.touches.length >= 2 && this.onScroll) {
             const y = midY(e.touches); const dy = y - lastTwoY; lastTwoY = y;
@@ -112,35 +79,43 @@
         }
         const t = e.touches[0];
         if (!t) return;
-        const dx = t.clientX - sx, dy = t.clientY - sy;
-        const dist = Math.hypot(dx, dy);
-        if (!dirFired) {
-          if (dist >= o.swipeMinPx) {
+
+        if (!dragging) {
+          const dx = t.clientX - sx, dy = t.clientY - sy;
+          if (Math.hypot(dx, dy) >= o.swipeMinPx) {
             cancelLong();
-            dirFired = true;
-            curDir = dominant(dx, dy);
-            this._fire(curDir);
-            startRepeat();
-          } else if (longTimer && dist > o.moveCancelPx) {
+            dragging = true;
+            lastX = t.clientX; lastY = t.clientY;
+            accV = 0; accH = 0;
+            this._fire(dominant(dx, dy));           // first step (with flash)
+          } else if (longTimer && Math.hypot(dx, dy) > o.moveCancelPx) {
             cancelLong();
           }
-        } else if (dist >= o.swipeMinPx * 0.6) {
-          curDir = dominant(dx, dy);
+          return;
         }
+
+        // Dragging: emit one step per stepPx of movement, in the move's direction.
+        accV += t.clientY - lastY;
+        accH += t.clientX - lastX;
+        lastX = t.clientX; lastY = t.clientY;
+        while (accV >= o.stepPx) { this._fire("swipe-down", true); accV -= o.stepPx; }
+        while (accV <= -o.stepPx) { this._fire("swipe-up", true); accV += o.stepPx; }
+        while (accH >= o.stepPx) { this._fire("swipe-right", true); accH -= o.stepPx; }
+        while (accH <= -o.stepPx) { this._fire("swipe-left", true); accH += o.stepPx; }
       }, { passive: true });
 
       this.el.addEventListener("touchend", (e) => {
         if (e.touches.length > 0) return;
         const wasMulti = isMulti();
-        const t0 = now();
-        cancelLong(); stopRepeat();
+        const t0 = Date.now();
+        cancelLong();
         maxTouches = 0;
-        const wasDir = dirFired;
-        dirFired = false; curDir = null;
+        const wasDrag = dragging;
+        dragging = false;
 
         if (wasMulti) { suppressUntil = t0 + o.multiCooldownMs; return; }
         if (t0 < suppressUntil) return;
-        if (wasDir) return;
+        if (wasDrag) return;          // was a drag-scroll, not a tap/flick
         if (longFired) return;
 
         const t = e.changedTouches[0];
@@ -151,15 +126,10 @@
       }, { passive: true });
 
       this.el.addEventListener("touchcancel", () => {
-        cancelLong(); stopRepeat();
-        maxTouches = 0; dirFired = false; curDir = null;
+        cancelLong();
+        maxTouches = 0;
+        dragging = false;
       }, { passive: true });
-
-      // (a) Document-level backstop — fires even when the touch is off-element.
-      const stopOnEnd = () => { if (repeatTimer || repeatDelayTimer) stopRepeat(); };
-      ["touchend", "touchcancel", "touchstart", "pointerup", "pointercancel"].forEach((ev) => {
-        document.addEventListener(ev, stopOnEnd, { passive: true, capture: true });
-      });
     }
   }
 
