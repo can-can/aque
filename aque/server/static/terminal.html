@@ -7,21 +7,31 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="/static/gestures.js"></script>
   <style>
     html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
     /* Maximized: the terminal fills the entire WebView, edge to edge. */
     #term { position: fixed; inset: 0; padding: 2px; }
+    /* Brief flash of what a gesture sent. */
+    #hint {
+      position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.72); color: #fff;
+      font: 600 38px ui-monospace, Menlo, monospace;
+      padding: 10px 20px; border-radius: 14px; opacity: 0;
+      transition: opacity 0.1s; pointer-events: none; z-index: 20;
+    }
   </style>
 </head>
 <body>
   <div id="term"></div>
+  <div id="hint"></div>
   <script>
     const qs = new URLSearchParams(location.search);
     const id = qs.get("id") || "1";
     const token = qs.get("token") || "";
 
-    // Read-only for now: no input, so the soft keyboard never appears and the
-    // terminal grid never changes from a keyboard-driven resize.
+    // No soft keyboard: input comes from gestures, not a textarea. disableStdin
+    // keeps xterm read-only so the keyboard never appears and the grid is stable.
     const term = new Terminal({
       fontFamily: "ui-monospace, Menlo, monospace",
       fontSize: 12,
@@ -35,8 +45,6 @@
     term.open(document.getElementById("term"));
     fit.fit();
 
-    // Belt-and-suspenders: a readonly textarea with inputmode=none will not
-    // summon the iOS keyboard even if the terminal gets focused by a tap.
     const ta = document.querySelector(".xterm-helper-textarea");
     if (ta) {
       ta.setAttribute("readonly", "readonly");
@@ -55,9 +63,37 @@
     }
     ws.onopen = () => { fit.fit(); sendSize(); };
 
-    // Only refit on a real geometry change (rotation) — there is no keyboard.
     let t;
     window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { fit.fit(); sendSize(); }, 120); });
+
+    // ---- gesture input -----------------------------------------------------
+    const enc = new TextEncoder();
+    function sendKeys(seq) { if (ws.readyState === 1) ws.send(enc.encode(seq)); }
+
+    const hintEl = document.getElementById("hint");
+    let hintTimer;
+    function flash(label) {
+      hintEl.textContent = label;
+      hintEl.style.opacity = "1";
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => { hintEl.style.opacity = "0"; }, 420);
+    }
+
+    // gesture name -> { seq, label }. Edit/extend this map freely.
+    const GESTURES = {
+      tap:           { seq: "\r",     label: "⏎" },
+      doubletap:     { seq: "\x1b",   label: "Esc" },
+      longpress:     { seq: "\x03",   label: "Ctrl-C" },
+      "swipe-up":    { seq: "\x1b[A", label: "↑" },
+      "swipe-down":  { seq: "\x1b[B", label: "↓" },
+      "swipe-left":  { seq: "\x1b[D", label: "←" },
+      "swipe-right": { seq: "\x1b[C", label: "→" },
+    };
+
+    new GestureInput(document.getElementById("term"), {
+      map: GESTURES,
+      onAction: (action) => { sendKeys(action.seq); flash(action.label); },
+    });
   </script>
 </body>
 </html>

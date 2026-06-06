@@ -5,6 +5,7 @@ from typing import Callable, Optional
 
 from fastapi import Depends, FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
 
 from aque.server.agents import agents_payload
@@ -147,5 +148,12 @@ def create_app(
     async def terminal_page() -> str:
         page = Path(__file__).parent / "static" / "terminal.html"
         return page.read_text()
+
+    # Static assets (gestures.js, etc.), served fresh from disk.
+    app.mount(
+        "/static",
+        StaticFiles(directory=Path(__file__).parent / "static"),
+        name="static",
+    )
 
     return app
