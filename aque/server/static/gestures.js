@@ -6,23 +6,18 @@
 //
 // Usage:
 //   const g = new GestureInput(el, {
-//     onAction: (action, gestureName) => { ... },   // discrete gestures
+//     onAction: (action, gestureName) => { ... },   // discrete one-finger gestures
 //     onScroll: (dyPx) => { ... },                   // two-finger vertical pan
 //     map: {
-//       tap:           { seq: "\r",     label: "⏎" },
-//       doubletap:     { seq: "\x1b",   label: "Esc" },
-//       longpress:     { panel: true },
-//       "swipe-up":    { seq: "\x1b[A", label: "↑" },
-//       "swipe-down":  { seq: "\x1b[B", label: "↓" },
-//       "swipe-left":  { seq: "\x1b[D", label: "←" },
-//       "swipe-right": { seq: "\x1b[C", label: "→" },
+//       tap: {...}, doubletap: {...}, longpress: {...},
+//       "swipe-up": {...}, "swipe-down": {...}, "swipe-left": {...}, "swipe-right": {...},
 //     },
 //   });
 //
-// Recognized: tap, doubletap, longpress, swipe-up/down/left/right (one finger);
-// plus a continuous two-finger vertical pan reported via onScroll(dyPx) where
-// dyPx is the incremental change in the two-finger midpoint (px, +down/-up).
-// Extend by adding map entries (gestures), or new gesture *types* in _bind().
+// Disambiguation: a single-finger gesture fires ONLY if the whole touch
+// sequence stayed at one finger (tracked via maxTouches), and never within a
+// short cooldown after a multi-touch gesture — so the staggered land/lift of a
+// two-finger pan can't leak a stray tap/swipe.
 (function (global) {
   "use strict";
 
@@ -31,6 +26,7 @@
     doubleTapMs: 300,
     swipeMinPx: 28,
     moveCancelPx: 12,
+    multiCooldownMs: 250, // suppress single-finger gestures this long after a multi-touch
   };
 
   class GestureInput {
@@ -55,26 +51,27 @@
     _bind() {
       const o = this.opts;
       let sx = 0, sy = 0, lastTap = 0, longTimer = null, longFired = false;
-      let twoFinger = false, lastTwoY = null;
+      let lastTwoY = null, maxTouches = 0, suppressUntil = 0;
 
       const cancelLong = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
       const midY = (touches) => (touches[0].clientY + touches[1].clientY) / 2;
+      const isMulti = () => maxTouches >= 2;
 
       this.el.addEventListener("touchstart", (e) => {
-        if (e.touches.length >= 2) {
-          twoFinger = true;          // two-finger scroll mode for this sequence
+        maxTouches = Math.max(maxTouches, e.touches.length);
+        if (e.touches.length >= 2) {           // two-finger: scroll mode
           lastTwoY = midY(e.touches);
           cancelLong();
           return;
         }
-        twoFinger = false;
+        if (isMulti()) return;                 // a leftover finger from a multi sequence
         const t = e.touches[0];
         sx = t.clientX; sy = t.clientY; longFired = false;
         longTimer = setTimeout(() => { longTimer = null; longFired = true; this._fire("longpress"); }, o.longPressMs);
       }, { passive: true });
 
       this.el.addEventListener("touchmove", (e) => {
-        if (twoFinger) {
+        if (isMulti()) {
           if (e.touches.length >= 2 && this.onScroll) {
             const y = midY(e.touches);
             const dy = y - lastTwoY;
@@ -89,14 +86,19 @@
       }, { passive: true });
 
       this.el.addEventListener("touchend", (e) => {
-        // Ignore the finger-lifts that end a two-finger gesture (no taps fired).
-        if (twoFinger) { if (e.touches.length === 0) twoFinger = false; return; }
+        if (e.touches.length > 0) return;      // wait until every finger is up
 
+        const wasMulti = isMulti();
+        const now = Date.now();
         cancelLong();
-        if (longFired) return;
+        maxTouches = 0;                         // sequence over
+
+        if (wasMulti) { suppressUntil = now + o.multiCooldownMs; return; }
+        if (now < suppressUntil) return;        // just after a multi-touch — ignore
+        if (longFired) return;                  // long-press already handled it
+
         const t = e.changedTouches[0];
         const dx = t.clientX - sx, dy = t.clientY - sy;
-
         if (Math.hypot(dx, dy) >= o.swipeMinPx) {
           const dir = Math.abs(dx) > Math.abs(dy)
             ? (dx > 0 ? "swipe-right" : "swipe-left")
@@ -106,7 +108,6 @@
           return;
         }
 
-        const now = Date.now();
         if (now - lastTap < o.doubleTapMs) {
           lastTap = 0;
           this._fire("doubletap");
