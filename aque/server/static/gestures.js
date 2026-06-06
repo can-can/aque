@@ -23,6 +23,7 @@
     multiCooldownMs: 250,
     repeatDelayMs: 400, // hold a swipe this long before it starts auto-repeating
     repeatMs: 120,      // interval between repeats while held
+    repeatMaxMs: 5000,  // hard cap: a sticky repeat can never run longer than this
   };
 
   class GestureInput {
@@ -48,12 +49,13 @@
       const o = this.opts;
       let sx = 0, sy = 0, lastTap = 0, longTimer = null, longFired = false;
       let maxTouches = 0, suppressUntil = 0, lastTwoY = null;
-      let dirFired = false, curDir = null, repeatDelayTimer = null, repeatTimer = null;
+      let dirFired = false, curDir = null, repeatDelayTimer = null, repeatTimer = null, repeatMaxTimer = null;
 
       const cancelLong = () => { if (longTimer) { clearTimeout(longTimer); longTimer = null; } };
       const stopRepeat = () => {
         if (repeatDelayTimer) { clearTimeout(repeatDelayTimer); repeatDelayTimer = null; }
         if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+        if (repeatMaxTimer) { clearTimeout(repeatMaxTimer); repeatMaxTimer = null; }
       };
       const midY = (t) => (t[0].clientY + t[1].clientY) / 2;
       const isMulti = () => maxTouches >= 2;
@@ -97,6 +99,7 @@
             this._fire(curDir);                                  // one arrow on the swipe
             repeatDelayTimer = setTimeout(() => {                // then sticky auto-repeat
               repeatTimer = setInterval(() => { if (curDir) this._fire(curDir, true); }, o.repeatMs);
+              repeatMaxTimer = setTimeout(stopRepeat, o.repeatMaxMs); // (3) timeout fallback
             }, o.repeatDelayMs);
           } else if (longTimer && dist > o.moveCancelPx) {
             cancelLong();
@@ -138,8 +141,6 @@
         }
       }, { passive: true });
 
-      // A finger dragged off the screen edge fires touchcancel, NOT touchend —
-      // make sure that still stops the sticky repeat and clears all state.
       this.el.addEventListener("touchcancel", () => {
         cancelLong();
         stopRepeat();
@@ -147,6 +148,16 @@
         dirFired = false;
         curDir = null;
       }, { passive: true });
+
+      // (1)(2) WebKit drops the end event on the originating element when a touch
+      // is dragged off-screen (it cancels the touch for a system gesture). The
+      // DOCUMENT still gets end events even off-element, so any release/cancel/
+      // new-touch anywhere stops a running sticky repeat. The time cap above (3)
+      // covers the case where the touch is dropped with no event at all.
+      const stopOnEnd = () => { if (repeatTimer || repeatDelayTimer) stopRepeat(); };
+      document.addEventListener("touchend", stopOnEnd, { passive: true, capture: true });
+      document.addEventListener("touchcancel", stopOnEnd, { passive: true, capture: true });
+      document.addEventListener("touchstart", stopOnEnd, { passive: true, capture: true });
     }
   }
 
