@@ -24,7 +24,7 @@
     multiCooldownMs: 250,
     repeatDelayMs: 400,  // hold a swipe this long before it starts auto-repeating
     repeatMs: 120,       // interval between repeats while held
-    repeatGraceMs: 200,  // stop if the finger hasn't moved this long (covers a lost release)
+    repeatGraceMs: 90,   // stop if the finger hasn't moved this long (covers a lost release)
     repeatMaxMs: 5000,   // hard cap: a sticky repeat can never run longer than this
   };
 
@@ -52,7 +52,7 @@
       let sx = 0, sy = 0, lastTap = 0, longTimer = null, longFired = false;
       let maxTouches = 0, suppressUntil = 0, lastTwoY = null;
       let dirFired = false, curDir = null;
-      let repeatDelayTimer = null, repeatTimer = null, repeatMaxTimer = null;
+      let repeatDelayTimer = null, repeatTimer = null, repeatMaxTimer = null, repeatWatchdog = null;
       let lastMoveAt = 0;
 
       const now = () => Date.now();
@@ -61,6 +61,7 @@
         if (repeatDelayTimer) { clearTimeout(repeatDelayTimer); repeatDelayTimer = null; }
         if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
         if (repeatMaxTimer) { clearTimeout(repeatMaxTimer); repeatMaxTimer = null; }
+        if (repeatWatchdog) { clearInterval(repeatWatchdog); repeatWatchdog = null; }
       };
       const midY = (t) => (t[0].clientY + t[1].clientY) / 2;
       const isMulti = () => maxTouches >= 2;
@@ -75,6 +76,11 @@
             if (now() - lastMoveAt > o.repeatGraceMs) { stopRepeat(); return; }  // (b) heartbeat
             if (curDir) this._fire(curDir, true);
           }, o.repeatMs);
+          // fast release watchdog: stop the instant the finger's micro-moves go
+          // silent (≈ when it lifts/leaves), without waiting for the next tick.
+          repeatWatchdog = setInterval(() => {
+            if (now() - lastMoveAt > o.repeatGraceMs) stopRepeat();
+          }, 33);
           repeatMaxTimer = setTimeout(stopRepeat, o.repeatMaxMs);                 // (c) cap
         }, o.repeatDelayMs);
       };
@@ -151,9 +157,9 @@
 
       // (a) Document-level backstop — fires even when the touch is off-element.
       const stopOnEnd = () => { if (repeatTimer || repeatDelayTimer) stopRepeat(); };
-      document.addEventListener("touchend", stopOnEnd, { passive: true, capture: true });
-      document.addEventListener("touchcancel", stopOnEnd, { passive: true, capture: true });
-      document.addEventListener("touchstart", stopOnEnd, { passive: true, capture: true });
+      ["touchend", "touchcancel", "touchstart", "pointerup", "pointercancel"].forEach((ev) => {
+        document.addEventListener(ev, stopOnEnd, { passive: true, capture: true });
+      });
     }
   }
 
