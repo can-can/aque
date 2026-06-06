@@ -145,13 +145,22 @@
       "swipe-left": "selection", "swipe-right": "selection",
     };
 
-    // two-finger vertical pan → scroll the terminal's scrollback
+    // two-finger pan → mouse-wheel events sent to the agent. A full-screen TUI
+    // (claude) has no terminal scrollback, but it scrolls its own transcript on
+    // wheel events. Drag down = wheel-up (older); drag up = wheel-down (newer).
     let scrollAccum = 0;
-    const ROW_PX = 14; // approx CSS px per row at fontSize 12
+    const WHEEL_PX = 22; // px of pan per wheel notch
+    const WHEEL_UP = "\x1b[<64;40;20M";
+    const WHEEL_DOWN = "\x1b[<65;40;20M";
     function scrollByPx(dy) {
       scrollAccum += dy;
-      const lines = (scrollAccum / ROW_PX) | 0; // truncate toward 0
-      if (lines !== 0) { term.scrollLines(-lines); scrollAccum -= lines * ROW_PX; }
+      let notches = (scrollAccum / WHEEL_PX) | 0;
+      if (notches === 0) return;
+      scrollAccum -= notches * WHEEL_PX;
+      const seq = notches > 0 ? WHEEL_UP : WHEEL_DOWN;
+      let n = Math.abs(notches), out = "";
+      while (n-- > 0) out += seq;
+      sendKeys(out);
     }
 
     new GestureInput(document.getElementById("term"), {
