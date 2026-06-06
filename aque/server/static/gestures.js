@@ -24,7 +24,7 @@
     multiCooldownMs: 250,
     repeatDelayMs: 400,  // hold a swipe this long before it starts auto-repeating
     repeatMs: 120,       // interval between repeats while held
-    repeatGraceMs: 500,  // stop if the finger hasn't moved this long (covers a lost release)
+    repeatGraceMs: 200,  // stop if the finger hasn't moved this long (covers a lost release)
     repeatMaxMs: 5000,   // hard cap: a sticky repeat can never run longer than this
   };
 
