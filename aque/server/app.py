@@ -143,4 +143,9 @@ def create_app(
         page = Path(__file__).parent / "static" / "terminal_test.html"
         return page.read_text()
 
+    @app.get("/terminal", response_class=HTMLResponse)
+    async def terminal_page() -> str:
+        page = Path(__file__).parent / "static" / "terminal.html"
+        return page.read_text()
+
     return app
