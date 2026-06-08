@@ -9,7 +9,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="/static/gestures.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+    html, body { height: 100%; margin: 0; background: #000; overflow: hidden;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     #term {
       position: fixed; left: 0; right: 0; top: 0; bottom: 0; padding: 2px;
       /* Stop iOS from hijacking one-finger drags (native scroll/selection/callout),
@@ -25,12 +26,16 @@
       position: fixed; inset: 0; z-index: 10;
       overflow-y: scroll; overflow-x: hidden;
       -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+      /* This layer is the touch target for the long-press (→ Enter) gesture; it
+         must not also let iOS start a text selection. The gesture listeners are
+         passive (can't preventDefault), so selection is killed here in CSS. */
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     }
     #scroller::-webkit-scrollbar { width: 0; height: 0; }
     #scrollspace { width: 1px; height: 300%; }
     /* Floating keyboard toggle — rides just above the soft keyboard. */
     #kb {
-      position: fixed; right: 12px; bottom: 24px; z-index: 35; padding: 0;
+      position: fixed; right: 16px; bottom: 86px; z-index: 35; padding: 0;
       width: 46px; height: 46px; border-radius: 23px;
       background: rgba(28,28,30,0.82); color: #fff; border: 1px solid #3a3a3c;
       font: 22px/44px ui-monospace, Menlo, monospace; text-align: center;
@@ -233,7 +238,19 @@
     // the keyboard (visualViewport) and the pty re-fits so the prompt stays put.
     const termEl = document.getElementById("term");
     const kbBtn = document.getElementById("kb");
-    if (kbBtn) kbBtn.style.display = "none";   // replaced by the app's native keyboard button
+    // The keyboard is presented natively by the app (a hidden UIKeyInput), so the
+    // page's own ⌨ button is hidden. The app forwards keystrokes via window.aqueInput
+    // and tells us the keyboard height so we shrink the terminal above it.
+    if (kbBtn) kbBtn.style.display = "none";
+    window.aqueSetKbSide = () => {};   // no-op (kept for compatibility)
+    // Driven by the app when its native keyboard shows/hides: shrink the terminal
+    // (and re-fit the pty) so the prompt sits just above the keyboard.
+    window.aqueSetKeyboardHeight = (px) => {
+      if (px > 0) { termEl.style.bottom = "auto"; termEl.style.height = (window.innerHeight - px) + "px"; }
+      else { termEl.style.height = ""; termEl.style.bottom = "0"; }
+      try { fit.fit(); } catch (e) {}
+      pushSize();
+    };
     const vv = window.visualViewport;
     let keyboardOn = false;
 
@@ -258,7 +275,7 @@
 
     function positionKbBtn() {
       const inset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-      kbBtn.style.bottom = (inset > 0 ? inset + 14 : 24) + "px";
+      kbBtn.style.bottom = (inset > 0 ? inset + 14 : 86) + "px";
     }
 
     function syncHeight() {
