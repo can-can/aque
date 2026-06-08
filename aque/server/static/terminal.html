@@ -175,6 +175,19 @@
     function zoomFont(dir) { if (setFont(fontSize + dir)) { haptic("selection"); flash(fontSize + "px"); } }
     function resetFont() { setFont(FONT_DEFAULT); haptic("medium"); flash(FONT_DEFAULT + "px"); }
 
+    // Native bridge: the app drives scroll/zoom (the WebView is a pure renderer).
+    // aqueScroll(notches): + = older (wheel up), − = newer (wheel down).
+    window.aqueScroll = (notches) => {
+      notches = notches | 0;
+      if (!notches) return;
+      const seq = wheelSeq(notches > 0);
+      let n = Math.abs(notches), out = "";
+      while (n-- > 0) out += seq;
+      sendKeys(out);
+    };
+    // aqueZoom(dir): +1 zoom in (bigger font), −1 out. Flash the new size.
+    window.aqueZoom = (dir) => { if (setFont(fontSize + dir)) flash(fontSize + "px"); };
+
     // ---- input: shared send + feedback ------------------------------------
     const enc = new TextEncoder();
     function sendKeys(seq) { if (ws && ws.readyState === 1) ws.send(enc.encode(seq)); }
