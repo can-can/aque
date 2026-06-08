@@ -233,6 +233,7 @@
     // the keyboard (visualViewport) and the pty re-fits so the prompt stays put.
     const termEl = document.getElementById("term");
     const kbBtn = document.getElementById("kb");
+    if (kbBtn) kbBtn.style.display = "none";   // replaced by the app's native keyboard button
     const vv = window.visualViewport;
     let keyboardOn = false;
 
@@ -281,6 +282,7 @@
       kbBtn.textContent = "✕";
       try { if (ta) ta.focus(); term.focus(); } catch (e) {}
       haptic("medium");
+      postKbState("on");
       syncHeight();
     }
     function hideKeyboard() {
@@ -291,8 +293,12 @@
       kbBtn.textContent = "⌨";
       try { if (ta) ta.blur(); } catch (e) {}
       haptic("light");
+      postKbState("off");
       syncHeight();
     }
+    function postKbState(s) { try { window.webkit.messageHandlers.keyboard.postMessage(s); } catch (e) {} }
+    // Native bridge: the app's native ⌨ button calls this to toggle the soft keyboard.
+    window.aqueToggleKeyboard = () => { keyboardOn ? hideKeyboard() : showKeyboard(); };
     kbBtn.addEventListener("click", (e) => { e.stopPropagation(); keyboardOn ? hideKeyboard() : showKeyboard(); });
     // if iOS dismisses the keyboard on its own (swipe-down), keep our state in sync
     if (ta) ta.addEventListener("blur", () => { if (keyboardOn) hideKeyboard(); });
