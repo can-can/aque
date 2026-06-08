@@ -7,42 +7,9 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
-  <script src="/static/gestures.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; background: #000; overflow: hidden;
-      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-    #term {
-      position: fixed; left: 0; right: 0; top: 0; bottom: 0; padding: 2px;
-      /* Stop iOS from hijacking one-finger drags (native scroll/selection/callout),
-         which froze/jittered the touch coordinates so scroll only trickled out. */
-      touch-action: none;
-      -webkit-user-select: none; user-select: none;
-      -webkit-touch-callout: none;
-    }
-    /* Transparent layer iOS scrolls natively with one finger; we capture its
-       scroll delta and turn it into mouse-wheel events for the agent. It sits
-       over the terminal and also receives taps / two-finger gestures. */
-    #scroller {
-      position: fixed; inset: 0; z-index: 10;
-      overflow-y: scroll; overflow-x: hidden;
-      -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-      /* This layer is the touch target for the long-press (→ Enter) gesture; it
-         must not also let iOS start a text selection. The gesture listeners are
-         passive (can't preventDefault), so selection is killed here in CSS. */
-      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
-    }
-    #scroller::-webkit-scrollbar { width: 0; height: 0; }
-    #scrollspace { width: 1px; height: 300%; }
-    /* Floating keyboard toggle — rides just above the soft keyboard. */
-    #kb {
-      position: fixed; right: 16px; bottom: 86px; z-index: 35; padding: 0;
-      width: 46px; height: 46px; border-radius: 23px;
-      background: rgba(28,28,30,0.82); color: #fff; border: 1px solid #3a3a3c;
-      font: 22px/44px ui-monospace, Menlo, monospace; text-align: center;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    }
-    #kb.on { background: #0a3a66; border-color: #0a4f8c; }
-    /* "reconnecting…" pill, shown while the socket is down. */
+    html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+    #term { position: fixed; left: 0; right: 0; top: 0; bottom: 0; padding: 2px; }
     #conn {
       position: fixed; left: 50%; top: calc(8px + env(safe-area-inset-top));
       transform: translateX(-50%); z-index: 55; pointer-events: none;
@@ -58,38 +25,19 @@
       padding: 10px 20px; border-radius: 14px; opacity: 0;
       transition: opacity 0.1s; pointer-events: none; z-index: 20;
     }
-    /* Floating "more keys" panel (opened by long-press). */
-    #panel { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: none; z-index: 40; }
-    #panel.open { display: block; }
-    #sheet {
-      position: absolute; left: 0; right: 0; bottom: 0; background: #1c1c1e;
-      padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
-      border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5);
-    }
-    #sheet .title { color: #8e8e93; font: 12px -apple-system, system-ui, sans-serif; text-align: center; margin-bottom: 12px; }
-    #sheet .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-    #sheet button {
-      background: #2c2c2e; color: #fff; border: 1px solid #3a3a3c; border-radius: 10px;
-      padding: 15px 6px; font: 16px ui-monospace, Menlo, monospace;
-    }
-    #sheet button:active { background: #48484a; }
-    #sheet button.nav { background: #0a3a66; border-color: #0a4f8c; }
   </style>
 </head>
 <body>
   <div id="term"></div>
-  <div id="scroller"><div id="scrollspace"></div></div>
-  <div id="hint"></div>
   <div id="conn">reconnecting…</div>
-  <button id="kb" aria-label="toggle keyboard">⌨</button>
-  <div id="panel"><div id="sheet"><div class="title">more keys — tap to send</div><div class="grid" id="panelgrid"></div></div></div>
+  <div id="hint"></div>
   <script>
     const qs = new URLSearchParams(location.search);
     const id = qs.get("id") || "1";
     const token = qs.get("token") || "";
 
-    // No soft keyboard: input comes from gestures + the floating panel, not a
-    // textarea. disableStdin keeps xterm read-only so the grid stays stable.
+    // Pure renderer: no stdin, no soft keyboard. All input is native; typing is
+    // injected via window.aqueInput, keys go over the separate control socket.
     const term = new Terminal({
       fontFamily: "ui-monospace, Menlo, monospace",
       fontSize: 18,
@@ -103,28 +51,15 @@
     term.open(document.getElementById("term"));
     fit.fit();
 
-    const ta = document.querySelector(".xterm-helper-textarea");
-    if (ta) {
-      ta.setAttribute("readonly", "readonly");
-      ta.setAttribute("inputmode", "none");
-      ta.setAttribute("tabindex", "-1");
-      ta.blur();
-    }
-
-    // --- WebSocket with auto-reconnect ------------------------------------
-    // iOS closes the socket when the app is backgrounded or the screen locks.
-    // We retry with backoff and reconnect the instant we return to the
-    // foreground, so the terminal comes back on its own.
+    // --- output socket with auto-reconnect --------------------------------
     const connEl = document.getElementById("conn");
-    function setConn(reconnecting) { connEl.classList.toggle("show", reconnecting); }
-
+    function setConn(on) { connEl.classList.toggle("show", on); }
     const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/agents/${id}/terminal?token=${encodeURIComponent(token)}`;
     let ws = null, reconnectTimer = null, reconnectDelay = 500, closingByUser = false;
 
     function sendSize() {
       if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
     }
-
     function connect() {
       if (closingByUser) return;
       clearTimeout(reconnectTimer); reconnectTimer = null;
@@ -135,15 +70,12 @@
       ws.onclose = () => { ws = null; scheduleReconnect(); };
       ws.onerror = () => { try { if (ws) ws.close(); } catch (e) {} };
     }
-
     function scheduleReconnect() {
       if (closingByUser || reconnectTimer) return;
       setConn(true);
       reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, 5000);   // cap backoff at 5s
+      reconnectDelay = Math.min(reconnectDelay * 2, 5000);
     }
-
-    // Returning to the foreground (unlock / re-open) → reconnect immediately.
     function kick() {
       if (closingByUser) return;
       if (!ws || ws.readyState > 1) { reconnectDelay = 500; clearTimeout(reconnectTimer); reconnectTimer = null; connect(); }
@@ -151,32 +83,43 @@
     document.addEventListener("visibilitychange", () => { if (!document.hidden) kick(); });
     window.addEventListener("pageshow", kick);
     window.addEventListener("online", kick);
-
     connect();
 
-    let t;
-    window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { fit.fit(); sendSize(); }, 120); });
+    let resizeT;
+    window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { fit.fit(); sendSize(); }, 120); });
 
-    // ---- zoom: change font size, re-fit, resize the pty -------------------
-    // Bigger font => fewer cols/rows => tmux pane re-fits and the agent reflows.
-    // The pty resize is debounced so a fast multi-step pinch sends one resize.
+    // ---- zoom: font size → re-fit → resize the pty (debounced) ------------
     const FONT_MIN = 7, FONT_MAX = 28, FONT_DEFAULT = 18;
     let fontSize = FONT_DEFAULT, sizeTimer;
     function pushSize() { clearTimeout(sizeTimer); sizeTimer = setTimeout(sendSize, 90); }
     function setFont(px) {
       px = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
       if (px === fontSize) return false;
-      fontSize = px;
-      term.options.fontSize = px;
-      fit.fit();
-      pushSize();
+      fontSize = px; term.options.fontSize = px; fit.fit(); pushSize();
       return true;
     }
-    function zoomFont(dir) { if (setFont(fontSize + dir)) { haptic("selection"); flash(fontSize + "px"); } }
-    function resetFont() { setFont(FONT_DEFAULT); haptic("medium"); flash(FONT_DEFAULT + "px"); }
 
-    // Native bridge: the app drives scroll/zoom (the WebView is a pure renderer).
-    // aqueScroll(notches): + = older (wheel up), − = newer (wheel down).
+    // ---- shared send + scroll encoding -----------------------------------
+    const enc = new TextEncoder();
+    function sendKeys(seq) { if (ws && ws.readyState === 1) ws.send(enc.encode(seq)); }
+    function wheelSeq(up) {
+      const col = Math.max(1, Math.min(term.cols, Math.round(term.cols / 2)));
+      const row = Math.max(1, Math.min(term.rows, Math.round(term.rows / 2)));
+      return "\x1b[<" + (up ? 64 : 65) + ";" + col + ";" + row + "M";
+    }
+
+    const hintEl = document.getElementById("hint");
+    let hintTimer;
+    function flash(label) {
+      hintEl.textContent = label; hintEl.style.opacity = "1";
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => { hintEl.style.opacity = "0"; }, 420);
+    }
+
+    // ---- native bridge hooks (the only JS the app drives) -----------------
+    // Typing: dictation / soft-keyboard keystrokes from the app.
+    window.aqueInput = (s) => { if (typeof s === "string" && s.length) sendKeys(s); };
+    // Scroll: + = older (wheel up), − = newer (wheel down).
     window.aqueScroll = (notches) => {
       notches = notches | 0;
       if (!notches) return;
@@ -185,240 +128,16 @@
       while (n-- > 0) out += seq;
       sendKeys(out);
     };
-    // aqueZoom(dir): +1 zoom in (bigger font), −1 out. Flash the new size.
+    // Zoom: +1 in, −1 out.
     window.aqueZoom = (dir) => { if (setFont(fontSize + dir)) flash(fontSize + "px"); };
-
-    // ---- input: shared send + feedback ------------------------------------
-    const enc = new TextEncoder();
-    function sendKeys(seq) { if (ws && ws.readyState === 1) ws.send(enc.encode(seq)); }
-    // Native bridge: AqueIOS voice dictation injects the final transcript here.
-    // Writes straight to the existing socket, independent of the soft keyboard.
-    window.aqueInput = (s) => { if (typeof s === "string" && s.length) sendKeys(s); };
-    window.aqueEnter = () => sendKeys("\r");
-    function navBack() { closingByUser = true; try { if (ws) ws.close(); } catch (e) {} try { window.webkit.messageHandlers.nav.postMessage("back"); } catch (e) {} }
-    function haptic(kind) { try { window.webkit.messageHandlers.haptic.postMessage(kind || "light"); } catch (e) {} }
-
-    const hintEl = document.getElementById("hint");
-    let hintTimer;
-    function flash(label) {
-      hintEl.textContent = label;
-      hintEl.style.opacity = "1";
-      clearTimeout(hintTimer);
-      hintTimer = setTimeout(() => { hintEl.style.opacity = "0"; }, 420);
-    }
-
-    // ---- floating panel (the "buttons" layer) -----------------------------
-    const panelEl = document.getElementById("panel");
-    const PANEL = [
-      { label: "Esc", seq: "\x1b" },
-      { label: "Tab", seq: "\t" },
-      { label: "⇧Tab", seq: "\x1b[Z" },
-      { label: "Ctrl-C", seq: "\x03" },
-      { label: "y", seq: "y" },
-      { label: "n", seq: "n" },
-      { label: "/", seq: "/" },
-      { label: "‹ Back", nav: true },
-      { label: "A－", zoom: -1 },
-      { label: "1:1", reset: true },
-      { label: "A＋", zoom: +1 },
-    ];
-    const grid = document.getElementById("panelgrid");
-    for (const b of PANEL) {
-      const btn = document.createElement("button");
-      btn.textContent = b.label;
-      if (b.nav) btn.className = "nav";
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        // zoom/reset keep the panel open so you can tap repeatedly.
-        if (b.zoom) { zoomFont(b.zoom); return; }
-        if (b.reset) { resetFont(); return; }
-        haptic("light");
-        closePanel();
-        if (b.nav) { navBack(); return; }
-        sendKeys(b.seq); flash(b.label);
-      });
-      grid.appendChild(btn);
-    }
-    function openPanel() { panelEl.classList.add("open"); if (kbBtn) kbBtn.style.visibility = "hidden"; }
-    function closePanel() { panelEl.classList.remove("open"); if (kbBtn) kbBtn.style.visibility = ""; }
-    panelEl.addEventListener("click", closePanel);            // tap backdrop to dismiss
-    document.getElementById("sheet").addEventListener("click", (e) => e.stopPropagation());
-
-    // ---- soft keyboard (toggle) -------------------------------------------
-    // Read-only by default (gestures). The ⌨ button flips xterm's stdin on and
-    // focuses the helper textarea so iOS shows the keyboard; keystrokes stream
-    // live to the agent via term.onData. The terminal shrinks to the area above
-    // the keyboard (visualViewport) and the pty re-fits so the prompt stays put.
+    // Keyboard height: shrink the terminal above the native soft keyboard.
     const termEl = document.getElementById("term");
-    const kbBtn = document.getElementById("kb");
-    // The keyboard is presented natively by the app (a hidden UIKeyInput), so the
-    // page's own ⌨ button is hidden. The app forwards keystrokes via window.aqueInput
-    // and tells us the keyboard height so we shrink the terminal above it.
-    if (kbBtn) kbBtn.style.display = "none";
-    window.aqueSetKbSide = () => {};   // no-op (kept for compatibility)
-    // Driven by the app when its native keyboard shows/hides: shrink the terminal
-    // (and re-fit the pty) so the prompt sits just above the keyboard.
     window.aqueSetKeyboardHeight = (px) => {
       if (px > 0) { termEl.style.bottom = "auto"; termEl.style.height = (window.innerHeight - px) + "px"; }
       else { termEl.style.height = ""; termEl.style.bottom = "0"; }
       try { fit.fit(); } catch (e) {}
       pushSize();
     };
-    const vv = window.visualViewport;
-    let keyboardOn = false;
-
-    term.onData((d) => { if (keyboardOn) sendKeys(d); });
-
-    function kbAttrs(typing) {
-      if (!ta) return;
-      if (typing) {
-        ta.removeAttribute("readonly");
-        ta.setAttribute("inputmode", "text");
-        ta.setAttribute("tabindex", "0");
-        ta.setAttribute("autocapitalize", "none");
-        ta.setAttribute("autocorrect", "off");
-        ta.setAttribute("autocomplete", "off");
-        ta.setAttribute("spellcheck", "false");
-      } else {
-        ta.setAttribute("readonly", "readonly");
-        ta.setAttribute("inputmode", "none");
-        ta.setAttribute("tabindex", "-1");
-      }
-    }
-
-    function positionKbBtn() {
-      const inset = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-      kbBtn.style.bottom = (inset > 0 ? inset + 14 : 86) + "px";
-    }
-
-    function syncHeight() {
-      if (keyboardOn && vv) {
-        termEl.style.bottom = "auto";
-        termEl.style.height = Math.round(vv.height) + "px";
-      } else {
-        termEl.style.height = "";
-        termEl.style.bottom = "0";
-      }
-      try { fit.fit(); } catch (e) {}
-      pushSize();
-      positionKbBtn();
-    }
-
-    function showKeyboard() {
-      keyboardOn = true;
-      term.options.disableStdin = false;
-      kbAttrs(true);
-      kbBtn.classList.add("on");
-      kbBtn.textContent = "✕";
-      try { if (ta) ta.focus(); term.focus(); } catch (e) {}
-      haptic("medium");
-      postKbState("on");
-      syncHeight();
-    }
-    function hideKeyboard() {
-      keyboardOn = false;
-      term.options.disableStdin = true;
-      kbAttrs(false);
-      kbBtn.classList.remove("on");
-      kbBtn.textContent = "⌨";
-      try { if (ta) ta.blur(); } catch (e) {}
-      haptic("light");
-      postKbState("off");
-      syncHeight();
-    }
-    function postKbState(s) { try { window.webkit.messageHandlers.keyboard.postMessage(s); } catch (e) {} }
-    // Native bridge: the app's native ⌨ button calls this to toggle the soft keyboard.
-    window.aqueToggleKeyboard = () => { keyboardOn ? hideKeyboard() : showKeyboard(); };
-    kbBtn.addEventListener("click", (e) => { e.stopPropagation(); keyboardOn ? hideKeyboard() : showKeyboard(); });
-    // if iOS dismisses the keyboard on its own (swipe-down), keep our state in sync
-    if (ta) ta.addEventListener("blur", () => { if (keyboardOn) hideKeyboard(); });
-    if (vv) { vv.addEventListener("resize", syncHeight); vv.addEventListener("scroll", positionKbBtn); }
-    positionKbBtn();
-
-    // ---- gestures ---------------------------------------------------------
-    const GESTURES = {
-      tap:           { panel: true },                 // tap opens the panel
-      doubletap:     { seq: "\x1b",   label: "Esc" },
-      longpress:     { seq: "\r",     label: "⏎" },   // long-press sends Enter
-      "swipe-up":    { arrow: "A", label: "↑" },
-      "swipe-down":  { arrow: "B", label: "↓" },
-      "swipe-left":  { arrow: "D", label: "←" },
-      "swipe-right": { arrow: "C", label: "→" },
-    };
-
-    // per-gesture haptic style (real device only; the simulator has no haptics)
-    const HAPTIC = {
-      tap: "medium", doubletap: "medium", longpress: "heavy",
-      "swipe-up": "selection", "swipe-down": "selection",
-      "swipe-left": "selection", "swipe-right": "selection",
-    };
-
-    // Scroll → mouse-wheel events sent to the agent. A full-screen TUI (claude)
-    // has no terminal scrollback, but it scrolls its own transcript on wheel
-    // events. Drag down = wheel-up (older); drag up = wheel-down (newer).
-    let scrollAccum = 0;
-    const WHEEL_PX = 12; // px of pan per wheel notch (lower = finer/smoother)
-    // A mouse-wheel event must land at a column/row that actually exists in the
-    // grid AND sits over claude's conversation. A fixed col 40,row 20 falls off
-    // the phone's narrow large-font grid, so claude ignored it. Aim at the center.
-    function wheelSeq(up) {
-      const col = Math.max(1, Math.min(term.cols, Math.round(term.cols / 2)));
-      const row = Math.max(1, Math.min(term.rows, Math.round(term.rows / 2)));
-      return "\x1b[<" + (up ? 64 : 65) + ";" + col + ";" + row + "M";
-    }
-    function scrollByPx(dy) {
-      scrollAccum += dy;
-      let notches = (scrollAccum / WHEEL_PX) | 0;
-      if (notches === 0) return;
-      scrollAccum -= notches * WHEEL_PX;
-      const seq = wheelSeq(notches > 0);
-      let n = Math.abs(notches), out = "";
-      while (n-- > 0) out += seq;
-      sendKeys(out);
-    }
-
-    // ---- one-finger scroll via NATIVE scroll capture ----------------------
-    // iOS cuts a one-finger touch stream after a few frames, so we can't track
-    // the drag ourselves. Instead #scroller scrolls natively (iOS does this
-    // flawlessly with one finger) and we translate its scroll delta into the
-    // same mouse-wheel events, recentering so it scrolls forever. Two-finger
-    // drags are ignored here — the gesture recognizer turns those into arrows.
-    const scroller = document.getElementById("scroller");
-    const scCenter = () => Math.round(scroller.clientHeight);   // middle third of 300% content
-    let scLast = 0, scIgnore = false, scActive = 0;
-    function scRecenter() { scIgnore = true; scroller.scrollTop = scCenter(); scLast = scroller.scrollTop; }
-    scroller.addEventListener("touchstart", (e) => { scActive = e.touches.length; }, { passive: true });
-    scroller.addEventListener("touchmove",  (e) => { scActive = e.touches.length; }, { passive: true });
-    scroller.addEventListener("touchend",   (e) => { scActive = e.touches.length; }, { passive: true });
-    scroller.addEventListener("scroll", () => {
-      if (scIgnore) { scIgnore = false; scLast = scroller.scrollTop; return; }
-      const st = scroller.scrollTop, delta = st - scLast;
-      scLast = st;
-      if (scActive >= 2) { scRecenter(); return; }      // two-finger → arrows, not scroll
-      if (delta !== 0) scrollByPx(-delta);              // finger up (delta>0) → newer (wheel down)
-      const c = scCenter();
-      if (st < c * 0.4 || st > c * 1.6) scRecenter();   // keep room to scroll both ways
-    }, { passive: true });
-    requestAnimationFrame(scRecenter);                  // start centered
-    window.addEventListener("resize", () => requestAnimationFrame(scRecenter));
-
-    new GestureInput(scroller, {
-      map: GESTURES,
-      onAction: (a, name, repeat) => {
-        if (keyboardOn) return;   // while typing, ignore tap/arrow sends
-        haptic(HAPTIC[name] || "light");
-        if (a.panel) { openPanel(); return; }
-        // Arrows: match the terminal's current cursor-key mode. Full-screen TUIs
-        // (claude) enable Application Cursor Keys (DECCKM), which needs ESC O x
-        // rather than ESC [ x — sending the wrong one makes the arrows do nothing.
-        const seq = a.arrow
-          ? (term.modes.applicationCursorKeysMode ? "\x1bO" : "\x1b[") + a.arrow
-          : a.seq;
-        sendKeys(seq);
-        if (!repeat) flash(a.label); // don't re-flash on every sticky-repeat tick
-      },
-      onZoom: zoomFont,            // pinch: +1 = zoom in (bigger font), -1 = out
-    });
   </script>
 </body>
 </html>
