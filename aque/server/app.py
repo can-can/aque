@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from aque.server.agents import agents_payload
 from aque.server.auth import make_http_auth, token_ok
+from aque.server.control import default_send_keys, register_control_routes
 from aque.server.pty_bridge import PtyProcess
 from aque.server.terminal import default_terminal_command
 from aque.server.watcher import StateWatcher
@@ -22,6 +23,7 @@ def create_app(
     *,
     watch_interval: float = 1.0,
     command_for_agent: Optional[Callable[[dict], list[str]]] = None,
+    send_keys_for_agent: Optional[Callable[[dict, str], None]] = None,
 ) -> FastAPI:
     """Build the Aque remote server.
 
@@ -35,6 +37,8 @@ def create_app(
     app.state.token = token
     app.state.watch_interval = watch_interval
     app.state.command_for_agent = command_for_agent or default_terminal_command
+    app.state.send_keys_for_agent = send_keys_for_agent or default_send_keys
+    register_control_routes(app, state_manager, token, app.state.send_keys_for_agent)
 
     @app.get("/healthz")
     async def healthz() -> dict:
