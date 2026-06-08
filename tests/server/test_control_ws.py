@@ -76,3 +76,35 @@ def test_control_and_terminal_coexist(make_client):
             ctrl.send_json({"type": "key", "key": "C-c"})
             assert ctrl.receive_json() == {"type": "ok", "key": "C-c"}
     assert calls == [(1, "C-c")]
+
+
+def test_control_rejects_missing_key(make_client):
+    calls, send = _recorder()
+    client = make_client([AGENT], send_keys_for_agent=send)
+    with client.websocket_connect(f"/agents/1/control?token={TOKEN}") as ws:
+        ws.send_json({"type": "key"})            # no "key" field
+        ack = ws.receive_json()
+    assert ack["type"] == "error"
+    assert calls == []
+
+
+def test_control_reports_send_failure(make_client):
+    def boom(agent, key):
+        raise RuntimeError("tmux gone")
+    client = make_client([AGENT], send_keys_for_agent=boom)
+    with client.websocket_connect(f"/agents/1/control?token={TOKEN}") as ws:
+        ws.send_json({"type": "key", "key": "Up"})
+        ack = ws.receive_json()
+        assert ack["type"] == "error" and ack["reason"] == "send failed"
+        ws.send_json({"type": "key", "key": "Down"})   # socket still alive
+        ack2 = ws.receive_json()
+        assert ack2["type"] == "error" and ack2["reason"] == "send failed"
+
+
+def test_default_send_keys_targets_phone_session(monkeypatch):
+    import aque.server.control as ctl
+    captured = {}
+    monkeypatch.setattr(ctl.subprocess, "run",
+                        lambda argv, **k: captured.setdefault("argv", argv))
+    ctl.default_send_keys({"id": 7}, "Enter")
+    assert captured["argv"] == ["tmux", "send-keys", "-t", "phone-7", "Enter"]
