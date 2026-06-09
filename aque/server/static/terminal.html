@@ -9,12 +9,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <style>
     html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
-    /* Bottom-align the grid so the last row (tmux status line) hugs the bottom
-       edge / keyboard. xterm renders whole rows only, so the sub-row remainder
-       would otherwise sit as a blank strip below the status line; flex-end moves
-       that remainder above the grid (harmless black) instead. */
+    /* xterm renders whole character rows, so the grid rarely matches the
+       container height exactly; fillTerm() (in JS) scales the grid a hair to
+       fill it, so content starts at the top and the tmux status line hugs the
+       bottom edge / keyboard with no blank strip. overflow:hidden clips any
+       sub-pixel overshoot from that scale. */
     #term { position: fixed; left: 0; right: 0; top: 0; bottom: 0; padding: 2px;
-      display: flex; flex-direction: column; justify-content: flex-end; }
+      overflow: hidden; }
     #conn {
       position: fixed; left: 50%; top: calc(8px + env(safe-area-inset-top));
       transform: translateX(-50%); z-index: 55; pointer-events: none;
@@ -53,8 +54,25 @@
     });
     const fit = new FitAddon.FitAddon();
     term.loadAddon(fit);
-    term.open(document.getElementById("term"));
-    fit.fit();
+    const termEl = document.getElementById("term");
+    term.open(termEl);
+
+    // xterm shows whole rows, so the grid almost never equals the container
+    // height — the sub-row remainder would show as a blank strip above or below
+    // the tmux status line. After every fit, scale the grid vertically a hair
+    // (≈1.0–1.05×, imperceptible) so it fills the container exactly.
+    function fillTerm() {
+      const xt = termEl.querySelector(".xterm");
+      if (!xt) return;
+      const avail = termEl.clientHeight - 4;   // content minus 2px padding each side
+      const grid = xt.offsetHeight;            // natural rows×cellHeight (transform-independent)
+      if (grid > 0) {
+        xt.style.transformOrigin = "top left";
+        xt.style.transform = "scaleY(" + (avail / grid) + ")";
+      }
+    }
+    function refit() { try { fit.fit(); } catch (e) {} requestAnimationFrame(fillTerm); }
+    refit();
 
     // --- output socket with auto-reconnect --------------------------------
     const connEl = document.getElementById("conn");
@@ -71,7 +89,7 @@
       ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       ws.onmessage = (e) => term.write(new Uint8Array(e.data));
-      ws.onopen = () => { reconnectDelay = 500; setConn(false); fit.fit(); sendSize(); };
+      ws.onopen = () => { reconnectDelay = 500; setConn(false); refit(); sendSize(); };
       ws.onclose = () => { ws = null; scheduleReconnect(); };
       ws.onerror = () => { try { if (ws) ws.close(); } catch (e) {} };
     }
@@ -91,7 +109,7 @@
     connect();
 
     let resizeT;
-    window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { fit.fit(); sendSize(); }, 120); });
+    window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { refit(); sendSize(); }, 120); });
 
     // ---- zoom: font size → re-fit → resize the pty (debounced) ------------
     const FONT_MIN = 7, FONT_MAX = 28, FONT_DEFAULT = 18;
@@ -100,7 +118,7 @@
     function setFont(px) {
       px = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
       if (px === fontSize) return false;
-      fontSize = px; term.options.fontSize = px; fit.fit(); pushSize();
+      fontSize = px; term.options.fontSize = px; refit(); pushSize();
       return true;
     }
 
@@ -136,11 +154,10 @@
     // Zoom: +1 in, −1 out.
     window.aqueZoom = (dir) => { if (setFont(fontSize + dir)) flash(fontSize + "px"); };
     // Keyboard height: shrink the terminal above the native soft keyboard.
-    const termEl = document.getElementById("term");
     window.aqueSetKeyboardHeight = (px) => {
       if (px > 0) { termEl.style.bottom = "auto"; termEl.style.height = (window.innerHeight - px) + "px"; }
       else { termEl.style.height = ""; termEl.style.bottom = "0"; }
-      try { fit.fit(); } catch (e) {}
+      refit();
       pushSize();
     };
   </script>
