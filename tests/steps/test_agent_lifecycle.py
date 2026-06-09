@@ -70,8 +70,8 @@ def test_any_agent_can_be_killed():
     pass
 
 
-@scenario(FEATURE, "Agents are ordered by folder, then by name")
-def test_agents_ordered_by_folder_then_name():
+@scenario(FEATURE, "Agents are ordered by state, then folder, then by name")
+def test_agents_ordered_by_state_folder_then_name():
     pass
 
 

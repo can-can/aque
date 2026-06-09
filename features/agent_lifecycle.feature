@@ -38,18 +38,20 @@ Feature: Agent lifecycle
     Then agent "builder" should be moved to history
     And the tmux session should be killed
 
-  # ── Folder / name ordering ─────────────────────────────────────
+  # ── State / folder / name ordering ─────────────────────────────
 
-  Scenario: Agents are ordered by folder, then by name
+  Scenario: Agents are ordered by state, then folder, then by name
     Given the following agents exist:
-      | label | state   | dir             |
-      | a     | running | /home/work/zeta |
-      | b     | waiting | /home/work/alpha |
-      | c     | waiting | /home/work/alpha |
-      | d     | on_hold | /home/work/mid  |
+      | label | state   | dir              |
+      | a     | running | /home/work/alpha |
+      | b     | waiting | /home/work/zeta  |
+      | c     | on_hold | /home/work/alpha |
+      | d     | exited  | /home/work/mid   |
+      | e     | waiting | /home/work/alpha |
     Then the sorted order should be:
-      | label | reason                              |
-      | b     | alpha folder, name b before c       |
-      | c     | alpha folder, name c after b        |
-      | d     | mid folder, after alpha             |
-      | a     | zeta folder, last; state irrelevant |
+      | label | reason                                            |
+      | e     | waiting outranks all; alpha folder before zeta    |
+      | b     | waiting; zeta folder after alpha                  |
+      | a     | running, after waiting                            |
+      | c     | on_hold, after running                            |
+      | d     | exited last among visible states                  |

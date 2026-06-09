@@ -35,11 +35,16 @@ class TestStatePriority:
     def test_waiting_sorted_before_running(self):
         assert STATE_PRIORITY[AgentState.WAITING] < STATE_PRIORITY[AgentState.RUNNING]
 
-    def test_exited_sorted_before_running(self):
-        assert STATE_PRIORITY[AgentState.EXITED] < STATE_PRIORITY[AgentState.RUNNING]
+    def test_exited_sorted_after_running(self):
+        # Exited agents drop to the bottom of the visible list — they're
+        # already "done" from the user's perspective, just not yet archived.
+        assert STATE_PRIORITY[AgentState.EXITED] > STATE_PRIORITY[AgentState.RUNNING]
 
     def test_on_hold_sorted_after_running(self):
         assert STATE_PRIORITY[AgentState.ON_HOLD] > STATE_PRIORITY[AgentState.RUNNING]
+
+    def test_exited_sorted_after_on_hold(self):
+        assert STATE_PRIORITY[AgentState.EXITED] > STATE_PRIORITY[AgentState.ON_HOLD]
 
 
 class TestSortedAgents:
@@ -62,15 +67,15 @@ class TestSortedAgents:
         ordered = [a.id for a in sorted_agents(agents)]
         assert ordered == [2, 3, 1]
 
-    def test_status_does_not_affect_order(self):
-        # A RUNNING agent in an earlier folder beats a WAITING one later,
-        # even though WAITING used to sort first.
+    def test_status_drives_primary_order(self):
+        # State now wins over folder/label: a WAITING agent in a later
+        # folder still beats a RUNNING agent in an earlier folder.
         agents = [
             _agent(1, "/p/zeta", "z", state=AgentState.WAITING),
             _agent(2, "/p/alpha", "a", state=AgentState.RUNNING),
         ]
         ordered = [a.id for a in sorted_agents(agents)]
-        assert ordered == [2, 1]
+        assert ordered == [1, 2]
 
 
 class TestDashboardMount:

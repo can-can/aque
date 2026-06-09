@@ -23,7 +23,7 @@ FEATURE = "../../features/dashboard.feature"
 # ── Scenario declarations ──────────────────────────────────────────────────────
 
 
-@scenario(FEATURE, "Agents are sorted by folder, then by name")
+@scenario(FEATURE, "Agents are sorted by state, then folder, then by name")
 def test_agents_sorted():
     pass
 
