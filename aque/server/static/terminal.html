@@ -9,7 +9,12 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <style>
     html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
-    #term { position: fixed; left: 0; right: 0; top: 0; bottom: 0; padding: 2px; }
+    /* Bottom-align the grid so the last row (tmux status line) hugs the bottom
+       edge / keyboard. xterm renders whole rows only, so the sub-row remainder
+       would otherwise sit as a blank strip below the status line; flex-end moves
+       that remainder above the grid (harmless black) instead. */
+    #term { position: fixed; left: 0; right: 0; top: 0; bottom: 0; padding: 2px;
+      display: flex; flex-direction: column; justify-content: flex-end; }
     #conn {
       position: fixed; left: 50%; top: calc(8px + env(safe-area-inset-top));
       transform: translateX(-50%); z-index: 55; pointer-events: none;
