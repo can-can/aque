@@ -73,9 +73,9 @@ def test_control_and_terminal_coexist(make_client):
         while b"ping" not in got:
             got += term.receive_bytes()
         with client.websocket_connect(f"/agents/1/control?token={TOKEN}") as ctrl:
-            ctrl.send_json({"type": "key", "key": "C-c"})
-            assert ctrl.receive_json() == {"type": "ok", "key": "C-c"}
-    assert calls == [(1, "C-c")]
+            ctrl.send_json({"type": "key", "key": "C-u"})
+            assert ctrl.receive_json() == {"type": "ok", "key": "C-u"}
+    assert calls == [(1, "C-u")]
 
 
 def test_control_rejects_missing_key(make_client):

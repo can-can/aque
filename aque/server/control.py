@@ -11,7 +11,7 @@ from aque.state import StateManager
 # The wheel's eight keys. Only these tmux key names may be sent; anything else
 # is rejected (no arbitrary passthrough). Extend only when the wheel grows.
 ALLOWED_KEYS = frozenset(
-    {"Up", "Down", "Left", "Right", "Enter", "Escape", "Tab", "C-c"}
+    {"Up", "Down", "Left", "Right", "Enter", "Escape", "Tab", "C-u"}
 )
 
 SendKeys = Callable[[dict, str], None]
