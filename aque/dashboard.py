@@ -23,9 +23,9 @@ from aque.state import AgentInfo, AgentState, AppState
 
 STATE_PRIORITY = {
     AgentState.WAITING: 0,
-    AgentState.EXITED: 1,
-    AgentState.RUNNING: 2,
-    AgentState.ON_HOLD: 3,
+    AgentState.RUNNING: 1,
+    AgentState.ON_HOLD: 2,
+    AgentState.EXITED: 3,
     AgentState.DONE: 4,
 }
 
@@ -44,13 +44,20 @@ def _dir_sort_key(dir_path: str) -> tuple[str, str]:
 
 
 def sorted_agents(agents: list[AgentInfo]) -> list[AgentInfo]:
-    """Order the dashboard list by folder, then by name.
+    """Order the dashboard list by state priority, then folder, then name.
 
-    Agents in the same project (same last-two-path-components folder) sit
-    together; ties within a folder break on the agent's label. State no longer
-    influences ordering — the list is a stable, navigable index rather than a
-    priority queue (urgency surfaces via the triage banner instead)."""
-    return sorted(agents, key=lambda a: (_dir_sort_key(a.dir), a.label))
+    State drives the primary order so the most-actionable agents (waiting
+    first, then running, on_hold, and finally exited) bubble to the top.
+    Within a state, agents in the same project (same last-two-path-components
+    folder) sit together; ties within a folder break on the agent's label."""
+    return sorted(
+        agents,
+        key=lambda a: (
+            STATE_PRIORITY.get(a.state, 99),
+            _dir_sort_key(a.dir),
+            a.label,
+        ),
+    )
 
 
 class DashboardController:

@@ -36,15 +36,35 @@ def _agent(
 
 
 class TestSortedAgents:
-    def test_groups_by_folder_then_label(self):
+    def test_groups_by_folder_then_label_within_state(self):
         agents = [
             _agent(1, label="b", dir="/p/api"),
             _agent(2, label="a", dir="/p/web"),
             _agent(3, label="a", dir="/p/api"),
         ]
         ordered = [a.id for a in sorted_agents(agents)]
+        # All RUNNING — falls through to folder, then label:
         # api folder before web; within api, label "a" before "b"
         assert ordered == [3, 1, 2]
+
+    def test_sorts_by_state_priority_first(self):
+        # waiting → running → on_hold → exited, regardless of folder/label
+        agents = [
+            _agent(1, label="a", dir="/p/aaa", state=AgentState.EXITED),
+            _agent(2, label="z", dir="/p/zzz", state=AgentState.WAITING),
+            _agent(3, label="a", dir="/p/aaa", state=AgentState.ON_HOLD),
+            _agent(4, label="a", dir="/p/aaa", state=AgentState.RUNNING),
+        ]
+        ordered = [a.id for a in sorted_agents(agents)]
+        assert ordered == [2, 4, 3, 1]
+
+    def test_folder_breaks_ties_within_state(self):
+        agents = [
+            _agent(1, label="a", dir="/p/zeta", state=AgentState.WAITING),
+            _agent(2, label="a", dir="/p/alpha", state=AgentState.WAITING),
+        ]
+        ordered = [a.id for a in sorted_agents(agents)]
+        assert ordered == [2, 1]
 
 
 class TestStatePriority:
